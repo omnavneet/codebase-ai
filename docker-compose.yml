@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: codebase-db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: codebase_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
