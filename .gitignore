@@ -14,9 +14,9 @@ node_modules/
 
 # ---- Temp / log files ----
 *.log
-build_output.txt
-run_output.txt
-run_output2.txt
+build_output*.txt
+run_output*.txt
+boot_check*.txt
 *_output.txt
 
 # ---- IDE ----
