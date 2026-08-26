@@ -7,7 +7,10 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
@@ -30,15 +33,17 @@ public class JwtService {
         return Jwts.builder()
                 .subject(userId.toString())
                 .claim("email", email)
+                .id(UUID.randomUUID().toString())   // unique jti so tokens are never identical
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenValidity))
                 .signWith(getSigningKey())
                 .compact();
     }
-    
+
     public String generateRefreshToken(UUID userId) {
         return Jwts.builder()
                 .subject(userId.toString())
+                .id(UUID.randomUUID().toString())   // unique jti so hashes never collide
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + refreshTokenValidity))
                 .signWith(getSigningKey())
@@ -63,6 +68,21 @@ public class JwtService {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    public long getRefreshTokenValidity() {
+        return refreshTokenValidity;
+    }
+
+    public String hashToken(String token) {
+        // Use SHA-256 to hash refresh token before storing
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
         }
     }
 }
