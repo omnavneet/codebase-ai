@@ -11,6 +11,19 @@ dist/
 
 # ---- Dependencies ----
 node_modules/
+ai-service/venv/
+ai-service/.venv/
+
+# ---- AI service runtime data ----
+ai-service/__pycache__/
+ai-service/**/*.py[cod]
+ai-service/.dl_test/
+ai-service/.cache/
+ai-service/models/
+ai-service/*.log
+
+# ---- Local application data ----
+backend/uploads/
 
 # ---- Temp / log files ----
 *.log
@@ -31,4 +44,3 @@ Thumbs.db
 *.zip
 test-project/
 test.zip
-backend/uploads/

@@ -28,6 +28,8 @@ public class ProjectService {
     private final ProjectFileRepository projectFileRepository;
     private final FileStorageService fileStorageService;
     private final ZipExtractionService zipExtractionService;
+    private final CodeProcessingService codeProcessingService;
+
 
     @Transactional
     public ProjectResponse createProject(UUID userId, String name) {
@@ -123,6 +125,8 @@ public class ProjectService {
 
             // Delete ZIP file (keep extracted files)
             Files.deleteIfExists(zipPath);
+
+            codeProcessingService.processProject(projectId);
 
             // Update project
             project.setStatus("ready");
