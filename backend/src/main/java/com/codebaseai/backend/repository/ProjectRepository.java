@@ -10,3 +10,4 @@ import com.codebaseai.backend.model.Project;
 public interface ProjectRepository extends JpaRepository<Project, UUID> {
     List<Project> findByUserIdOrderByCreatedAtDesc(UUID userId);
 }
+

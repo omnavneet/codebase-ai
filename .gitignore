@@ -27,3 +27,8 @@ boot_check*.txt
 # ---- OS junk ----
 .DS_Store
 Thumbs.db
+
+*.zip
+test-project/
+test.zip
+backend/uploads/
