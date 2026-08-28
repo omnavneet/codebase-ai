@@ -72,7 +72,7 @@ public class CodeProcessingService {
                     codeChunk.setStartLine(chunk.getStartLine());
                     codeChunk.setEndLine(chunk.getEndLine());
                     codeChunk.setTokenCount(estimateTokens(chunk.getContent()));
-                    codeChunk.setEmbedding(convertToArray(embedding));
+                    codeChunk.setEmbedding(toFloatArray(embedding));
                     
                     codeChunkRepository.save(codeChunk);
                     totalChunks++;
@@ -93,11 +93,11 @@ public class CodeProcessingService {
         return text.length() / 4;
     }
     
-    private double[] convertToArray(List<Double> list) {
-        double[] array = new double[list.size()];
+    private float[] toFloatArray(List<Double> list) {
+        float[] arr = new float[list.size()];
         for (int i = 0; i < list.size(); i++) {
-            array[i] = list.get(i);
+            arr[i] = list.get(i).floatValue();
         }
-        return array;
+        return arr;
     }
 }
