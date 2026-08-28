@@ -15,7 +15,7 @@ class EmbeddingService:
     
     def __init__(self):
         if self._model is None:
-            model_name = os.getenv("EMBEDDING_MODEL")
+            model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
             print(f"Loading embedding model: {model_name}")
             self._model = SentenceTransformer(model_name)
             print("Model loaded successfully")
