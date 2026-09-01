@@ -3,7 +3,11 @@ package com.codebaseai.backend.service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -31,7 +35,6 @@ public class ProjectService {
     private final FileStorageService fileStorageService;
     private final ZipExtractionService zipExtractionService;
     private final CodeProcessingService codeProcessingService;
-
 
     @Transactional
     public ProjectResponse createProject(UUID userId, String name) {
@@ -149,6 +152,83 @@ public class ProjectService {
             project.setErrorMessage("Failed to process upload: " + e.getMessage());
             projectRepository.save(project);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to process upload", e);
+        }
+    }
+
+    public List<Map<String, Object>> getProjectFiles(UUID projectId, UUID userId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new RuntimeException("Project not found"));
+
+        if (!project.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied");
+        }
+
+        List<ProjectFile> files = projectFileRepository.findByProjectId(projectId);
+
+        // Build tree structure
+        Map<String, Object> root = new HashMap<>();
+        root.put("name", "root");
+        root.put("type", "directory");
+        root.put("children", new ArrayList<>());
+
+        for (ProjectFile file : files) {
+            String[] parts = file.getPath().split("/");
+            Map<String, Object> current = root;
+
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
+                boolean isFile = (i == parts.length - 1);
+
+                List<Map<String, Object>> children = (List<Map<String, Object>>) current.get("children");
+                Map<String, Object> existing = children.stream()
+                        .filter(c -> c.get("name").equals(part))
+                        .findFirst()
+                        .orElse(null);
+
+                if (existing == null) {
+                    existing = new HashMap<>();
+                    existing.put("name", part);
+                    existing.put("type", isFile ? "file" : "directory");
+                    existing.put("path", String.join("/", Arrays.copyOfRange(parts, 0, i + 1)));
+                    if (isFile) {
+                        existing.put("fileId", file.getId().toString());
+                        existing.put("size", file.getSizeBytes());
+                    } else {
+                        existing.put("children", new ArrayList<>());
+                    }
+                    children.add(existing);
+                }
+
+                current = existing;
+            }
+        }
+
+        return (List<Map<String, Object>>) root.get("children");
+    }
+
+    public Map<String, String> getFileContent(UUID projectId, UUID fileId, UUID userId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new RuntimeException("Project not found"));
+
+        if (!project.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied");
+        }
+
+        ProjectFile file = projectFileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("File not found"));
+
+        try {
+            Path filePath = fileStorageService.getProjectDirectory(projectId)
+                    .resolve(file.getPath());
+            String content = Files.readString(filePath);
+
+            return Map.of(
+                    "path", file.getPath(),
+                    "content", content,
+                    "size", String.valueOf(file.getSizeBytes())
+            );
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to read file", e);
         }
     }
 

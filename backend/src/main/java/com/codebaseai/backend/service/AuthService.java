@@ -1,10 +1,12 @@
 package com.codebaseai.backend.service;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codebaseai.backend.dto.AuthResponse;
@@ -20,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class AuthService {
     
     private final UserRepository userRepository;
@@ -29,12 +32,14 @@ public class AuthService {
     private final CookieService cookieService;
     
     public AuthResponse register(RegisterRequest request, HttpServletResponse response) {
-        if (userRepository.existsByEmail(request.getEmail())) {
+        String normalizedEmail = normalizeEmail(request.getEmail());
+
+        if (userRepository.existsByEmail(normalizedEmail)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already registered");
         }
 
         User user = new User();
-        user.setEmail(request.getEmail());
+        user.setEmail(normalizedEmail);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         userRepository.save(user);
 
@@ -42,7 +47,9 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request, HttpServletResponse response) {
-        User user = userRepository.findByEmail(request.getEmail())
+        String normalizedEmail = normalizeEmail(request.getEmail());
+
+        User user = userRepository.findByEmail(normalizedEmail)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
@@ -100,5 +107,12 @@ public class AuthService {
         cookieService.addRefreshTokenCookie(response, refreshToken);
 
         return new AuthResponse(accessToken, user.getEmail(), user.getId().toString());
+    }
+
+    private String normalizeEmail(String email) {
+        if (email == null) {
+            return null;
+        }
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }

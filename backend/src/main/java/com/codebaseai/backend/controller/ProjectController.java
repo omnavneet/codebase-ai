@@ -1,6 +1,7 @@
 package com.codebaseai.backend.controller;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -62,6 +63,20 @@ public class ProjectController {
         UUID userId = getCurrentUserId();
         projectService.uploadZip(projectId, userId, file);
         return ResponseEntity.ok(projectService.getProject(projectId, userId));
+    }
+
+    @GetMapping("/{projectId}/files")
+    public ResponseEntity<List<Map<String, Object>>> getProjectFiles(@PathVariable UUID projectId) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.getProjectFiles(projectId, userId));
+    }
+
+    @GetMapping("/{projectId}/files/{fileId}/content")
+    public ResponseEntity<Map<String, String>> getFileContent(
+            @PathVariable UUID projectId,
+            @PathVariable UUID fileId) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.getFileContent(projectId, fileId, userId));
     }
 
     private UUID getCurrentUserId() {
