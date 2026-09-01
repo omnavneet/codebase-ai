@@ -49,6 +49,7 @@
 }
 
 .session-item {
+  position: relative;
   padding: 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -66,6 +67,7 @@
 }
 
 .session-title {
+  padding-right: 24px;
   font-size: 13px;
   color: var(--text-primary);
   white-space: nowrap;
@@ -228,4 +230,36 @@
 
 .empty-chat-subtext {
   font-size: 14px;
+}
+
+.session-title-input {
+  width: calc(100% - 24px);
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.session-delete-button {
+  position: absolute;
+  top: 10px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.session-item:hover .session-delete-button,
+.session-delete-button:focus-visible {
+  opacity: 1;
+}
+
+.session-delete-button:hover {
+  color: var(--error);
 }

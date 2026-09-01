@@ -1,112 +1,231 @@
-.auth-container {
+.auth-page {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background-color: var(--bg-secondary);
-  padding: 20px;
+  background: var(--m3-surface-dim);
+  padding: 24px;
+}
+
+.auth-branding {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  color: var(--m3-primary);
+}
+
+.auth-logo-text {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--m3-on-surface);
 }
 
 .auth-card {
   width: 100%;
-  max-width: 400px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 40px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  max-width: 420px;
+  background: var(--m3-surface);
+  border-radius: var(--m3-shape-lg);
+  box-shadow: var(--m3-elevation-2);
+  padding: 36px;
+  animation: fadeSlideUp 300ms var(--m3-easing-emphasized) both;
 }
 
-.auth-header {
-  margin-bottom: 32px;
+.auth-tabs {
+  display: flex;
+  flex-direction: row;
+  border-bottom: 1px solid var(--m3-outline-variant);
+  position: relative;
 }
 
-.auth-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-}
-
-.auth-subtitle {
+.auth-tab {
+  flex: 1;
+  padding: 14px;
+  border: 0;
+  background: transparent;
+  text-align: center;
   font-size: 14px;
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--m3-on-surface-variant);
+  cursor: pointer;
+  transition: color var(--m3-duration-medium) var(--m3-easing-standard);
+}
+
+.auth-tab.active {
+  color: var(--m3-primary);
+}
+
+.auth-tab-indicator {
+  position: absolute;
+  bottom: 0;
+  height: 3px;
+  background: var(--m3-primary);
+  transition: left var(--m3-duration-medium) var(--m3-easing-standard), 
+              width var(--m3-duration-medium) var(--m3-easing-standard);
+}
+
+.auth-forms-container {
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.auth-forms-slider {
+  display: flex;
+  width: 200%;
+  transition: transform var(--m3-duration-medium) var(--m3-easing-standard);
 }
 
 .auth-form {
+  width: 50%;
+  min-width: 50%;
+  flex-shrink: 0;
+  padding-top: 28px;
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.form-field { 
+  position: relative; 
 }
 
-.form-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
+.form-field input {
+  width: 100%;
+  padding: 22px 16px 8px;
+  background: var(--m3-surface-container);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-sm);
+  font-size: 16px;
+  color: var(--m3-on-surface);
+  box-sizing: border-box;
+  transition: border-color var(--m3-duration-short) var(--m3-easing-standard),
+              box-shadow var(--m3-duration-short) var(--m3-easing-standard);
 }
 
-.form-input {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
-  transition: border-color 0.15s ease;
-}
-
-.form-input:focus {
+.form-field input:focus {
+  border-color: var(--m3-primary);
+  box-shadow: 0 0 0 1px var(--m3-primary);
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-.form-input.error {
-  border-color: var(--error);
+.form-field input.error-input {
+  border-color: var(--m3-error);
+  box-shadow: 0 0 0 1px var(--m3-error);
 }
 
-.error-message {
+.form-field label {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  color: var(--m3-on-surface-variant);
+  pointer-events: none;
+  transition: all var(--m3-duration-medium) var(--m3-easing-standard);
+}
+
+.form-field input:focus + label,
+.form-field input:not(:placeholder-shown) + label {
+  top: 10px;
+  transform: translateY(0);
+  font-size: 12px;
+  color: var(--m3-primary);
+}
+
+.auth-error {
   font-size: 13px;
-  color: var(--error);
-  margin-top: 4px;
+  color: var(--m3-error);
+  animation: slideDown 200ms var(--m3-easing-standard) both;
+  padding: 10px 14px;
+  background: var(--m3-error-container);
+  border-radius: var(--m3-shape-sm);
 }
 
-.submit-button {
-  padding: 10px 16px;
-  background-color: var(--accent);
-  color: white;
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-submit {
+  width: 100%;
+  height: 48px;
+  border-radius: var(--m3-shape-full);
+  background: var(--m3-primary);
+  color: var(--m3-on-primary);
+  font-size: 15px;
+  font-weight: 600;
   border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background-color 0.15s ease;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--m3-duration-short) var(--m3-easing-standard);
 }
 
-.submit-button:hover {
-  background-color: var(--accent-hover);
+.auth-submit:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
-.submit-button:disabled {
-  background-color: var(--border);
+.auth-submit:disabled {
+  background: var(--m3-surface-container-high);
+  color: var(--m3-outline);
   cursor: not-allowed;
 }
 
 .auth-footer {
-  margin-top: 24px;
   text-align: center;
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--m3-on-surface-variant);
+  margin-top: 20px;
 }
 
-.auth-link {
-  color: var(--accent);
+.auth-footer-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--m3-primary);
   font-weight: 500;
+  cursor: pointer;
+  transition: color var(--m3-duration-short) var(--m3-easing-standard);
 }
 
-.auth-link:hover {
+.auth-footer-link:hover {
   text-decoration: underline;
+}
+
+.loading-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.loading-dots .dot {
+  animation: dotsFade 1.4s infinite var(--m3-easing-standard) both;
+}
+
+.loading-dots .dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.loading-dots .dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.loading-dots .dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes dotsFade {
+  0%, 80%, 100% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
 }

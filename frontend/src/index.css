@@ -1,41 +1,314 @@
+/* ============================================================
+   CODEBASE AI — Material 3 Design System
+   ============================================================ */
+
+/* ---------- M3 Color Tokens ---------- */
 :root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fa;
-  --bg-tertiary: #f1f3f5;
-  --text-primary: #1a1a1a;
-  --text-secondary: #6b7280;
-  --border: #e5e7eb;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --error: #dc2626;
-  --success: #16a34a;
+  /* Primary */
+  --m3-primary: #1a73e8;
+  --m3-primary-hover: #1567d3;
+  --m3-on-primary: #ffffff;
+  --m3-primary-container: #d3e3fd;
+  --m3-on-primary-container: #041e49;
+
+  /* Secondary */
+  --m3-secondary: #5f6368;
+  --m3-on-secondary: #ffffff;
+  --m3-secondary-container: #e8eaed;
+  --m3-on-secondary-container: #3c4043;
+
+  /* Surface */
+  --m3-surface: #ffffff;
+  --m3-surface-dim: #f8f9fa;
+  --m3-surface-variant: #f1f3f4;
+  --m3-surface-container-lowest: #ffffff;
+  --m3-surface-container-low: #f8f9fa;
+  --m3-surface-container: #f1f3f4;
+  --m3-surface-container-high: #eceef0;
+  --m3-surface-container-highest: #e3e5e8;
+  --m3-on-surface: #1f1f1f;
+  --m3-on-surface-variant: #444746;
+
+  /* Outline */
+  --m3-outline: #747775;
+  --m3-outline-variant: #c4c7c5;
+
+  /* Error */
+  --m3-error: #b3261e;
+  --m3-error-hover: #9c1f18;
+  --m3-on-error: #ffffff;
+  --m3-error-container: #f9dedc;
+  --m3-on-error-container: #410e0b;
+
+  /* Success */
+  --m3-success: #1e8e3e;
+  --m3-success-container: #ceead6;
+
+  /* Warning */
+  --m3-warning: #e37400;
+  --m3-warning-container: #fef7e0;
+
+  /* --------- Elevation (box-shadow) --------- */
+  --m3-elevation-0: none;
+  --m3-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --m3-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --m3-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --m3-elevation-4: 0 6px 10px 4px rgba(0, 0, 0, 0.15), 0 2px 3px rgba(0, 0, 0, 0.3);
+  --m3-elevation-5: 0 8px 12px 6px rgba(0, 0, 0, 0.15), 0 4px 4px rgba(0, 0, 0, 0.3);
+
+  /* --------- Shape Scale --------- */
+  --m3-shape-xs: 4px;
+  --m3-shape-sm: 8px;
+  --m3-shape-md: 12px;
+  --m3-shape-lg: 16px;
+  --m3-shape-xl: 28px;
+  --m3-shape-full: 9999px;
+
+  /* --------- Motion Tokens --------- */
+  --m3-duration-short: 150ms;
+  --m3-duration-medium: 250ms;
+  --m3-duration-long: 300ms;
+  --m3-easing-standard: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --m3-easing-emphasized: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --m3-easing-decelerated: cubic-bezier(0.0, 0.0, 0.0, 1.0);
+  --m3-easing-accelerated: cubic-bezier(0.3, 0.0, 1.0, 1.0);
+
+  /* --------- Layout --------- */
   --sidebar-width: 280px;
+
+  /* --------- Legacy compat (for ChatPage) --------- */
+  --bg-primary: var(--m3-surface);
+  --bg-secondary: var(--m3-surface-dim);
+  --bg-tertiary: var(--m3-surface-variant);
+  --text-primary: var(--m3-on-surface);
+  --text-secondary: var(--m3-on-surface-variant);
+  --border: var(--m3-outline-variant);
+  --accent: var(--m3-primary);
+  --accent-hover: var(--m3-primary-hover);
+  --error: var(--m3-error);
+  --success: var(--m3-success);
 }
 
-* {
+/* ---------- Global Reset ---------- */
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--m3-surface-dim);
+  color: var(--m3-on-surface);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 button {
   cursor: pointer;
   font-family: inherit;
+  border: none;
+  background: none;
 }
 
-input, textarea {
+input, textarea, select {
   font-family: inherit;
+  border: none;
+  outline: none;
 }
 
 a {
   text-decoration: none;
   color: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* ---------- Focus Visible Ring ---------- */
+:focus-visible {
+  outline: 2px solid var(--m3-primary);
+  outline-offset: 2px;
+  border-radius: var(--m3-shape-xs);
+}
+
+/* ---------- Selection ---------- */
+::selection {
+  background: var(--m3-primary-container);
+  color: var(--m3-on-primary-container);
+}
+
+/* ============================================================
+   Shimmer Skeleton System
+   ============================================================ */
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--m3-surface-container) 25%,
+    var(--m3-surface-container-high) 50%,
+    var(--m3-surface-container) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+  border-radius: var(--m3-shape-sm);
+}
+
+.skeleton-text {
+  height: 14px;
+  margin-bottom: 8px;
+  border-radius: var(--m3-shape-xs);
+}
+
+.skeleton-text.short {
+  width: 40%;
+}
+
+.skeleton-text.medium {
+  width: 70%;
+}
+
+.skeleton-text.long {
+  width: 100%;
+}
+
+.skeleton-heading {
+  height: 22px;
+  width: 50%;
+  margin-bottom: 12px;
+  border-radius: var(--m3-shape-xs);
+}
+
+.skeleton-circle {
+  border-radius: var(--m3-shape-full);
+}
+
+.skeleton-card {
+  height: 120px;
+  border-radius: var(--m3-shape-md);
+}
+
+.skeleton-badge {
+  height: 24px;
+  width: 64px;
+  border-radius: var(--m3-shape-full);
+}
+
+/* ============================================================
+   Indeterminate Linear Progress Bar
+   ============================================================ */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+/* ============================================================
+   Entrance Animations
+   ============================================================ */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================
+   Scrollbar (thin, M3 styled)
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--m3-outline);
 }

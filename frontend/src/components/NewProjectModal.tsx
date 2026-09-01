@@ -118,17 +118,23 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
           </div>
 
           {error && <div className="error-message">{error}</div>}
+          
           {uploadProgress && (
-            <div className="form-label" style={{ color: 'var(--accent)' }}>
-              {uploadProgress}
+            <div className="form-group">
+              <div className="form-label" style={{ color: 'var(--m3-primary)' }}>
+                {uploadProgress}
+              </div>
+              <div className="progress-bar-container">
+                <div className="progress-bar-fill"></div>
+              </div>
             </div>
           )}
 
           <div className="modal-actions">
-            <button type="button" className="cancel-button" onClick={onClose}>
+            <button type="button" className="btn-outlined" onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className="submit-button" disabled={loading}>
+            <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? 'Creating...' : 'Create Project'}
             </button>
           </div>

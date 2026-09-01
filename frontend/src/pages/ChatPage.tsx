@@ -10,11 +10,18 @@ interface Session {
   updatedAt: string;
 }
 
+interface Citation {
+  file_path?: string;
+  start_line: number;
+  end_line: number;
+  content?: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  citations?: any[];
+  citations?: Citation[];
   createdAt: string;
 }
 
@@ -28,7 +35,9 @@ const ChatPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [projectName, setProjectName] = useState('');
-  const [selectedCitation, setSelectedCitation] = useState(null);
+  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -80,9 +89,57 @@ const ChatPage: React.FC = () => {
     setActiveSession(sessionId);
     try {
       const response = await apiClient.get(`/sessions/${sessionId}/messages`);
-      setMessages(response.data);
+      setMessages(response.data.map((message: Message & { citations?: string | Citation[] }) => ({
+        ...message,
+        citations: parseCitations(message.citations),
+      })));
     } catch (error) {
       console.error('Failed to fetch messages:', error);
+    }
+  };
+
+  const deleteSession = async (sessionId: string) => {
+    try {
+      await apiClient.delete(`/sessions/${sessionId}`);
+      setSessions(currentSessions => currentSessions.filter(session => session.id !== sessionId));
+      if (activeSession === sessionId) {
+        setActiveSession(null);
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+    }
+  };
+
+  const startRenaming = (session: Session) => {
+    setRenamingSessionId(session.id);
+    setRenameTitle(session.title);
+  };
+
+  const saveSessionTitle = async (sessionId: string) => {
+    const title = renameTitle.trim();
+    if (!title) return;
+
+    try {
+      const response = await apiClient.patch(`/sessions/${sessionId}`, { title });
+      setSessions(currentSessions => currentSessions.map(session =>
+        session.id === sessionId ? response.data : session
+      ));
+      setRenamingSessionId(null);
+    } catch (error) {
+      console.error('Failed to rename session:', error);
+    }
+  };
+
+  const parseCitations = (citations: string | Citation[] | undefined): Citation[] | undefined => {
+    if (!citations) return undefined;
+    if (Array.isArray(citations)) return citations;
+
+    try {
+      const parsed: unknown = JSON.parse(citations);
+      return Array.isArray(parsed) ? parsed as Citation[] : undefined;
+    } catch {
+      return undefined;
     }
   };
 
@@ -170,8 +227,37 @@ const ChatPage: React.FC = () => {
               className={`session-item ${session.id === activeSession ? 'active' : ''}`}
               onClick={() => selectSession(session.id)}
             >
-              <div className="session-title">{session.title}</div>
+              {renamingSessionId === session.id ? (
+                <input
+                  className="session-title-input"
+                  value={renameTitle}
+                  autoFocus
+                  onChange={event => setRenameTitle(event.target.value)}
+                  onClick={event => event.stopPropagation()}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') saveSessionTitle(session.id);
+                    if (event.key === 'Escape') setRenamingSessionId(null);
+                  }}
+                  onBlur={() => setRenamingSessionId(null)}
+                />
+              ) : (
+                <div className="session-title" onDoubleClick={event => {
+                  event.stopPropagation();
+                  startRenaming(session);
+                }}>{session.title}</div>
+              )}
               <div className="session-date">{formatDate(session.updatedAt)}</div>
+              <button
+                type="button"
+                className="session-delete-button"
+                aria-label={`Delete ${session.title}`}
+                onClick={event => {
+                  event.stopPropagation();
+                  deleteSession(session.id);
+                }}
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>

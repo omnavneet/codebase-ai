@@ -1,23 +1,23 @@
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  animation: fadeIn var(--m3-duration-short) var(--m3-easing-standard) both;
 }
 
 .modal-content {
-  background: var(--bg-primary);
-  border-radius: 8px;
+  background: var(--m3-surface);
+  border-radius: var(--m3-shape-lg);
   padding: 32px;
   width: 100%;
   max-width: 500px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--m3-elevation-3);
+  animation: scaleIn var(--m3-duration-medium) var(--m3-easing-emphasized) both;
 }
 
 .modal-header {
@@ -27,52 +27,81 @@
 .modal-title {
   font-size: 20px;
   font-weight: 600;
-  margin-bottom: 8px;
+  color: var(--m3-on-surface);
+  margin-bottom: 6px;
 }
 
 .modal-subtitle {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--m3-on-surface-variant);
 }
 
 .modal-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .modal-actions {
   display: flex;
+  flex-direction: row;
+  align-items: center;
   gap: 12px;
   justify-content: flex-end;
-  margin-top: 24px;
+  margin-top: 28px;
+}
+
+.modal-actions button {
+  min-height: 40px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.btn-outlined {
+  padding: 10px 24px;
+  background: transparent;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--m3-on-surface);
+  cursor: pointer;
+  transition: all var(--m3-duration-short) var(--m3-easing-standard);
+}
+
+.btn-outlined:hover {
+  background: var(--m3-surface-container);
+}
+
+.btn-outlined:active {
+  transform: scale(0.98);
 }
 
 .cancel-button {
-  padding: 10px 16px;
+  padding: 10px 24px;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+  color: var(--m3-on-surface);
   font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.cancel-button:hover {
-  background: var(--bg-tertiary);
+  font-weight: 500;
 }
 
 .upload-area {
-  border: 2px dashed var(--border);
-  border-radius: 8px;
+  border: 2px dashed var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
   padding: 32px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--m3-duration-medium) var(--m3-easing-standard);
 }
 
 .upload-area:hover {
-  border-color: var(--accent);
-  background: var(--bg-secondary);
+  border-color: var(--m3-primary);
+  background: color-mix(in srgb, var(--m3-primary-container) 30%, transparent);
 }
 
 .upload-icon {
@@ -82,5 +111,63 @@
 
 .upload-text {
   font-size: 14px;
-  color: var(--text-secondary);
+  color: var(--m3-on-surface-variant);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--m3-surface-container);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-sm);
+  font-size: 14px;
+  color: var(--m3-on-surface);
+  transition: border-color var(--m3-duration-short) var(--m3-easing-standard), box-shadow var(--m3-duration-short) var(--m3-easing-standard);
+}
+
+.form-input:focus {
+  border-color: var(--m3-primary);
+  box-shadow: 0 0 0 1px var(--m3-primary);
+  outline: none;
+}
+
+.form-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--m3-on-surface);
+  margin-bottom: 6px;
+}
+
+.error-message {
+  font-size: 13px;
+  color: var(--m3-error);
+  animation: slideDown 200ms var(--m3-easing-standard) both;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 4px;
+  background-color: var(--m3-surface-variant);
+  border-radius: var(--m3-shape-full);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background-color: var(--m3-primary);
+  width: 100%;
+  animation: indeterminate 2s infinite linear;
+  transform-origin: 0% 50%;
+}
+
+@keyframes indeterminate {
+  0% { transform: translateX(-100%) scaleX(0); }
+  40% { transform: translateX(0) scaleX(0.4); }
+  100% { transform: translateX(100%) scaleX(0.5); }
 }
