@@ -1,230 +1,313 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import apiClient from '../services/apiClient';
-import CitationModal from '../components/CitationModal';
-import './Chat.css';
+import React, { useState, useEffect, useRef } from "react"
+import { useParams, useNavigate } from "react-router-dom"
+import apiClient from "../services/apiClient"
+import CitationModal from "../components/CitationModal"
+import FileTree from "../components/FileTree"
+import FilePreview from "../components/FilePreview"
+import "./Chat.css"
 
 interface Session {
-  id: string;
-  title: string;
-  updatedAt: string;
+  id: string
+  title: string
+  updatedAt: string
 }
 
 interface Citation {
-  file_path?: string;
-  start_line: number;
-  end_line: number;
-  content?: string;
+  file_path?: string
+  start_line: number
+  end_line: number
+  content?: string
 }
 
 interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  citations?: Citation[];
-  createdAt: string;
+  id: string
+  role: "user" | "assistant"
+  content: string
+  citations?: Citation[]
+  createdAt: string
 }
 
 const ChatPage: React.FC = () => {
-  const { projectId } = useParams<{ projectId: string }>();
-  const navigate = useNavigate();
-  
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeSession, setActiveSession] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [projectName, setProjectName] = useState('');
-  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
-  const [renameTitle, setRenameTitle] = useState('');
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
+
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [activeSession, setActiveSession] = useState<string | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [projectName, setProjectName] = useState("")
+  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(
+    null,
+  )
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(
+    null,
+  )
+  const [renameTitle, setRenameTitle] = useState("")
+  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const [fileTree, setFileTree] = useState<any[]>([])
+  const [selectedFile, setSelectedFile] = useState<{
+    path: string
+    content: string
+  } | null>(null)
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
+
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    fetchProjectInfo();
-    fetchSessions();
-  }, [projectId]);
+    fetchProjectInfo()
+    fetchSessions()
+  }, [projectId])
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (activeTab === "files" && projectId) {
+      fetchFileTree()
+    }
+  }, [activeTab, projectId])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
 
   const fetchProjectInfo = async () => {
     try {
-      const response = await apiClient.get(`/projects/${projectId}`);
-      setProjectName(response.data.name);
+      const response = await apiClient.get(`/projects/${projectId}`)
+      setProjectName(response.data.name)
     } catch (error) {
-      console.error('Failed to fetch project:', error);
+      console.error("Failed to fetch project:", error)
     }
-  };
+  }
+
+  const fetchFileTree = async () => {
+    try {
+      const response = await apiClient.get(`/projects/${projectId}/files`)
+      setFileTree(response.data)
+    } catch (error) {
+      console.error("Failed to fetch file tree:", error)
+    }
+  }
+
+  const handleFileClick = async (file: any) => {
+    try {
+      const response = await apiClient.get(
+        `/projects/${projectId}/files/${file.fileId}/content`,
+      )
+      setSelectedFile({
+        path: response.data.path,
+        content: response.data.content,
+      })
+    } catch (error) {
+      console.error("Failed to fetch file content:", error)
+    }
+  }
+
+  const toggleDir = (path: string) => {
+    setExpandedDirs((currentExpanded) => {
+      const nextExpanded = new Set(currentExpanded)
+      if (nextExpanded.has(path)) {
+        nextExpanded.delete(path)
+      } else {
+        nextExpanded.add(path)
+      }
+      return nextExpanded
+    })
+  }
 
   const fetchSessions = async () => {
     try {
-      const response = await apiClient.get(`/projects/${projectId}/sessions`);
-      setSessions(response.data);
+      const response = await apiClient.get(`/projects/${projectId}/sessions`)
+      setSessions(response.data)
     } catch (error) {
-      console.error('Failed to fetch sessions:', error);
+      console.error("Failed to fetch sessions:", error)
     }
-  };
+  }
 
   const createNewSession = async () => {
     try {
-      const response = await apiClient.post(`/projects/${projectId}/sessions`);
-      const newSession = response.data;
-      setSessions([newSession, ...sessions]);
-      setActiveSession(newSession.id);
-      setMessages([]);
+      const response = await apiClient.post(`/projects/${projectId}/sessions`)
+      const newSession = response.data
+      setSessions((currentSessions) => [newSession, ...currentSessions])
+      setActiveSession(newSession.id)
+      setMessages([])
     } catch (error) {
-      console.error('Failed to create session:', error);
+      console.error("Failed to create session:", error)
     }
-  };
+  }
 
   const selectSession = async (sessionId: string) => {
-    setActiveSession(sessionId);
+    setActiveSession(sessionId)
     try {
-      const response = await apiClient.get(`/sessions/${sessionId}/messages`);
-      setMessages(response.data.map((message: Message & { citations?: string | Citation[] }) => ({
-        ...message,
-        citations: parseCitations(message.citations),
-      })));
+      const response = await apiClient.get(`/sessions/${sessionId}/messages`)
+      setMessages(
+        response.data.map(
+          (message: Message & { citations?: string | Citation[] }) => ({
+            ...message,
+            citations: parseCitations(message.citations),
+          }),
+        ),
+      )
     } catch (error) {
-      console.error('Failed to fetch messages:', error);
+      console.error("Failed to fetch messages:", error)
     }
-  };
+  }
 
   const deleteSession = async (sessionId: string) => {
     try {
-      await apiClient.delete(`/sessions/${sessionId}`);
-      setSessions(currentSessions => currentSessions.filter(session => session.id !== sessionId));
+      await apiClient.delete(`/sessions/${sessionId}`)
+      setSessions((currentSessions) =>
+        currentSessions.filter((session) => session.id !== sessionId),
+      )
       if (activeSession === sessionId) {
-        setActiveSession(null);
-        setMessages([]);
+        setActiveSession(null)
+        setMessages([])
       }
     } catch (error) {
-      console.error('Failed to delete session:', error);
+      console.error("Failed to delete session:", error)
     }
-  };
+  }
 
   const startRenaming = (session: Session) => {
-    setRenamingSessionId(session.id);
-    setRenameTitle(session.title);
-  };
+    setRenamingSessionId(session.id)
+    setRenameTitle(session.title)
+  }
 
   const saveSessionTitle = async (sessionId: string) => {
-    const title = renameTitle.trim();
-    if (!title) return;
+    const title = renameTitle.trim()
+    if (!title) return
 
     try {
-      const response = await apiClient.patch(`/sessions/${sessionId}`, { title });
-      setSessions(currentSessions => currentSessions.map(session =>
-        session.id === sessionId ? response.data : session
-      ));
-      setRenamingSessionId(null);
+      const response = await apiClient.patch(`/sessions/${sessionId}`, {
+        title,
+      })
+      setSessions((currentSessions) =>
+        currentSessions.map((session) =>
+          session.id === sessionId ? response.data : session,
+        ),
+      )
+      setRenamingSessionId(null)
     } catch (error) {
-      console.error('Failed to rename session:', error);
+      console.error("Failed to rename session:", error)
     }
-  };
+  }
 
-  const parseCitations = (citations: string | Citation[] | undefined): Citation[] | undefined => {
-    if (!citations) return undefined;
-    if (Array.isArray(citations)) return citations;
+  const parseCitations = (
+    citations: string | Citation[] | undefined,
+  ): Citation[] | undefined => {
+    if (!citations) return undefined
+    if (Array.isArray(citations)) return citations
 
     try {
-      const parsed: unknown = JSON.parse(citations);
-      return Array.isArray(parsed) ? parsed as Citation[] : undefined;
+      const parsed: unknown = JSON.parse(citations)
+      return Array.isArray(parsed) ? (parsed as Citation[]) : undefined
     } catch {
-      return undefined;
+      return undefined
     }
-  };
+  }
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading) return
 
     if (!activeSession) {
-      await createNewSession();
-      return;
+      await createNewSession()
+      return
     }
 
-    const userMessage = input.trim();
-    setInput('');
-    setLoading(true);
+    const userMessage = input.trim()
+    setInput("")
+    setLoading(true)
 
     // Optimistically add user message
     const tempUserMessage: Message = {
-      id: 'temp-user',
-      role: 'user',
+      id: "temp-user",
+      role: "user",
       content: userMessage,
       createdAt: new Date().toISOString(),
-    };
-    setMessages([...messages, tempUserMessage]);
+    }
+    setMessages([...messages, tempUserMessage])
 
     try {
       const response = await apiClient.post(
         `/sessions/${activeSession}/messages`,
-        { content: userMessage }
-      );
+        { content: userMessage },
+      )
 
       const assistantMessage: Message = {
-        id: 'temp-assistant',
-        role: 'assistant',
+        id: "temp-assistant",
+        role: "assistant",
         content: response.data.answer,
         citations: response.data.citations,
         createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      
+      }
+      setMessages((prev) => [...prev, assistantMessage])
+
       // Refresh sessions to update titles
-      fetchSessions();
+      fetchSessions()
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error("Failed to send message:", error)
       // Add error message
       const errorMessage: Message = {
-        id: 'temp-error',
-        role: 'assistant',
-        content: 'Sorry, something went wrong. Please try again.',
+        id: "temp-error",
+        role: "assistant",
+        content: "Sorry, something went wrong. Please try again.",
         createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      }
+      setMessages((prev) => [...prev, errorMessage])
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
     }
-  };
+  }
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
+    const date = new Date(dateString)
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    })
+  }
 
   return (
     <div className="chat-container">
       <aside className="chat-sidebar">
-        <div className="sidebar-header">
-          <span className="sidebar-title">Chats</span>
-          <button className="new-chat-button" onClick={createNewSession}>
-            + New
+        <div className="sidebar-tabs">
+          <button
+            className={`tab-button ${activeTab === "chat" ? "active" : ""}`}
+            onClick={() => setActiveTab("chat")}
+          >
+            Chat
+          </button>
+          <button
+            className={`tab-button ${activeTab === "files" ? "active" : ""}`}
+            onClick={() => setActiveTab("files")}
+          >
+            Files
           </button>
         </div>
-        <div className="session-list">
+
+        {activeTab === "chat" ? (
+          <>
+            <div className="sidebar-header">
+              <span className="sidebar-title">Chats</span>
+              <button className="new-chat-button" onClick={createNewSession}>
+                + New
+              </button>
+            </div>
+            <div className="session-list">
           {sessions.map((session) => (
             <div
               key={session.id}
-              className={`session-item ${session.id === activeSession ? 'active' : ''}`}
+              className={`session-item ${session.id === activeSession ? "active" : ""}`}
               onClick={() => selectSession(session.id)}
             >
               {renamingSessionId === session.id ? (
@@ -232,41 +315,62 @@ const ChatPage: React.FC = () => {
                   className="session-title-input"
                   value={renameTitle}
                   autoFocus
-                  onChange={event => setRenameTitle(event.target.value)}
-                  onClick={event => event.stopPropagation()}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') saveSessionTitle(session.id);
-                    if (event.key === 'Escape') setRenamingSessionId(null);
+                  onChange={(event) => setRenameTitle(event.target.value)}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") saveSessionTitle(session.id)
+                    if (event.key === "Escape") setRenamingSessionId(null)
                   }}
                   onBlur={() => setRenamingSessionId(null)}
                 />
               ) : (
-                <div className="session-title" onDoubleClick={event => {
-                  event.stopPropagation();
-                  startRenaming(session);
-                }}>{session.title}</div>
+                <div
+                  className="session-title"
+                  onDoubleClick={(event) => {
+                    event.stopPropagation()
+                    startRenaming(session)
+                  }}
+                >
+                  {session.title}
+                </div>
               )}
-              <div className="session-date">{formatDate(session.updatedAt)}</div>
+              <div className="session-date">
+                {formatDate(session.updatedAt)}
+              </div>
               <button
                 type="button"
                 className="session-delete-button"
                 aria-label={`Delete ${session.title}`}
-                onClick={event => {
-                  event.stopPropagation();
-                  deleteSession(session.id);
+                onClick={(event) => {
+                  event.stopPropagation()
+                  deleteSession(session.id)
                 }}
               >
                 ×
               </button>
             </div>
           ))}
-        </div>
+            </div>
+          </>
+        ) : (
+          <div className="file-tree-container">
+            <FileTree
+              tree={fileTree}
+              expandedDirs={expandedDirs}
+              onToggleDir={toggleDir}
+              onFileClick={handleFileClick}
+            />
+          </div>
+        )}
       </aside>
 
       <main className="chat-main">
         <header className="chat-header">
           <div className="chat-project-name">{projectName}</div>
-          <button className="back-button" onClick={() => navigate('/dashboard')}>
+          <button
+            className="back-button"
+            onClick={() => navigate("/dashboard")}
+          >
             ← Back
           </button>
         </header>
@@ -292,7 +396,8 @@ const ChatPage: React.FC = () => {
                         className="citation-chip"
                         onClick={() => setSelectedCitation(citation)}
                       >
-                        {citation.file_path || `Lines ${citation.start_line}-${citation.end_line}`}
+                        {citation.file_path ||
+                          `Lines ${citation.start_line}-${citation.end_line}`}
                       </button>
                     ))}
                   </div>
@@ -318,7 +423,7 @@ const ChatPage: React.FC = () => {
             onClick={sendMessage}
             disabled={!input.trim() || loading}
           >
-            {loading ? '...' : 'Send'}
+            {loading ? "..." : "Send"}
           </button>
         </div>
       </main>
@@ -327,8 +432,13 @@ const ChatPage: React.FC = () => {
         citation={selectedCitation}
         onClose={() => setSelectedCitation(null)}
       />
-    </div>
-  );
-};
 
-export default ChatPage;
+      <FilePreview
+        file={selectedFile}
+        onClose={() => setSelectedFile(null)}
+      />
+    </div>
+  )
+}
+
+export default ChatPage
