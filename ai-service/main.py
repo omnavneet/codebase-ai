@@ -6,6 +6,8 @@ import os
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
 from chat_service import ChatService
+from agent import CodebaseAgent
+from agent_tools import AgentTools
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +27,20 @@ app.add_middleware(
 # Initialize services
 embedding_service = EmbeddingService()
 chat_service = ChatService()
+
+# Initialize agent (reuses the shared embedding model and Groq client)
+agent_tools = AgentTools(
+    db_config={
+        "host": os.getenv("DB_HOST", "localhost"),
+        "port": os.getenv("DB_PORT", "5432"),
+        "dbname": os.getenv("DB_NAME", "codebase_ai"),
+        "user": os.getenv("DB_USER", "admin"),
+        "password": os.getenv("DB_PASSWORD", ""),
+    },
+    embedding_service=embedding_service,
+    upload_dir=os.getenv("UPLOAD_DIR", "./uploads"),
+)
+agent = CodebaseAgent(agent_tools, chat_service.client)
 
 # Request/Response models
 class EmbedRequest(BaseModel):
@@ -70,6 +86,27 @@ async def chat(request: ChatRequest):
         return ChatResponse(answer=answer, citations=citations)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class AgentRequest(BaseModel):
+    question: str
+    project_id: str
+
+class AgentResponse(BaseModel):
+    answer: str
+    trace: List[str]
+    iterations: int
+    files_read: List[str]
+    searches_performed: List[str]
+    truncated: bool = False
+
+@app.post("/agent/investigate", response_model=AgentResponse)
+async def investigate(request: AgentRequest):
+    try:
+        result = agent.investigate(request.question, request.project_id)
+        return AgentResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

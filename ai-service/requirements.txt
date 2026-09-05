@@ -4,3 +4,5 @@ groq==0.20.0
 python-dotenv==1.0.0
 sentence-transformers==4.1.0
 pydantic==2.5.0
+psycopg2-binary==2.9.9
+
