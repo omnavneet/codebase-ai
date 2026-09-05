@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.codebaseai.backend.dto.CreateProjectRequest;
 import com.codebaseai.backend.dto.ProjectResponse;
+import com.codebaseai.backend.dto.SearchRequest;
 import com.codebaseai.backend.service.ProjectService;
 
 import lombok.RequiredArgsConstructor;
@@ -77,6 +78,14 @@ public class ProjectController {
             @PathVariable UUID fileId) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(projectService.getFileContent(projectId, fileId, userId));
+    }
+
+    @PostMapping("/{projectId}/search")
+    public ResponseEntity<List<Map<String, Object>>> searchCode(
+            @PathVariable UUID projectId,
+            @RequestBody SearchRequest request) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.searchCode(projectId, request.getQuery(), userId));
     }
 
     private UUID getCurrentUserId() {

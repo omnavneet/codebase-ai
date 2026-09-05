@@ -19,8 +19,10 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codebaseai.backend.dto.ProjectResponse;
+import com.codebaseai.backend.model.CodeChunk;
 import com.codebaseai.backend.model.Project;
 import com.codebaseai.backend.model.ProjectFile;
+import com.codebaseai.backend.repository.CodeChunkRepository;
 import com.codebaseai.backend.repository.ProjectFileRepository;
 import com.codebaseai.backend.repository.ProjectRepository;
 
@@ -32,6 +34,8 @@ public class ProjectService {
 
     private final ProjectRepository projectRepository;
     private final ProjectFileRepository projectFileRepository;
+    private final CodeChunkRepository codeChunkRepository;
+    private final AiServiceClient aiServiceClient;
     private final FileStorageService fileStorageService;
     private final ZipExtractionService zipExtractionService;
     private final CodeProcessingService codeProcessingService;
@@ -230,6 +234,63 @@ public class ProjectService {
         } catch (IOException e) {
             throw new RuntimeException("Failed to read file", e);
         }
+    }
+
+    public List<Map<String, Object>> searchCode(UUID projectId, String query, UUID userId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+
+        if (!project.getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
+        }
+
+        // Generate embedding for query
+        List<List<Double>> queryEmbeddings = aiServiceClient.generateEmbeddings(List.of(query));
+        List<Double> queryEmbedding = queryEmbeddings.get(0);
+
+        // Convert to pgvector format
+        String embeddingString = Arrays.toString(queryEmbedding.toArray());
+
+        // Search similar chunks
+        List<CodeChunk> similarChunks = codeChunkRepository.findSimilarChunks(
+                projectId,
+                embeddingString,
+                10  // Top 10 results
+        );
+
+        // Build results with file info
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (CodeChunk chunk : similarChunks) {
+            ProjectFile file = projectFileRepository.findById(chunk.getFileId()).orElse(null);
+            if (file != null) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("chunkId", chunk.getId().toString());
+                result.put("fileId", file.getId().toString());
+                result.put("filePath", file.getPath());
+                result.put("startLine", chunk.getStartLine());
+                result.put("endLine", chunk.getEndLine());
+                result.put("content", chunk.getContent().substring(0, Math.min(200, chunk.getContent().length())));
+                result.put("similarity", calculateSimilarity(queryEmbedding, chunk.getEmbedding()));
+                results.add(result);
+            }
+        }
+
+        return results;
+    }
+
+    private double calculateSimilarity(List<Double> queryEmbedding, float[] chunkEmbedding) {
+        // Cosine similarity
+        double dotProduct = 0;
+        double queryNorm = 0;
+        double chunkNorm = 0;
+
+        for (int i = 0; i < queryEmbedding.size(); i++) {
+            dotProduct += queryEmbedding.get(i) * chunkEmbedding[i];
+            queryNorm += queryEmbedding.get(i) * queryEmbedding.get(i);
+            chunkNorm += chunkEmbedding[i] * chunkEmbedding[i];
+        }
+
+        return dotProduct / (Math.sqrt(queryNorm) * Math.sqrt(chunkNorm));
     }
 
     private ProjectResponse mapToResponse(Project project) {

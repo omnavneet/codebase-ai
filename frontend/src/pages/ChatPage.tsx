@@ -4,6 +4,7 @@ import apiClient from "../services/apiClient"
 import CitationModal from "../components/CitationModal"
 import FileTree from "../components/FileTree"
 import FilePreview from "../components/FilePreview"
+import SearchPanel from "../components/SearchPanel"
 import "./Chat.css"
 
 interface Session {
@@ -44,7 +45,7 @@ const ChatPage: React.FC = () => {
     null,
   )
   const [renameTitle, setRenameTitle] = useState("")
-  const [activeTab, setActiveTab] = useState<"chat" | "files">("chat")
+  const [activeTab, setActiveTab] = useState<"chat" | "files" | "search">("chat")
   const [fileTree, setFileTree] = useState<any[]>([])
   const [selectedFile, setSelectedFile] = useState<{
     path: string
@@ -293,6 +294,12 @@ const ChatPage: React.FC = () => {
           >
             Files
           </button>
+          <button
+            className={`tab-button ${activeTab === "search" ? "active" : ""}`}
+            onClick={() => setActiveTab("search")}
+          >
+            Search
+          </button>
         </div>
 
         {activeTab === "chat" ? (
@@ -352,7 +359,7 @@ const ChatPage: React.FC = () => {
           ))}
             </div>
           </>
-        ) : (
+        ) : activeTab === "files" ? (
           <div className="file-tree-container">
             <FileTree
               tree={fileTree}
@@ -361,6 +368,8 @@ const ChatPage: React.FC = () => {
               onFileClick={handleFileClick}
             />
           </div>
+        ) : (
+          <SearchPanel projectId={projectId!} onFileClick={handleFileClick} />
         )}
       </aside>
 
