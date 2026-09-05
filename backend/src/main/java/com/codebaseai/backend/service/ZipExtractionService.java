@@ -84,13 +84,13 @@ public class ZipExtractionService {
                 Files.createDirectories(targetPath.getParent());
                 
                 // Extract file
-                Files.copy(zis, targetPath);
-                
-                // Add to result
+                long copiedSize = Files.copy(zis, targetPath);
+
+                // Add to result (entry.getSize() can be -1 for streamed entries)
                 extractedFiles.add(new ExtractedFile(
                     fileName,
                     targetPath,
-                    entry.getSize()
+                    copiedSize
                 ));
                 
                 fileCount++;

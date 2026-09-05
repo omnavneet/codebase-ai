@@ -161,10 +161,10 @@ public class ProjectService {
 
     public List<Map<String, Object>> getProjectFiles(UUID projectId, UUID userId) {
         Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new RuntimeException("Project not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
 
         if (!project.getUserId().equals(userId)) {
-            throw new RuntimeException("Access denied");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
         }
 
         List<ProjectFile> files = projectFileRepository.findByProjectId(projectId);
@@ -212,14 +212,14 @@ public class ProjectService {
 
     public Map<String, String> getFileContent(UUID projectId, UUID fileId, UUID userId) {
         Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new RuntimeException("Project not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
 
         if (!project.getUserId().equals(userId)) {
-            throw new RuntimeException("Access denied");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
         }
 
         ProjectFile file = projectFileRepository.findById(fileId)
-                .orElseThrow(() -> new RuntimeException("File not found"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found"));
 
         try {
             Path filePath = fileStorageService.getProjectDirectory(projectId)
@@ -232,7 +232,7 @@ public class ProjectService {
                     "size", String.valueOf(file.getSizeBytes())
             );
         } catch (IOException e) {
-            throw new RuntimeException("Failed to read file", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read file", e);
         }
     }
 

@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.codebaseai.backend.dto.ChatMessageRequest;
@@ -64,7 +64,7 @@ public class ChatController {
         return ResponseEntity.noContent().build();
     }
 
-    @RequestMapping(value = "/sessions/{sessionId}", method = RequestMethod.PATCH)
+    @PatchMapping("/sessions/{sessionId}")
     public ResponseEntity<ChatSession> renameSession(
             @PathVariable UUID sessionId,
             @RequestBody RenameSessionRequest request) {

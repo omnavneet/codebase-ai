@@ -9,17 +9,19 @@ public class CookieService {
     
     public void addRefreshTokenCookie(HttpServletResponse response, String refreshToken) {
         Cookie cookie = new Cookie("refresh_token", refreshToken);
-        cookie.setHttpOnly(true);     
+        cookie.setHttpOnly(true);
         cookie.setSecure(false);      // Set true in production (HTTPS)
+        cookie.setAttribute("SameSite", "Lax");
         cookie.setPath("/");
         cookie.setMaxAge(7 * 24 * 60 * 60); // 7 days in seconds
         response.addCookie(cookie);
     }
-    
+
     public void clearRefreshTokenCookie(HttpServletResponse response) {
         Cookie cookie = new Cookie("refresh_token", "");
         cookie.setHttpOnly(true);
         cookie.setSecure(false);
+        cookie.setAttribute("SameSite", "Lax");
         cookie.setPath("/");
         cookie.setMaxAge(0); // Expire immediately
         response.addCookie(cookie);

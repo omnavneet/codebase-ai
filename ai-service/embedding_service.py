@@ -24,8 +24,3 @@ class EmbeddingService:
         """Generate embeddings for list of texts"""
         embeddings = self._model.encode(texts, normalize_embeddings=True)
         return embeddings.tolist()
-    
-    def generate_single_embedding(self, text):
-        """Generate embedding for single text"""
-        embedding = self._model.encode(text, normalize_embeddings=True)
-        return embedding.tolist()

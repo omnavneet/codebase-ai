@@ -9,7 +9,6 @@ import java.util.List;
 public class CodeChunkingService {
     
     private static final int MAX_CHUNK_SIZE = 500; // characters
-    private static final int OVERLAP = 50; // characters overlap
     
     public List<Chunk> chunkCode(String code, String filePath) {
         List<Chunk> chunks = new ArrayList<>();
@@ -36,7 +35,7 @@ public class CodeChunkingService {
                         currentLine - 1
                     ));
                     
-                    // Start new chunk with overlap
+                    // Start new chunk
                     currentChunk = new StringBuilder();
                     startLine = currentLine;
                 }
