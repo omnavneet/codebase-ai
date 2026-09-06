@@ -293,6 +293,39 @@ public class ProjectService {
         return dotProduct / (Math.sqrt(queryNorm) * Math.sqrt(chunkNorm));
     }
 
+    public Map<String, String> getFileContentByPath(UUID projectId, String path, UUID userId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+
+        if (!project.getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
+        }
+
+        // Security: normalize both sides and ensure the resolved path stays
+        // inside the project directory (blocks ../ traversal).
+        Path projectDir = fileStorageService.getProjectDirectory(projectId).normalize();
+        Path filePath = projectDir.resolve(path).normalize();
+
+        if (!filePath.startsWith(projectDir)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid path");
+        }
+
+        if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found: " + path);
+        }
+
+        try {
+            String content = Files.readString(filePath);
+
+            return Map.of(
+                    "path", path,
+                    "content", content
+            );
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read file", e);
+        }
+    }
+
     private ProjectResponse mapToResponse(Project project) {
         return new ProjectResponse(
                 project.getId(),

@@ -5,6 +5,7 @@ import CitationModal from "../components/CitationModal"
 import FileTree from "../components/FileTree"
 import FilePreview from "../components/FilePreview"
 import SearchPanel from "../components/SearchPanel"
+import AgentPanel from "../components/AgentPanel"
 import "./Chat.css"
 
 interface Session {
@@ -45,7 +46,7 @@ const ChatPage: React.FC = () => {
     null,
   )
   const [renameTitle, setRenameTitle] = useState("")
-  const [activeTab, setActiveTab] = useState<"chat" | "files" | "search">("chat")
+  const [activeTab, setActiveTab] = useState<"chat" | "files" | "search" | "agent">("chat")
   const [fileTree, setFileTree] = useState<any[]>([])
   const [selectedFile, setSelectedFile] = useState<{
     path: string
@@ -117,6 +118,16 @@ const ChatPage: React.FC = () => {
       }
       return nextExpanded
     })
+  }
+
+  const handleCitationClick = (filePath: string) => {
+    // Fetch the full file and show it in the preview modal.
+    apiClient
+      .get(`/projects/${projectId}/files/by-path`, { params: { path: filePath } })
+      .then((response) => {
+        setSelectedFile({ path: filePath, content: response.data.content })
+      })
+      .catch((error) => console.error("Failed to fetch file:", error))
   }
 
   const fetchSessions = async () => {
@@ -300,6 +311,12 @@ const ChatPage: React.FC = () => {
           >
             Search
           </button>
+          <button
+            className={`tab-button ${activeTab === "agent" ? "active" : ""}`}
+            onClick={() => setActiveTab("agent")}
+          >
+            Agent
+          </button>
         </div>
 
         {activeTab === "chat" ? (
@@ -368,8 +385,10 @@ const ChatPage: React.FC = () => {
               onFileClick={handleFileClick}
             />
           </div>
-        ) : (
+        ) : activeTab === "search" ? (
           <SearchPanel projectId={projectId!} onFileClick={handleFileClick} />
+        ) : (
+          <AgentPanel projectId={projectId!} onCitationClick={handleCitationClick} />
         )}
       </aside>
 

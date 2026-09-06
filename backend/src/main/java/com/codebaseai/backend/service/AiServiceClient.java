@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,5 +44,54 @@ public class AiServiceClient {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
+    }
+
+    /**
+     * Run a bounded agent investigation for a project. The agent can take
+     * multiple LLM round-trips, so this uses a generous timeout.
+     */
+    public Map<String, Object> investigate(String question, String projectId) {
+        Map<String, Object> request = Map.of(
+            "question", question,
+            "project_id", projectId
+        );
+
+        return webClient.post()
+                .uri(aiServiceUrl + "/agent/investigate")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(Duration.ofMinutes(5));
+    }
+
+    /**
+     * Generate doc comments for a file (or a specific symbol in it).
+     */
+    public Map<String, Object> generateDocs(String filePath, String projectId, String symbol) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("file_path", filePath);
+        request.put("project_id", projectId);
+        if (symbol != null && !symbol.isBlank()) {
+            request.put("symbol", symbol);
+        }
+
+        return webClient.post()
+                .uri(aiServiceUrl + "/agent/generate-docs")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(Duration.ofMinutes(5));
+    }
+
+    /**
+     * Investigate the project with the agent and generate a README from the findings.
+     */
+    public Map<String, Object> generateReadme(String projectId) {
+        return webClient.post()
+                .uri(aiServiceUrl + "/agent/generate-readme")
+                .bodyValue(Map.of("project_id", projectId))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(Duration.ofMinutes(5));
     }
 }

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import os
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
@@ -61,8 +61,12 @@ class ChatResponse(BaseModel):
 async def health():
     return {"status": "UP"}
 
+# NOTE: embed/chat/investigate call blocking LLM/model code, so they are
+# defined as sync endpoints — FastAPI runs those in its threadpool instead
+# of blocking the event loop.
+
 @app.post("/embed", response_model=EmbedResponse)
-async def embed(request: EmbedRequest):
+def embed(request: EmbedRequest):
     try:
         embeddings = embedding_service.generate_embeddings(request.texts)
         return EmbedResponse(embeddings=embeddings)
@@ -70,7 +74,7 @@ async def embed(request: EmbedRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+def chat(request: ChatRequest):
     try:
         answer = chat_service.generate_answer(request.question, request.context)
         
@@ -100,7 +104,7 @@ class AgentResponse(BaseModel):
     truncated: bool = False
 
 @app.post("/agent/investigate", response_model=AgentResponse)
-async def investigate(request: AgentRequest):
+def investigate(request: AgentRequest):
     try:
         result = agent.investigate(request.question, request.project_id)
         return AgentResponse(**result)

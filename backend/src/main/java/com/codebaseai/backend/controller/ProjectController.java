@@ -88,6 +88,14 @@ public class ProjectController {
         return ResponseEntity.ok(projectService.searchCode(projectId, request.getQuery(), userId));
     }
 
+    @GetMapping("/{projectId}/files/by-path")
+    public ResponseEntity<Map<String, String>> getFileContentByPath(
+            @PathVariable UUID projectId,
+            @RequestParam String path) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.getFileContentByPath(projectId, path, userId));
+    }
+
     private UUID getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         return UUID.fromString(authentication.getName());

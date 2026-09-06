@@ -1,0 +1,148 @@
+.agent-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.agent-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-input {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.agent-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.agent-button {
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  align-self: flex-end;
+  cursor: pointer;
+}
+
+.agent-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.agent-button:disabled {
+  background: var(--border);
+  cursor: not-allowed;
+}
+
+.agent-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.agent-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.agent-warning {
+  padding: 12px;
+  background: #fefce8;
+  border: 1px solid #eab308;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #854d0e;
+}
+
+.agent-trace {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.agent-trace h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.trace-step {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.trace-meta {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.agent-answer {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.agent-answer h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.answer-content {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.inline-citation {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--accent);
+  cursor: pointer;
+  margin: 0 2px;
+}
+
+.inline-citation:hover {
+  border-color: var(--accent);
+}
