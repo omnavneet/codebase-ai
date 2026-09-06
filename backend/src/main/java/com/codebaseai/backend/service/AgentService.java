@@ -24,18 +24,7 @@ public class AgentService {
     private final AiServiceClient aiServiceClient;
 
     public AgentInvestigateResponse investigate(UUID projectId, UUID userId, String question) {
-        // Verify project ownership
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
-
-        if (!project.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        // Check project is ready
-        if (!"ready".equals(project.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project is not ready for investigation");
-        }
+        requireReadyProject(projectId, userId);
 
         if (question == null || question.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Question is required");
@@ -65,6 +54,41 @@ public class AgentService {
             searchesPerformed,
             truncated
         );
+    }
+
+    public Map<String, Object> generateDocs(UUID projectId, UUID userId, String filePath, String symbol) {
+        requireReadyProject(projectId, userId);
+
+        if (filePath == null || filePath.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File path is required");
+        }
+
+        log.info("Generating documentation for {} in project {}", filePath, projectId);
+
+        return aiServiceClient.generateDocs(filePath.trim(), projectId.toString(), symbol);
+    }
+
+    public Map<String, Object> generateReadme(UUID projectId, UUID userId) {
+        requireReadyProject(projectId, userId);
+
+        log.info("Generating README for project {}", projectId);
+
+        return aiServiceClient.generateReadme(projectId.toString());
+    }
+
+    private void requireReadyProject(UUID projectId, UUID userId) {
+        // Verify project ownership
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+
+        if (!project.getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
+        }
+
+        // Check project is ready
+        if (!"ready".equals(project.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Project is not ready for investigation");
+        }
     }
 
     @SuppressWarnings("unchecked")

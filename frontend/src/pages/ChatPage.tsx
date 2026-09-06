@@ -6,6 +6,7 @@ import FileTree from "../components/FileTree"
 import FilePreview from "../components/FilePreview"
 import SearchPanel from "../components/SearchPanel"
 import AgentPanel from "../components/AgentPanel"
+import DocsPanel from "../components/DocsPanel"
 import "./Chat.css"
 
 interface Session {
@@ -46,7 +47,7 @@ const ChatPage: React.FC = () => {
     null,
   )
   const [renameTitle, setRenameTitle] = useState("")
-  const [activeTab, setActiveTab] = useState<"chat" | "files" | "search" | "agent">("chat")
+  const [activeTab, setActiveTab] = useState<"chat" | "files" | "search" | "agent" | "docs">("chat")
   const [fileTree, setFileTree] = useState<any[]>([])
   const [selectedFile, setSelectedFile] = useState<{
     path: string
@@ -317,6 +318,12 @@ const ChatPage: React.FC = () => {
           >
             Agent
           </button>
+          <button
+            className={`tab-button ${activeTab === "docs" ? "active" : ""}`}
+            onClick={() => setActiveTab("docs")}
+          >
+            Docs
+          </button>
         </div>
 
         {activeTab === "chat" ? (
@@ -387,8 +394,10 @@ const ChatPage: React.FC = () => {
           </div>
         ) : activeTab === "search" ? (
           <SearchPanel projectId={projectId!} onFileClick={handleFileClick} />
-        ) : (
+        ) : activeTab === "agent" ? (
           <AgentPanel projectId={projectId!} onCitationClick={handleCitationClick} />
+        ) : (
+          <DocsPanel projectId={projectId!} />
         )}
       </aside>
 

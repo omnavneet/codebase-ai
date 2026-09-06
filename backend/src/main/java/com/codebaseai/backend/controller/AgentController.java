@@ -1,5 +1,6 @@
 package com.codebaseai.backend.controller;
 
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.codebaseai.backend.dto.AgentInvestigateRequest;
 import com.codebaseai.backend.dto.AgentInvestigateResponse;
+import com.codebaseai.backend.dto.GenerateDocsRequest;
 import com.codebaseai.backend.service.AgentService;
 
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,23 @@ public class AgentController {
         return ResponseEntity.ok(
             agentService.investigate(projectId, userId, request.getQuestion())
         );
+    }
+
+    @PostMapping("/generate-docs")
+    public ResponseEntity<Map<String, Object>> generateDocs(
+            @PathVariable UUID projectId,
+            @RequestBody GenerateDocsRequest request) {
+
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(
+            agentService.generateDocs(projectId, userId, request.getFilePath(), request.getSymbol())
+        );
+    }
+
+    @PostMapping("/generate-readme")
+    public ResponseEntity<Map<String, Object>> generateReadme(@PathVariable UUID projectId) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(agentService.generateReadme(projectId, userId));
     }
 
     private UUID getCurrentUserId() {

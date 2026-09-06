@@ -146,3 +146,118 @@
 .inline-citation:hover {
   border-color: var(--accent);
 }
+
+.docs-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.docs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.docs-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.docs-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg-primary);
+}
+
+.file-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.symbol-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.symbol-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.generate-button {
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.generate-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.generate-button:disabled {
+  background: var(--border);
+  cursor: not-allowed;
+}
+
+.documentation-result,
+.readme-result {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.documentation-result h4,
+.readme-result h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.docs-content,
+.readme-content {
+  background: var(--bg-secondary);
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.copy-button {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.copy-button:hover {
+  background: var(--bg-tertiary);
+}
