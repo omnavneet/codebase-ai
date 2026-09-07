@@ -31,6 +31,11 @@ const DashboardPage: React.FC = () => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setMenuOpen(false);
       }
+      // Close any row delete confirmation when clicking elsewhere
+      const target = event.target as Element;
+      if (!target.closest('.project-row-confirm, .project-row-menu')) {
+        setDeleteProjectId(null);
+      }
     };
     
     document.addEventListener('mousedown', handleClickOutside);
@@ -118,71 +123,95 @@ const DashboardPage: React.FC = () => {
 
       <main className="dashboard-main">
         <div className="dashboard-title-row">
-          <h1 className="dashboard-title">Your Projects</h1>
+          <div>
+            <h1 className="dashboard-title">Projects</h1>
+            <p className="dashboard-subtitle">Manage and explore your codebases</p>
+          </div>
           <button className="btn-primary" onClick={() => setShowModal(true)}>
             + New Project
           </button>
         </div>
 
         {loading ? (
-          <div className="project-grid">
+          <div className="project-list">
             {[0, 1, 2].map(i => (
-              <div key={i} className="skeleton-project-card" style={{ animationDelay: `${i * 100}ms` }}>
-                <div className="skeleton skeleton-heading" />
-                <div className="skeleton skeleton-text medium" />
-                <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                  <div className="skeleton skeleton-badge" />
-                  <div className="skeleton skeleton-text short" style={{ flex: 1 }} />
-                </div>
-              </div>
+              <div key={i} className="skeleton-row" style={{ animationDelay: `${i * 100}ms` }} />
             ))}
           </div>
         ) : projects.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon-container">📦</div>
+            <svg className="empty-state-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
             <h2 className="empty-state-title">No projects yet</h2>
-            <p className="empty-state-text">Upload your first codebase to start chatting with it</p>
+            <p className="empty-state-text">
+              Create a project and upload your codebase to start asking questions about it.
+            </p>
             <button className="btn-primary" onClick={() => setShowModal(true)}>
-              Create Your First Project
+              Create Project
             </button>
           </div>
         ) : (
-          <div className="project-grid">
+          <div className="project-list">
             {projects.map((project, index) => (
-              <div 
-                key={project.id} 
-                className="project-card"
-                style={{ '--card-index': index } as React.CSSProperties}
+              <div
+                key={project.id}
+                className="project-row"
+                style={{ '--row-index': index } as React.CSSProperties}
                 onClick={() => navigate(`/projects/${project.id}`)}
               >
-                <div className="project-card-name">{project.name}</div>
-                <div className="project-card-meta">
-                  <span className={`status-pill status-${project.status}`}>
-                    {getStatusText(project.status)}
-                  </span>
-                  <span>{project.fileCount || 0} files</span>
-                  <span>{formatDate(project.createdAt)}</span>
+                <div className="project-row-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                  </svg>
                 </div>
+
+                <div className="project-row-info">
+                  <div className="project-row-name">{project.name}</div>
+                  <div className="project-row-meta">
+                    {project.status !== 'ready' && (
+                      <span className={`status-pill status-${project.status}`}>
+                        {getStatusText(project.status)}
+                      </span>
+                    )}
+                    <span>{project.fileCount || 0} files</span>
+                    <span>Created {formatDate(project.createdAt)}</span>
+                  </div>
+                </div>
+
                 {deleteProjectId === project.id ? (
-                  <div className="project-delete-actions" onClick={event => event.stopPropagation()}>
+                  <div className="project-row-confirm" onClick={event => event.stopPropagation()}>
                     <span>Delete this project?</span>
-                    <button type="button" className="project-delete-confirm" onClick={() => deleteProject(project.id)}>
-                      Confirm
+                    <button
+                      type="button"
+                      className="confirm"
+                      onClick={() => deleteProject(project.id)}
+                    >
+                      Delete
                     </button>
-                    <button type="button" className="project-delete-cancel" onClick={() => setDeleteProjectId(null)}>
+                    <button
+                      type="button"
+                      className="cancel"
+                      onClick={() => setDeleteProjectId(null)}
+                    >
                       Cancel
                     </button>
                   </div>
                 ) : (
                   <button
                     type="button"
-                    className="project-delete-button"
+                    className="project-row-menu"
+                    aria-label={`Delete ${project.name}`}
+                    title="Delete project"
                     onClick={event => {
                       event.stopPropagation();
                       setDeleteProjectId(project.id);
                     }}
                   >
-                    Delete
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
                   </button>
                 )}
               </div>
