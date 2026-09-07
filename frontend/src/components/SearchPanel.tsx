@@ -11,21 +11,28 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSearch = async () => {
     if (!query.trim() || loading) return;
 
     setLoading(true);
     setSearched(true);
+    setError('');
 
     try {
       const response = await apiClient.post(`/projects/${projectId}/search`, {
         query: query,
       });
       setResults(response.data);
-    } catch (error) {
-      console.error('Search failed:', error);
+    } catch (err: any) {
+      console.error('Search failed:', err);
       setResults([]);
+      setError(
+        err.response?.status === 404
+          ? 'Project not found or you do not have access to it.'
+          : 'Search failed. Is the AI service running?'
+      );
     } finally {
       setLoading(false);
     }
@@ -58,7 +65,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
       </div>
 
       <div className="search-results">
-        {!searched ? (
+        {error ? (
+          <div className="search-error">{error}</div>
+        ) : !searched ? (
           <div className="search-placeholder">
             Search for functionality, not just text
           </div>
@@ -79,7 +88,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
               }
             >
               <div className="search-result-path">
-                {result.filePath}
+                <span className="search-result-file">{result.filePath}</span>
                 <span className="search-result-lines">
                   Lines {result.startLine}-{result.endLine}
                 </span>
