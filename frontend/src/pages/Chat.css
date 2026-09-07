@@ -271,15 +271,16 @@
 
 .tab-button {
   flex: 1;
-  padding: 12px;
+  padding: 12px 4px;
   background: transparent;
   border: none;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
   border-bottom: 2px solid transparent;
+  white-space: nowrap;
 }
 
 .tab-button.active {

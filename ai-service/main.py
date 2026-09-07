@@ -248,6 +248,56 @@ Return only the README content."""
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class ExplainCodeRequest(BaseModel):
+    file_path: str
+    project_id: str
+    symbol: Optional[str] = None
+
+class DebugRequest(BaseModel):
+    issue_description: str
+    project_id: str
+    stack_trace: Optional[str] = None
+    file_path: Optional[str] = None
+
+@app.post("/agent/explain-code", response_model=AgentResponse)
+def explain_code(request: ExplainCodeRequest):
+    """Explain a file (or symbol) in depth using the investigation agent."""
+    try:
+        target = f"'{request.symbol}' in {request.file_path}" if request.symbol else request.file_path
+        question = f"""Explain {target} in depth.
+
+First read {request.file_path}, then follow its key dependencies to understand the full context.
+Cover: what it does, how it works step by step, the key data flow, and how it connects to the rest of the codebase.
+Cite specific files and line numbers."""
+
+        result = agent.investigate(question, request.project_id)
+        return AgentResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/agent/debug", response_model=AgentResponse)
+def debug(request: DebugRequest):
+    """Investigate a reported issue and find the root cause and fix."""
+    try:
+        question = f"""Investigate this issue and find its root cause and fix.
+
+Issue description:
+{request.issue_description}
+"""
+        if request.stack_trace:
+            question += f"\nStack trace:\n{request.stack_trace}\n"
+        if request.file_path:
+            question += f"\nSuspected file: {request.file_path}\n"
+
+        question += """
+Search and read the relevant code to verify the root cause before answering.
+Provide: the root cause, the exact fix, and the files/lines involved. Cite files and line numbers."""
+
+        result = agent.investigate(question, request.project_id)
+        return AgentResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 def detect_language(file_path: str) -> str:
     """Detect language from file extension"""
     ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""

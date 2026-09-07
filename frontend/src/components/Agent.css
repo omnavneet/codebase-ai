@@ -261,3 +261,93 @@
 .copy-button:hover {
   background: var(--bg-tertiary);
 }
+
+.explain-panel,
+.debug-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.explain-controls,
+.debug-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.explain-button,
+.debug-button {
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.explain-button:hover:not(:disabled),
+.debug-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.explain-button:disabled,
+.debug-button:disabled {
+  background: var(--border);
+  cursor: not-allowed;
+}
+
+.explain-result,
+.debug-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.explain-answer,
+.debug-answer {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.explain-answer h4,
+.debug-answer h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.debug-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: monospace;
+  resize: vertical;
+}
+
+.debug-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.debug-input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.debug-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}

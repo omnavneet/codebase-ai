@@ -76,6 +76,30 @@ public class AgentService {
         return aiServiceClient.generateReadme(projectId.toString());
     }
 
+    public Map<String, Object> explainCode(UUID projectId, UUID userId, String filePath, String symbol) {
+        requireReadyProject(projectId, userId);
+
+        if (filePath == null || filePath.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File path is required");
+        }
+
+        log.info("Explaining {} in project {}", filePath, projectId);
+
+        return aiServiceClient.explainCode(filePath.trim(), projectId.toString(), symbol);
+    }
+
+    public Map<String, Object> debug(UUID projectId, UUID userId, String issueDescription, String stackTrace, String filePath) {
+        requireReadyProject(projectId, userId);
+
+        if (issueDescription == null || issueDescription.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Issue description is required");
+        }
+
+        log.info("Debugging issue in project {}", projectId);
+
+        return aiServiceClient.debug(issueDescription.trim(), projectId.toString(), stackTrace, filePath);
+    }
+
     private void requireReadyProject(UUID projectId, UUID userId) {
         // Verify project ownership
         Project project = projectRepository.findById(projectId)

@@ -1,14 +1,15 @@
 package com.codebaseai.backend.service;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import lombok.RequiredArgsConstructor;
 
 @Service
 @RequiredArgsConstructor
@@ -51,17 +52,9 @@ public class AiServiceClient {
      * multiple LLM round-trips, so this uses a generous timeout.
      */
     public Map<String, Object> investigate(String question, String projectId) {
-        Map<String, Object> request = Map.of(
-            "question", question,
-            "project_id", projectId
-        );
-
-        return webClient.post()
-                .uri(aiServiceUrl + "/agent/investigate")
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(Duration.ofMinutes(5));
+        return callAgent("/agent/investigate", Map.of(
+                "question", question,
+                "project_id", projectId));
     }
 
     /**
@@ -74,22 +67,49 @@ public class AiServiceClient {
         if (symbol != null && !symbol.isBlank()) {
             request.put("symbol", symbol);
         }
-
-        return webClient.post()
-                .uri(aiServiceUrl + "/agent/generate-docs")
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(Duration.ofMinutes(5));
+        return callAgent("/agent/generate-docs", request);
     }
 
     /**
      * Investigate the project with the agent and generate a README from the findings.
      */
     public Map<String, Object> generateReadme(String projectId) {
+        return callAgent("/agent/generate-readme", Map.of("project_id", projectId));
+    }
+
+    /** Explain a file (or symbol) in depth using the investigation agent. */
+    public Map<String, Object> explainCode(String filePath, String projectId, String symbol) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("file_path", filePath);
+        request.put("project_id", projectId);
+        if (symbol != null && !symbol.isBlank()) {
+            request.put("symbol", symbol);
+        }
+        return callAgent("/agent/explain-code", request);
+    }
+
+    /** Investigate a reported issue and find the root cause and fix. */
+    public Map<String, Object> debug(String issueDescription, String projectId, String stackTrace, String filePath) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("issue_description", issueDescription);
+        request.put("project_id", projectId);
+        if (stackTrace != null && !stackTrace.isBlank()) {
+            request.put("stack_trace", stackTrace);
+        }
+        if (filePath != null && !filePath.isBlank()) {
+            request.put("file_path", filePath);
+        }
+        return callAgent("/agent/debug", request);
+    }
+
+    /**
+     * Call  agent endpoint. Agent runans take multiple LLM round-trips,
+     * so this uses a generous timeout.
+     */
+    private Map<String, Object> callAgent(String path, Map<String, Object> request) {
         return webClient.post()
-                .uri(aiServiceUrl + "/agent/generate-readme")
-                .bodyValue(Map.of("project_id", projectId))
+                .uri(aiServiceUrl + path)
+                .bodyValue(request)
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block(Duration.ofMinutes(5));

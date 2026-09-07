@@ -7,6 +7,8 @@ import FilePreview from "../components/FilePreview"
 import SearchPanel from "../components/SearchPanel"
 import AgentPanel from "../components/AgentPanel"
 import DocsPanel from "../components/DocsPanel"
+import ExplainPanel from "../components/ExplainPanel"
+import DebugPanel from "../components/DebugPanel"
 import "./Chat.css"
 
 interface Session {
@@ -47,7 +49,9 @@ const ChatPage: React.FC = () => {
     null,
   )
   const [renameTitle, setRenameTitle] = useState("")
-  const [activeTab, setActiveTab] = useState<"chat" | "files" | "search" | "agent" | "docs">("chat")
+  const [activeTab, setActiveTab] = useState<
+    "chat" | "files" | "search" | "agent" | "docs" | "explain" | "debug"
+  >("chat")
   const [fileTree, setFileTree] = useState<any[]>([])
   const [selectedFile, setSelectedFile] = useState<{
     path: string
@@ -324,6 +328,18 @@ const ChatPage: React.FC = () => {
           >
             Docs
           </button>
+          <button
+            className={`tab-button ${activeTab === "explain" ? "active" : ""}`}
+            onClick={() => setActiveTab("explain")}
+          >
+            Explain
+          </button>
+          <button
+            className={`tab-button ${activeTab === "debug" ? "active" : ""}`}
+            onClick={() => setActiveTab("debug")}
+          >
+            Debug
+          </button>
         </div>
 
         {activeTab === "chat" ? (
@@ -396,8 +412,12 @@ const ChatPage: React.FC = () => {
           <SearchPanel projectId={projectId!} onFileClick={handleFileClick} />
         ) : activeTab === "agent" ? (
           <AgentPanel projectId={projectId!} onCitationClick={handleCitationClick} />
-        ) : (
+        ) : activeTab === "docs" ? (
           <DocsPanel projectId={projectId!} />
+        ) : activeTab === "explain" ? (
+          <ExplainPanel projectId={projectId!} onCitationClick={handleCitationClick} />
+        ) : (
+          <DebugPanel projectId={projectId!} onCitationClick={handleCitationClick} />
         )}
       </aside>
 

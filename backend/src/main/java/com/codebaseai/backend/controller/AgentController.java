@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.codebaseai.backend.dto.AgentInvestigateRequest;
 import com.codebaseai.backend.dto.AgentInvestigateResponse;
+import com.codebaseai.backend.dto.DebugRequest;
+import com.codebaseai.backend.dto.ExplainCodeRequest;
 import com.codebaseai.backend.dto.GenerateDocsRequest;
 import com.codebaseai.backend.service.AgentService;
 
@@ -52,6 +54,29 @@ public class AgentController {
     public ResponseEntity<Map<String, Object>> generateReadme(@PathVariable UUID projectId) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(agentService.generateReadme(projectId, userId));
+    }
+
+    @PostMapping("/explain-code")
+    public ResponseEntity<Map<String, Object>> explainCode(
+            @PathVariable UUID projectId,
+            @RequestBody ExplainCodeRequest request) {
+
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(
+            agentService.explainCode(projectId, userId, request.getFilePath(), request.getSymbol())
+        );
+    }
+
+    @PostMapping("/debug")
+    public ResponseEntity<Map<String, Object>> debug(
+            @PathVariable UUID projectId,
+            @RequestBody DebugRequest request) {
+
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(
+            agentService.debug(projectId, userId, request.getIssueDescription(),
+                    request.getStackTrace(), request.getFilePath())
+        );
     }
 
     private UUID getCurrentUserId() {
