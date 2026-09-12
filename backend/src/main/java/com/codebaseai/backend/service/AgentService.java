@@ -100,6 +100,18 @@ public class AgentService {
         return aiServiceClient.debug(issueDescription.trim(), projectId.toString(), stackTrace, filePath);
     }
 
+    public Map<String, Object> improveCode(UUID projectId, UUID userId, String filePath) {
+        requireReadyProject(projectId, userId);
+
+        if (filePath == null || filePath.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File path is required");
+        }
+
+        log.info("Reviewing {} in project {}", filePath, projectId);
+
+        return aiServiceClient.improveCode(filePath.trim(), projectId.toString());
+    }
+
     private void requireReadyProject(UUID projectId, UUID userId) {
         // Verify project ownership
         Project project = projectRepository.findById(projectId)

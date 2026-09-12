@@ -17,6 +17,7 @@ import com.codebaseai.backend.dto.AgentInvestigateResponse;
 import com.codebaseai.backend.dto.DebugRequest;
 import com.codebaseai.backend.dto.ExplainCodeRequest;
 import com.codebaseai.backend.dto.GenerateDocsRequest;
+import com.codebaseai.backend.dto.ImproveCodeRequest;
 import com.codebaseai.backend.service.AgentService;
 
 import lombok.RequiredArgsConstructor;
@@ -76,6 +77,17 @@ public class AgentController {
         return ResponseEntity.ok(
             agentService.debug(projectId, userId, request.getIssueDescription(),
                     request.getStackTrace(), request.getFilePath())
+        );
+    }
+
+    @PostMapping("/improve-code")
+    public ResponseEntity<Map<String, Object>> improveCode(
+            @PathVariable UUID projectId,
+            @RequestBody ImproveCodeRequest request) {
+
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(
+            agentService.improveCode(projectId, userId, request.getFilePath())
         );
     }
 

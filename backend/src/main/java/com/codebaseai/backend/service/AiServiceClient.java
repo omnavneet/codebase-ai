@@ -6,8 +6,12 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import reactor.core.publisher.Flux;
 
 import lombok.RequiredArgsConstructor;
 
@@ -28,15 +32,19 @@ public class AiServiceClient {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block();
+                // Bounded block: a hung AI service must not pin a Tomcat
+                // thread forever (the default block() waits indefinitely).
+                .block(Duration.ofSeconds(60));
         
         return (List<List<Double>>) response.get("embeddings");
     }
     
-    public Map<String, Object> chat(String question, List<Map<String, Object>> context) {
+    public Map<String, Object> chat(
+            String question, List<Map<String, Object>> context, List<Map<String, String>> history) {
         Map<String, Object> request = Map.of(
             "question", question,
-            "context", context
+            "context", context,
+            "history", history
         );
         
         return webClient.post()
@@ -44,7 +52,28 @@ public class AiServiceClient {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block();
+                // Bounded block: see generateEmbeddings. Generous, because the
+                // LLM call itself usually completes well inside this window.
+                .block(Duration.ofSeconds(60));
+    }
+
+    /**
+     * Stream a RAG answer from the AI service as Server-Sent Events.
+     * Events carry JSON payloads with the event names "token", "done" or
+     * "error" (emitted by the Python service).
+     */
+    public Flux<ServerSentEvent<String>> chatStream(
+            String question, List<Map<String, Object>> context, List<Map<String, String>> history) {
+        Map<String, Object> request = Map.of(
+                "question", question,
+                "context", context,
+                "history", history);
+
+        return webClient.post()
+                .uri(aiServiceUrl + "/chat/stream")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {});
     }
 
     /**
@@ -102,8 +131,15 @@ public class AiServiceClient {
         return callAgent("/agent/debug", request);
     }
 
+    /** Review a file for bugs, performance, security and readability issues. */
+    public Map<String, Object> improveCode(String filePath, String projectId) {
+        return callAgent("/agent/improve-code", Map.of(
+                "file_path", filePath,
+                "project_id", projectId));
+    }
+
     /**
-     * Call  agent endpoint. Agent runans take multiple LLM round-trips,
+     * Call an agent endpoint. Agent runs take multiple LLM round-trips,
      * so this uses a generous timeout.
      */
     private Map<String, Object> callAgent(String path, Map<String, Object> request) {
