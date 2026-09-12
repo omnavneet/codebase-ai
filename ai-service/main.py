@@ -1,10 +1,13 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
+import json
 import os
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
+from review_service import ReviewService
 from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import AgentTools
@@ -41,6 +44,7 @@ agent_tools = AgentTools(
     upload_dir=os.getenv("UPLOAD_DIR", "./uploads"),
 )
 agent = CodebaseAgent(agent_tools, chat_service.client)
+review_service = ReviewService(agent_tools, chat_service.client)
 
 # Request/Response models
 class EmbedRequest(BaseModel):
@@ -52,6 +56,9 @@ class EmbedResponse(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     context: List[dict]
+    # Prior conversation turns ({"role": "user"|"assistant", "content": str})
+    # so follow-up questions have continuity. Optional for compatibility.
+    history: List[dict] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
     answer: str
@@ -76,7 +83,7 @@ def embed(request: EmbedRequest):
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     try:
-        answer = chat_service.generate_answer(request.question, request.context)
+        answer = chat_service.generate_answer(request.question, request.context, request.history)
         
         citations = [
             {
@@ -90,6 +97,27 @@ def chat(request: ChatRequest):
         return ChatResponse(answer=answer, citations=citations)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest):
+    """Stream a RAG answer as Server-Sent Events.
+
+    Emits `token` events carrying content deltas, then a terminal `done` or
+    `error` event. Citations are the backend's responsibility (it builds the
+    context), so this endpoint never sends a `meta` event.
+    """
+    def sse_format(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+    def generate():
+        try:
+            for delta in chat_service.generate_answer_stream(request.question, request.context, request.history):
+                yield sse_format("token", {"t": delta})
+            yield sse_format("done", {})
+        except Exception as e:
+            yield sse_format("error", {"message": str(e)})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 class AgentRequest(BaseModel):
     question: str
@@ -295,6 +323,41 @@ Provide: the root cause, the exact fix, and the files/lines involved. Cite files
 
         result = agent.investigate(question, request.project_id)
         return AgentResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ImproveCodeRequest(BaseModel):
+    file_path: str
+    project_id: str
+
+class ImprovementFinding(BaseModel):
+    severity: str
+    category: str
+    title: str
+    lines: str
+    description: str
+    suggestion: str
+    code_before: Optional[str] = None
+    code_after: Optional[str] = None
+
+class ImproveCodeResponse(BaseModel):
+    file_path: str
+    summary: str
+    findings: List[ImprovementFinding]
+
+@app.post("/agent/improve-code", response_model=ImproveCodeResponse)
+def improve_code(request: ImproveCodeRequest):
+    """Review a file for bugs, performance, security and readability issues.
+
+    Uses a deterministic pipeline (read -> dependencies -> semantic search ->
+    one LLM call) instead of the agent loop, because the task is bounded to a
+    single known file.
+    """
+    try:
+        result = review_service.review_file(request.file_path, request.project_id)
+        return ImproveCodeResponse(**result)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
