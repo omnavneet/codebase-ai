@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import apiClient from "../services/apiClient"
+import { streamChatMessage } from "../services/streamChat"
 import CitationModal from "../components/CitationModal"
 import FileTree from "../components/FileTree"
 import FilePreview from "../components/FilePreview"
@@ -9,6 +10,7 @@ import AgentPanel from "../components/AgentPanel"
 import DocsPanel from "../components/DocsPanel"
 import ExplainPanel from "../components/ExplainPanel"
 import DebugPanel from "../components/DebugPanel"
+import ImprovePanel from "../components/ImprovePanel"
 import "./Chat.css"
 
 interface Session {
@@ -32,6 +34,16 @@ interface Message {
   createdAt: string
 }
 
+type TabId =
+  | "chat"
+  | "files"
+  | "search"
+  | "agent"
+  | "docs"
+  | "explain"
+  | "debug"
+  | "improve"
+
 const ChatPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
@@ -50,35 +62,42 @@ const ChatPage: React.FC = () => {
     null,
   )
   const [renameTitle, setRenameTitle] = useState("")
-  const [activeTab, setActiveTab] = useState<
-    "chat" | "files" | "search" | "agent" | "docs" | "explain" | "debug"
-  >("chat")
+  const [activeTab, setActiveTab] = useState<TabId>("chat")
   const [fileTree, setFileTree] = useState<any[]>([])
   const [selectedFile, setSelectedFile] = useState<{
     path: string
     content: string
   } | null>(null)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
-
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     // Start collapsed on small screens where the sidebar overlays content
-    typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches,
+    typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches,
   )
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(260)
+  const sidebarRef = useRef<HTMLElement>(null)
+  const isResizingRef = useRef(false)
+  const resizeHandleRef = useRef<HTMLDivElement>(null)
   const toolsMenuRef = useRef<HTMLDivElement>(null)
-
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Tracks the in-flight chat stream so it can be cancelled when leaving the
+  // page or switching projects.
+  const streamAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
+    if (!projectId) return
     fetchProjectInfo()
     fetchSessions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   useEffect(() => {
     if (activeTab === "files" && projectId) {
       fetchFileTree()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, projectId])
 
   useEffect(() => {
@@ -108,6 +127,56 @@ const ChatPage: React.FC = () => {
       document.removeEventListener("keydown", handleKeyDown)
     }
   }, [toolsMenuOpen])
+
+  // Abort any in-flight chat stream when leaving the page or switching to a
+  // different project, so streamed tokens never reach an unmounted component.
+  useEffect(() => {
+    return () => {
+      streamAbortRef.current?.abort()
+    }
+  }, [projectId])
+
+  // Sidebar drag-to-resize
+  useEffect(() => {
+    const handle = resizeHandleRef.current
+    if (!handle) return
+
+    const MIN = 180
+    const MAX = 520
+
+    const onMouseDown = (e: MouseEvent) => {
+      e.preventDefault()
+      isResizingRef.current = true
+      handle.classList.add("dragging")
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    }
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current || !sidebarRef.current) return
+      const containerLeft = sidebarRef.current.parentElement?.getBoundingClientRect().left ?? 0
+      const newWidth = Math.min(MAX, Math.max(MIN, e.clientX - containerLeft))
+      setSidebarWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      if (!isResizingRef.current) return
+      isResizingRef.current = false
+      handle.classList.remove("dragging")
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    }
+
+    handle.addEventListener("mousedown", onMouseDown)
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+
+    return () => {
+      handle.removeEventListener("mousedown", onMouseDown)
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+    }
+  }, [])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -272,61 +341,157 @@ const ChatPage: React.FC = () => {
     }
   }
 
+  // Returns the active session id, transparently creating a session for the
+  // project when none exists yet. Returns null when creation fails.
+  const ensureSession = async (): Promise<string | null> => {
+    if (activeSession) return activeSession
+    if (!projectId) return null
+    try {
+      const response = await apiClient.post(`/projects/${projectId}/sessions`)
+      const newSession = response.data
+      setSessions((prev) => [newSession, ...prev])
+      setActiveSession(newSession.id)
+      return newSession.id
+    } catch (error) {
+      console.error("Failed to create session:", error)
+      return null
+    }
+  }
+
   const sendQuery = async (queryText: string) => {
     if (!queryText.trim() || loading) return
 
-    let currentSessionId = activeSession
-    if (!currentSessionId) {
-      try {
-        const response = await apiClient.post(`/projects/${projectId}/sessions`)
-        const newSession = response.data
-        setSessions((prev) => [newSession, ...prev])
-        setActiveSession(newSession.id)
-        currentSessionId = newSession.id
-      } catch (error) {
-        console.error("Failed to create session:", error)
-        return
-      }
-    }
+    const currentSessionId = await ensureSession()
+    if (!currentSessionId) return
 
     const userMessageText = queryText.trim()
     setInput("")
     setLoading(true)
 
-    // Optimistically add user message
+    // Optimistically add the user message plus an empty assistant message
+    // that the stream fills in token by token.
     const tempUserMessage: Message = {
+
       id: "temp-user-" + Date.now(),
       role: "user",
       content: userMessageText,
       createdAt: new Date().toISOString(),
     }
-    setMessages((prev) => [...prev, tempUserMessage])
+    const assistantId = "temp-assistant-" + Date.now()
+    const assistantPlaceholder: Message = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      createdAt: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, tempUserMessage, assistantPlaceholder])
+
+    const updateAssistant = (update: (message: Message) => Message) => {
+      setMessages((prev) =>
+        prev.map((message) => (message.id === assistantId ? update(message) : message)),
+      )
+    }
+
+    // If the stream never produced a token we can safely retry through the
+    // non-streaming endpoint; if it did, the backend may already have
+    // persisted a partial answer, so we never re-send.
+    let receivedToken = false
+    // Inactivity watchdog: if the SSE promise never settles (hung server,
+    // lost connection without a close), abort and recover instead of leaving
+    // the composer permanently locked and the bubble empty forever.
+    let watchdogFired = false
+    let watchdogId: ReturnType<typeof setTimeout> | null = null
+    const armWatchdog = () => {
+      if (watchdogId) clearTimeout(watchdogId)
+      watchdogId = setTimeout(() => {
+        watchdogFired = true
+        abortController.abort()
+      }, 45000)
+    }
+
+    const abortController = new AbortController()
+    streamAbortRef.current = abortController
+    armWatchdog()
 
     try {
-      const response = await apiClient.post(
-        `/sessions/${currentSessionId}/messages`,
-        { content: userMessageText },
+      await streamChatMessage(
+        currentSessionId,
+        userMessageText,
+        {
+          onToken: (token) => {
+            receivedToken = true
+            armWatchdog()
+            updateAssistant((message) => ({ ...message, content: message.content + token }))
+          },
+          onMeta: (citations) => {
+            updateAssistant((message) => ({ ...message, citations: citations as Citation[] }))
+          },
+          onDone: (messageId) => {
+            // Reconcile the optimistic placeholder with the persisted message.
+            if (messageId) {
+              updateAssistant((message) => ({ ...message, id: messageId }))
+            }
+          },
+          onError: (errorMessage) => {
+            updateAssistant((message) =>
+              message.content
+                ? message
+                : {
+                    ...message,
+                    content: `Sorry, an error occurred while analyzing the codebase. (${errorMessage})`,
+                  },
+            )
+          },
+        },
+        abortController.signal,
       )
-
-      const assistantMessage: Message = {
-        id: "temp-assistant-" + Date.now(),
-        role: "assistant",
-        content: response.data.answer,
-        citations: response.data.citations,
-        createdAt: new Date().toISOString(),
-      }
-      setMessages((prev) => [...prev, assistantMessage])
       fetchSessions()
-    } catch (error) {
-      console.error("Failed to send message:", error)
-      const errorMessage: Message = {
-        id: "temp-error-" + Date.now(),
-        role: "assistant",
-        content: "Sorry, an error occurred while analyzing the codebase. Please try again.",
-        createdAt: new Date().toISOString(),
+    } catch (streamError) {
+      if (abortController.signal.aborted && !watchdogFired) {
+        // Navigated away or project switched: nothing to update.
+        return
       }
-      setMessages((prev) => [...prev, errorMessage])
+      if (!watchdogFired) {
+        console.error("Streaming failed:", streamError)
+      } else {
+        console.error("Stream stalled with no activity; aborted by watchdog")
+      }
+      if (!receivedToken) {
+        try {
+          const response = await apiClient.post(
+            // The streaming prep phase already persisted the question, so
+            // declare userPersisted to keep the conversation free of duplicates.
+            `/sessions/${currentSessionId}/messages?userPersisted=true`,
+            { content: userMessageText },
+          )
+          updateAssistant((message) => ({
+            ...message,
+            content: response.data.answer,
+            citations: response.data.citations,
+          }))
+          fetchSessions()
+        } catch (error) {
+          console.error("Failed to send message:", error)
+          updateAssistant((message) => ({
+            ...message,
+            content: "Sorry, an error occurred while analyzing the codebase. Please try again.",
+          }))
+        }
+      }
     } finally {
+      if (watchdogId) clearTimeout(watchdogId)
+      if (streamAbortRef.current === abortController) {
+        streamAbortRef.current = null
+      }
+      // Self-heal: never leave an empty assistant bubble behind. If nothing
+      // ever arrived for this send (and it was not reconciled to a persisted
+      // message), drop the placeholder so the stream shows no empty ✦ block.
+      setMessages((prev) => {
+        const target = prev.find((message) => message.id === assistantId)
+        return target && target.content === ""
+          ? prev.filter((message) => message.id !== assistantId)
+          : prev
+      })
       setLoading(false)
     }
   }
@@ -346,7 +511,7 @@ const ChatPage: React.FC = () => {
     })
   }
 
-  const isToolActive = ["docs", "explain", "debug"].includes(activeTab)
+  const isToolActive = ["docs", "explain", "debug", "improve"].includes(activeTab)
 
   // Capability-based starter actions that work for any codebase.
   const quickPrompts = [
@@ -385,6 +550,16 @@ const ChatPage: React.FC = () => {
         </svg>
       ),
     },
+    {
+      title: "Core APIs & services",
+      desc: "Key endpoints and business services",
+      prompt: "List the primary API endpoints and explain what services they interact with.",
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      ),
+    },
   ]
 
   const getToolTitle = () => {
@@ -395,6 +570,8 @@ const ChatPage: React.FC = () => {
         return "Code Explainer"
       case "debug":
         return "Debug Assistant"
+      case "improve":
+        return "Code Reviewer"
       default:
         return "Tools"
     }
@@ -404,6 +581,14 @@ const ChatPage: React.FC = () => {
     <div className="chat-container">
       {/* Collapsible Left Sidebar */}
       <aside className={`chat-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+      {/* Always-visible, resizable Left Sidebar */}
+      <aside
+        ref={sidebarRef}
+        className="chat-sidebar"
+        style={{ width: sidebarWidth }}
+      >
+        {/* Drag-to-resize handle */}
+        <div className="sidebar-resize-handle" ref={resizeHandleRef} />
         <div className="sidebar-header">
           <div className="sidebar-header-left">
             <span className="sidebar-title">
@@ -524,8 +709,10 @@ const ChatPage: React.FC = () => {
             <DocsPanel projectId={projectId!} />
           ) : activeTab === "explain" ? (
             <ExplainPanel projectId={projectId!} onCitationClick={handleCitationClick} />
-          ) : (
+          ) : activeTab === "debug" ? (
             <DebugPanel projectId={projectId!} onCitationClick={handleCitationClick} />
+          ) : (
+            <ImprovePanel projectId={projectId!} />
           )}
         </div>
       </aside>
@@ -560,8 +747,12 @@ const ChatPage: React.FC = () => {
               <span className="project-title-text" title={projectName}>
                 {projectName || "Loading project..."}
               </span>
-              {projectStatus && projectStatus !== "ready" && (
-                <span className={`project-status-pill status-${projectStatus}`}>
+              {projectStatus && (
+                <span
+                  className={`project-status-pill ${
+                    projectStatus !== "ready" ? `status-${projectStatus}` : ""
+                  }`}
+                >
                   {projectStatus}
                 </span>
               )}
@@ -708,7 +899,28 @@ const ChatPage: React.FC = () => {
                     </span>
                     <div className="tool-menu-text">
                       <span className="tool-menu-name">Debug Assistant</span>
-                      <span className="tool-menu-desc">Trace errors & stack traces</span>
+                      <span className="tool-menu-desc">Trace errors &amp; stack traces</span>
+                    </div>
+                  </button>
+
+                  <button
+                    className={`tools-menu-item ${activeTab === "improve" ? "active" : ""}`}
+                    role="menuitem"
+                    onClick={() => {
+                      setActiveTab("improve")
+                      setToolsMenuOpen(false)
+                      if (sidebarCollapsed) setSidebarCollapsed(false)
+                    }}
+                  >
+                    <span className="tool-menu-icon">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 11 12 14 22 4"></polyline>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                      </svg>
+                    </span>
+                    <div className="tool-menu-text">
+                      <span className="tool-menu-name">Code Review</span>
+                      <span className="tool-menu-desc">Find bugs &amp; improvements</span>
                     </div>
                   </button>
                 </div>
@@ -736,7 +948,16 @@ const ChatPage: React.FC = () => {
           {messages.length === 0 ? (
             <div className="empty-chat-container">
               <div className="empty-chat-hero">
-                <h2 className="empty-hero-title">Ask anything about this codebase</h2>
+                <div className="empty-hero-badge">
+                  <span className="badge-spark">✦</span>
+                  <span>Codebase Intelligence</span>
+                </div>
+                <h2 className="empty-hero-title">
+                  Chat with <span className="project-highlight">{projectName || "this codebase"}</span>
+                </h2>
+                <p className="empty-hero-subtitle">
+                  Ask architecture questions, trace method flows, inspect security logic, or search code semantics.
+                </p>
               </div>
 
               {/* Actionable Prompt Cards */}
@@ -756,11 +977,28 @@ const ChatPage: React.FC = () => {
                   </button>
                 ))}
               </div>
+
+              {/* Quick Feature Chips */}
+              <div className="empty-features-strip">
+                <span className="features-label">Contextual Tools:</span>
+                <button className="feature-chip" onClick={() => setActiveTab("files")}>
+                  📁 Browse Files
+                </button>
+                <button className="feature-chip" onClick={() => setActiveTab("search")}>
+                  🔍 Code Search
+                </button>
+                <button className="feature-chip" onClick={() => setActiveTab("agent")}>
+                  ⚡ Deep Agent
+                </button>
+                <button className="feature-chip" onClick={() => setActiveTab("docs")}>
+                  📝 Generate README
+                </button>
+              </div>
             </div>
           ) : (
             <div className="messages-stream">
-              {messages.map((message, index) => (
-                <div key={index} className={`message-row ${message.role}`}>
+              {messages.map((message) => (
+                <div key={message.id} className={`message-row ${message.role}`}>
                   <div className="message-avatar">
                     {message.role === "assistant" ? "✦" : "👤"}
                   </div>
@@ -768,11 +1006,11 @@ const ChatPage: React.FC = () => {
                     <div className="message-content">{message.content}</div>
                     {message.citations && message.citations.length > 0 && (
                       <div className="citations-container">
-                        <span className="citations-header">Sources & Citations:</span>
+                        <span className="citations-header">Sources &amp; Citations:</span>
                         <div className="citations-list">
                           {message.citations.map((citation, idx) => (
                             <button
-                              key={idx}
+                              key={`${message.id}-citation-${idx}`}
                               className="citation-chip"
                               onClick={() => setSelectedCitation(citation)}
                               title="Click to view file snippet"
@@ -792,7 +1030,7 @@ const ChatPage: React.FC = () => {
                   </div>
                 </div>
               ))}
-              {loading && (
+              {loading && messages[messages.length - 1]?.content === "" && (
                 <div className="message-row assistant loading-row">
                   <div className="message-avatar">✦</div>
                   <div className="message-bubble typing-bubble">
@@ -821,7 +1059,13 @@ const ChatPage: React.FC = () => {
             />
 
             <div className="composer-bottom-bar">
+              <div className="composer-hints">
+              </div>
+
               <div className="composer-actions">
+                <span className="keyboard-shortcut-hint">
+                  Press <kbd>↵</kbd> to send
+                </span>
                 <button
                   className="btn-send-message"
                   onClick={() => sendQuery(input)}

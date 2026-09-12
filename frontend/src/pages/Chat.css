@@ -14,10 +14,15 @@
 
 /* ============================================================
    1. Left Sidebar (Collapsible, 320px)
+   1. Left Sidebar (Always-visible, resizable)
    ============================================================ */
 .chat-sidebar {
   width: 320px;
   min-width: 320px;
+  /* Width is set inline via JS; CSS provides a sensible default */
+  width: 260px;
+  min-width: 180px;
+  max-width: 520px;
   height: 100%;
   background: var(--m3-surface-dim);
   border-right: 1px solid var(--m3-outline-variant);
@@ -26,6 +31,7 @@
   transition: width 220ms cubic-bezier(0.2, 0, 0, 1),
               min-width 220ms cubic-bezier(0.2, 0, 0, 1),
               opacity 180ms ease;
+  flex-shrink: 0;
   z-index: 20;
   position: relative;
   overflow: hidden;
@@ -37,6 +43,23 @@
   opacity: 0;
   border-right-color: transparent;
   pointer-events: none;
+/* Drag handle on the right edge of the sidebar */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 30;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+  background: var(--m3-primary);
+  opacity: 0.25;
 }
 
 .sidebar-header {
@@ -1012,6 +1035,12 @@
     bottom: 0;
     left: 0;
     box-shadow: var(--m3-elevation-3);
+    min-width: 160px;
+    width: 200px;
+  }
+
+  .sidebar-resize-handle {
+    width: 8px; /* slightly easier to grab on touch */
   }
 
   .header-nav {
