@@ -10,6 +10,7 @@ from review_service import ReviewService
 from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import AgentTools
+from debug_service import DebugService
 
 # Load environment variables
 load_dotenv()
@@ -38,6 +39,7 @@ agent_tools = AgentTools(
 )
 agent = CodebaseAgent(agent_tools, chat_service.client)
 review_service = ReviewService(agent_tools, chat_service.client)
+debug_service = DebugService(agent, agent_tools, chat_service.client)
 
 # Request/Response models
 class EmbedRequest(BaseModel):
@@ -59,7 +61,12 @@ class ChatResponse(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "UP"}
+    return {
+        "status": "UP",
+        "embedding_model": embedding_service.model_name,
+        "embedding_dim": embedding_service.embedding_dim,
+        "llm_model": chat_service.model,
+    }
 
 # NOTE: embed/chat/investigate call blocking LLM/model code, so they are
 # defined as sync endpoints — FastAPI runs those in its threadpool instead
@@ -296,26 +303,54 @@ Cite specific files and line numbers."""
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/agent/debug", response_model=AgentResponse)
+class DebugFinding(BaseModel):
+    severity: str
+    category: str
+    title: str
+    lines: str
+    description: str
+    suggestion: str
+    code_before: Optional[str] = None
+    code_after: Optional[str] = None
+
+
+class StackFrame(BaseModel):
+    file: Optional[str] = None
+    line: Optional[int] = None
+    symbol: Optional[str] = None
+    language: Optional[str] = None
+    raw: Optional[str] = None
+
+
+class DebugResponse(BaseModel):
+    answer: str
+    findings: List[DebugFinding]
+    trace: List[str]
+    iterations: int
+    files_read: List[str]
+    searches_performed: List[str]
+    truncated: bool = False
+    frames: List[StackFrame] = Field(default_factory=list)
+    project_frames: List[StackFrame] = Field(default_factory=list)
+    stack_trace_language: Optional[str] = None
+    stack_trace_parsed: bool = False
+    stack_trace_notes: List[str] = Field(default_factory=list)
+
+
+@app.post("/agent/debug", response_model=DebugResponse)
 def debug(request: DebugRequest):
-    """Investigate a reported issue and find the root cause and fix."""
+    """Debugging pipeline: parse the stack trace, locate the suspect code in the
+    project, let the agent investigate, and return structured findings with a
+    suggested diff."""
     try:
-        question = f"""Investigate this issue and find its root cause and fix.
-
-Issue description:
-{request.issue_description}
-"""
-        if request.stack_trace:
-            question += f"\nStack trace:\n{request.stack_trace}\n"
-        if request.file_path:
-            question += f"\nSuspected file: {request.file_path}\n"
-
-        question += """
-Search and read the relevant code to verify the root cause before answering.
-Provide: the root cause, the exact fix, and the files/lines involved. Cite files and line numbers."""
-
-        result = agent.investigate(question, request.project_id)
-        return AgentResponse(**result)
+        return DebugResponse(**debug_service.debug(
+            request.issue_description,
+            request.project_id,
+            stack_trace=request.stack_trace,
+            file_path=request.file_path,
+        ))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

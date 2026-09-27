@@ -1,23 +1,7 @@
-import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-
-def _optional_str(value: Any) -> Optional[str]:
-    return str(value) if value else None
-
-
-def _extract_json_object(raw: str) -> Optional[Dict[str, Any]]:
-    """Extract the first JSON object from LLM output, tolerating markdown
-    fences and surrounding commentary."""
-    start, end = raw.find("{"), raw.rfind("}")
-    if start == -1 or end <= start:
-        return None
-    try:
-        parsed = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+from finding_utils import MAX_FINDINGS, extract_json_object, sanitize_findings
 
 
 class ReviewService:
@@ -148,7 +132,7 @@ no commentary):
 If the file has no real issues, return an empty findings array."""
 
     def _parse_review(self, raw: str) -> Dict[str, Any]:
-        parsed = _extract_json_object(raw)
+        parsed = extract_json_object(raw)
         if parsed is None:
             # Degrade gracefully: surface the raw review instead of failing
             return {
@@ -166,34 +150,5 @@ If the file has no real issues, return an empty findings array."""
             }
         return {
             "summary": str(parsed.get("summary", "")),
-            "findings": self._sanitize_findings(parsed.get("findings")),
+            "findings": sanitize_findings(parsed.get("findings"), max_findings=self.MAX_FINDINGS),
         }
-
-    def _sanitize_findings(self, raw_findings: Any) -> List[Dict[str, Any]]:
-        """Keep only well-formed findings and pin fields to allowed values."""
-        if not isinstance(raw_findings, list):
-            return []
-
-        findings = []
-        for item in raw_findings:
-            if not isinstance(item, dict) or not item.get("title"):
-                continue
-
-            severity = str(item.get("severity", "medium")).lower()
-            category = str(item.get("category", "readability")).lower()
-            findings.append(
-                {
-                    "severity": severity if severity in self.VALID_SEVERITIES else "medium",
-                    "category": category if category in self.VALID_CATEGORIES else "readability",
-                    "title": str(item["title"])[:200],
-                    "lines": str(item.get("lines", "unknown")),
-                    "description": str(item.get("description", "")),
-                    "suggestion": str(item.get("suggestion", "")),
-                    "code_before": _optional_str(item.get("code_before")),
-                    "code_after": _optional_str(item.get("code_after")),
-                }
-            )
-            if len(findings) >= self.MAX_FINDINGS:
-                break
-
-        return findings

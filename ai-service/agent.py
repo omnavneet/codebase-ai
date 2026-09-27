@@ -93,6 +93,28 @@ class CodebaseAgent:
                     },
                 },
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "analyze_function",
+                    "description": "Deep-dive one declared symbol: its source, who calls it, and what it calls. "
+                                   "Use it to trace dependencies accurately instead of guessing.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "Function/class/method name to analyze",
+                            },
+                            "file_path": {
+                                "type": "string",
+                                "description": "Optional file path, to disambiguate same-named symbols",
+                            },
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
         ]
 
     def investigate(self, question: str, project_id: str) -> Dict[str, Any]:
@@ -113,6 +135,8 @@ Rules:
 - Don't read the same file twice
 - Cite specific files and line numbers
 - If you can't find something, say so explicitly
+- analyze_function returns real call data; when it reports unresolved, ambiguous
+  or dynamic references, say so instead of presenting an uncertain edge as fact
 - You have a maximum of 10 tool calls""",
             },
             {
@@ -222,6 +246,13 @@ Rules:
                 return self.tools.find_dependencies(
                     file_path=args.get("file_path", ""),
                     project_id=project_id,
+                )
+
+            if tool_name == "analyze_function":
+                return self.tools.analyze_symbol(
+                    name=args.get("name", ""),
+                    project_id=project_id,
+                    file_path=args.get("file_path"),
                 )
 
             return {"error": f"Unknown tool: {tool_name}"}
