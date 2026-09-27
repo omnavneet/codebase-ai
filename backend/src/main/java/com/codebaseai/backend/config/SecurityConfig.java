@@ -19,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 public class SecurityConfig {
     
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final InMemoryRateLimitFilter inMemoryRateLimitFilter;
     
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -40,7 +41,8 @@ public class SecurityConfig {
                 .authenticationEntryPoint((request, response, authException) ->
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
             .addFilterBefore(jwtAuthenticationFilter, 
-                UsernamePasswordAuthenticationFilter.class);
+                UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(inMemoryRateLimitFilter, JwtAuthenticationFilter.class);
         
         return http.build();
     }
