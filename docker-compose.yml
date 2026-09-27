@@ -1,15 +1,93 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: codebase-db
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: my-dev-password-111
-      POSTGRES_DB: codebase_ai
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    networks:
+      - codebase-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    environment:
+      AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - project-uploads:/app/uploads
+    networks:
+      - codebase-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-codebase_ai}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_UPLOAD_DIRECTORY: /app/uploads
+      APP_AI_SERVICE_URL: http://ai-service:8000
+      APP_AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
+      APP_JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - project-uploads:/app/uploads
+    networks:
+      - codebase-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - codebase-network
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:
+  project-uploads:
+
+networks:
+  codebase-network:
+    driver: bridge
