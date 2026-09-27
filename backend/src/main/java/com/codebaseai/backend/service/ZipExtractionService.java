@@ -58,8 +58,8 @@ public class ZipExtractionService {
             while ((entry = zis.getNextEntry()) != null) {
                 // Check file count limit
                 if (fileCount >= MAX_TOTAL_FILES) {
-                    log.warn("Max file count reached: {}", MAX_TOTAL_FILES);
-                    break;
+                    throw new ZipLimitExceededException(
+                            "The archive contains more than " + MAX_TOTAL_FILES + " files");
                 }
                 
                 // Skip directories
@@ -78,8 +78,9 @@ public class ZipExtractionService {
                 // and it is -1 for entries written as a stream. The bytes
                 // actually read below are what get enforced.
                 if (entry.getSize() > MAX_FILE_SIZE) {
-                    log.warn("Skipping large file: {} ({} bytes)", fileName, entry.getSize());
-                    continue;
+                    throw new ZipLimitExceededException(
+                        "File exceeds the per-file limit of " + (MAX_FILE_SIZE / (1024 * 1024))
+                            + " MB: " + fileName);
                 }
                 
                 // Prevent zip slip attack
@@ -99,8 +100,9 @@ public class ZipExtractionService {
                 // entry can never exhaust memory or disk.
                 byte[] content = zis.readNBytes((int) MAX_FILE_SIZE + 1);
                 if (content.length > MAX_FILE_SIZE) {
-                    log.warn("Skipping oversized file: {} (>{} bytes)", fileName, MAX_FILE_SIZE);
-                    continue;
+                    throw new ZipLimitExceededException(
+                        "File exceeds the per-file limit of " + (MAX_FILE_SIZE / (1024 * 1024))
+                            + " MB: " + fileName);
                 }
                 Files.write(targetPath, content);
                 totalBytes += content.length;

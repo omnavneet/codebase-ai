@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +28,12 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class CodeProcessingService {
 
+    public record ProcessingResult(List<String> failedFiles) {
+        public boolean hasFailures() {
+            return !failedFiles.isEmpty();
+        }
+    }
+
     private final ProjectFileRepository projectFileRepository;
     private final CodeChunkRepository codeChunkRepository;
     private final CodeSymbolRepository codeSymbolRepository;
@@ -40,13 +47,14 @@ public class CodeProcessingService {
      * holding one DB transaction (and one pooled connection) across the project is
      * not acceptable. Every save commits on its own.
      */
-    public void processProject(UUID projectId) {
+    public ProcessingResult processProject(UUID projectId) {
         log.info("Starting processing for project: {}", projectId);
 
         List<ProjectFile> files = projectFileRepository.findByProjectId(projectId);
         log.info("Found {} files to process", files.size());
 
         int totalChunks = 0;
+        List<String> failedFiles = new ArrayList<>();
 
         for (ProjectFile file : files) {
             try {
@@ -61,6 +69,7 @@ public class CodeProcessingService {
                     // One unparseable file must not fail the whole project; the
                     // rest of the codebase stays searchable.
                     log.error("Failed to parse file: {}", file.getPath(), e);
+                    failedFiles.add(file.getPath());
                     continue;
                 }
 
@@ -95,10 +104,12 @@ public class CodeProcessingService {
 
             } catch (IOException e) {
                 log.error("Failed to process file: {}", file.getPath(), e);
+                failedFiles.add(file.getPath());
             }
         }
 
         log.info("Processing complete for project: {}. Total chunks: {}", projectId, totalChunks);
+        return new ProcessingResult(List.copyOf(failedFiles));
     }
 
     private void persistSymbols(UUID projectId, ProjectFile file, List<ParsedFile.Symbol> symbols) {

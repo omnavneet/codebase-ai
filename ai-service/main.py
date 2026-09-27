@@ -1,9 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import json
 import os
+import logging
+import secrets
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
 from review_service import ReviewService
@@ -11,6 +14,8 @@ from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import AgentTools
 from debug_service import DebugService
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +25,21 @@ load_dotenv()
 # called server-to-server by the Spring backend (WebClient), never by a browser;
 # if it is ever exposed to one, add an explicit allow-list here.
 app = FastAPI(title="Codebase AI Service")
+
+@app.middleware("http")
+async def require_internal_token(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    expected = os.getenv("AI_SERVICE_INTERNAL_TOKEN", "")
+    provided = request.headers.get("X-Internal-Token", "")
+    if not expected:
+        logger.error("AI_SERVICE_INTERNAL_TOKEN is not configured")
+        return JSONResponse(status_code=503, content={"detail": "AI service authentication is not configured"})
+    if not provided or not secrets.compare_digest(provided, expected):
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+    return await call_next(request)
 
 # Initialize services
 embedding_service = EmbeddingService()
@@ -78,7 +98,8 @@ def embed(request: EmbedRequest):
         embeddings = embedding_service.generate_embeddings(request.texts)
         return EmbedResponse(embeddings=embeddings)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Embedding request failed")
+        raise HTTPException(status_code=502, detail="Embedding service request failed") from e
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
@@ -96,7 +117,8 @@ def chat(request: ChatRequest):
         
         return ChatResponse(answer=answer, citations=citations)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Chat request failed")
+        raise HTTPException(status_code=502, detail="AI chat request failed") from e
 
 @app.post("/chat/stream")
 def chat_stream(request: ChatRequest):
@@ -114,8 +136,9 @@ def chat_stream(request: ChatRequest):
             for delta in chat_service.generate_answer_stream(request.question, request.context, request.history):
                 yield sse_format("token", {"t": delta})
             yield sse_format("done", {})
-        except Exception as e:
-            yield sse_format("error", {"message": str(e)})
+        except Exception:
+            logger.exception("Chat stream failed")
+            yield sse_format("error", {"message": "AI chat request failed"})
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -127,6 +150,7 @@ class AgentResponse(BaseModel):
     answer: str
     trace: List[str]
     iterations: int
+    tool_calls: int = 0
     files_read: List[str]
     searches_performed: List[str]
     truncated: bool = False
@@ -137,7 +161,8 @@ def investigate(request: AgentRequest):
         result = agent.investigate(request.question, request.project_id)
         return AgentResponse(**result)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Agent investigation failed")
+        raise HTTPException(status_code=502, detail="Agent investigation failed") from e
 
 class GenerateDocsRequest(BaseModel):
     file_path: str
@@ -222,7 +247,8 @@ Format as {doc_format} comments. Return only the documentation."""
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Documentation generation failed")
+        raise HTTPException(status_code=502, detail="Documentation generation failed") from e
 
 @app.post("/agent/generate-readme", response_model=GenerateReadmeResponse)
 def generate_readme(request: GenerateReadmeRequest):
@@ -274,7 +300,8 @@ Return only the README content."""
         return GenerateReadmeResponse(readme=response.choices[0].message.content or "")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("README generation failed")
+        raise HTTPException(status_code=502, detail="README generation failed") from e
 
 class ExplainCodeRequest(BaseModel):
     file_path: str
@@ -291,17 +318,52 @@ class DebugRequest(BaseModel):
 def explain_code(request: ExplainCodeRequest):
     """Explain a file (or symbol) in depth using the investigation agent."""
     try:
+        file_content = agent_tools.read_file(request.file_path, request.project_id)
+        if "error" in file_content:
+            raise HTTPException(status_code=404, detail=file_content["error"])
+
+        symbol_context = None
+        if request.symbol:
+            symbol_context = agent_tools.analyze_symbol(
+                request.symbol,
+                request.project_id,
+                request.file_path,
+            )
+            candidates = symbol_context.get("candidates", [])
+            matching_candidates = [
+                candidate for candidate in candidates
+                if candidate.get("file_path") == request.file_path
+            ]
+            if not symbol_context.get("found") or not matching_candidates:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Symbol '{request.symbol}' was not found in {request.file_path}",
+                )
+
         target = f"'{request.symbol}' in {request.file_path}" if request.symbol else request.file_path
         question = f"""Explain {target} in depth.
 
 First read {request.file_path}, then follow its key dependencies to understand the full context.
 Cover: what it does, how it works step by step, the key data flow, and how it connects to the rest of the codebase.
-Cite specific files and line numbers."""
+Cite specific files and line numbers.
+
+Verified target file content:
+{file_content['content'][:8000]}
+"""
+        if symbol_context:
+            question += f"""
+
+Verified symbol-index data for the requested symbol:
+{json.dumps(symbol_context, default=str)[:8000]}
+"""
 
         result = agent.investigate(question, request.project_id)
         return AgentResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Code explanation failed")
+        raise HTTPException(status_code=502, detail="Code explanation failed") from e
 
 class DebugFinding(BaseModel):
     severity: str
@@ -352,7 +414,8 @@ def debug(request: DebugRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Debug request failed")
+        raise HTTPException(status_code=502, detail="Debug request failed") from e
 
 class ImproveCodeRequest(BaseModel):
     file_path: str
@@ -387,7 +450,8 @@ def improve_code(request: ImproveCodeRequest):
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Code review failed")
+        raise HTTPException(status_code=502, detail="Code review failed") from e
 
 def detect_language(file_path: str) -> str:
     """Detect language from file extension"""

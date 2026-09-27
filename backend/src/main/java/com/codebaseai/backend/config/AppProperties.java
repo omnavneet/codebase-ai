@@ -26,6 +26,8 @@ public class AppProperties {
     public static class AiService {
         /** Base URL of the Python AI service. */
         private String url = "http://localhost:8000";
+        /** Shared secret for backend-to-AI-service authentication. */
+        private String internalToken = "";
         /** Timeout for embeddings and single-shot chat completions. */
         private int timeoutSeconds = 60;
         /** Timeout for agent endpoints (several LLM round-trips). */

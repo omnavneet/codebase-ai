@@ -19,6 +19,7 @@ class CodebaseAgent:
         self.client = groq_client
         self.model = os.getenv("LLM_MODEL")
         self.max_iterations = 10
+        self.max_tool_calls = 10
 
         # Define tools for Groq
         self.tool_definitions = [
@@ -149,6 +150,7 @@ Rules:
         files_read = set()
         searches_done = set()
         iteration = 0
+        tool_calls = 0
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -173,25 +175,31 @@ Rules:
                     tool_name = tool_call.function.name
                     tool_args = json.loads(tool_call.function.arguments)
 
-                    # Execute tool
-                    result = self._execute_tool(tool_name, tool_args, project_id)
+                    if tool_calls >= self.max_tool_calls:
+                        result = {"error": "Tool-call budget exhausted; do not request more tools."}
+                    else:
+                        tool_calls += 1
+                        result = None
 
-                    # Track what we've done (suppress duplicate work)
-                    if tool_name == "semantic_search":
-                        search_key = tool_args.get("query", "")
-                        if search_key in searches_done:
-                            result = {"note": "Already searched this query", "results": []}
-                        else:
-                            searches_done.add(search_key)
-                            trace.append(f"Searched: {search_key}")
+                        # Track what we've done and avoid repeating expensive work.
+                        if tool_name == "semantic_search":
+                            search_key = tool_args.get("query", "")
+                            if search_key in searches_done:
+                                result = {"note": "Already searched this query", "results": []}
+                            else:
+                                searches_done.add(search_key)
+                                trace.append(f"Searched: {search_key}")
 
-                    elif tool_name == "read_file":
-                        file_key = tool_args.get("file_path", "")
-                        if file_key in files_read:
-                            result = {"note": "Already read this file"}
-                        else:
-                            files_read.add(file_key)
-                            trace.append(f"Read: {file_key}")
+                        elif tool_name == "read_file":
+                            file_key = tool_args.get("file_path", "")
+                            if file_key in files_read:
+                                result = {"note": "Already read this file"}
+                            else:
+                                files_read.add(file_key)
+                                trace.append(f"Read: {file_key}")
+
+                        if result is None:
+                            result = self._execute_tool(tool_name, tool_args, project_id)
 
                     # Add tool result to messages
                     messages.append({
@@ -206,16 +214,17 @@ Rules:
                     "answer": response_message.content,
                     "trace": trace,
                     "iterations": iteration,
+                    "tool_calls": tool_calls,
                     "files_read": list(files_read),
                     "searches_performed": list(searches_done),
                 }
 
         # Max iterations reached
         return {
-            "answer": "I've reached the maximum investigation limit. Based on what I found:\n\n"
-                      + self._generate_partial_answer(messages),
+            "answer": "I've reached the investigation tool-call limit. The available evidence is listed in the trace.",
             "trace": trace,
             "iterations": iteration,
+            "tool_calls": tool_calls,
             "files_read": list(files_read),
             "searches_performed": list(searches_done),
             "truncated": True,

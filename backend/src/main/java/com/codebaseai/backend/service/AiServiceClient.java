@@ -34,6 +34,10 @@ public class AiServiceClient {
         return properties.getAiService().getUrl();
     }
 
+    private String internalToken() {
+        return properties.getAiService().getInternalToken();
+    }
+
     /**
      * Block on a single-shot AI call with a bounded timeout. Transport failures,
      * HTTP error statuses and timeouts all surface as 502 with a clear reason,
@@ -55,6 +59,7 @@ public class AiServiceClient {
         Map<String, Object> response = block(
                 webClient.post()
                         .uri(baseUrl() + "/embed")
+                    .header("X-Internal-Token", internalToken())
                         .bodyValue(request)
                         .retrieve()
                         .bodyToMono(Map.class),
@@ -75,6 +80,7 @@ public class AiServiceClient {
         return block(
                 webClient.post()
                         .uri(baseUrl() + "/chat")
+                    .header("X-Internal-Token", internalToken())
                         .bodyValue(request)
                         .retrieve()
                         .bodyToMono(Map.class),
@@ -96,6 +102,7 @@ public class AiServiceClient {
 
         return webClient.post()
                 .uri(baseUrl() + "/chat/stream")
+            .header("X-Internal-Token", internalToken())
                 .bodyValue(request)
                 .retrieve()
                 .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {});
@@ -171,6 +178,7 @@ public class AiServiceClient {
         return block(
                 webClient.post()
                         .uri(baseUrl() + path)
+                    .header("X-Internal-Token", internalToken())
                         .bodyValue(request)
                         .retrieve()
                         .bodyToMono(Map.class),

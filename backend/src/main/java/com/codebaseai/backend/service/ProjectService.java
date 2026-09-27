@@ -9,7 +9,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -33,11 +36,9 @@ import com.codebaseai.backend.service.chunking.Language;
 import com.codebaseai.backend.config.AppProperties;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Comparator;
-import java.util.stream.Stream;
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
@@ -164,10 +165,26 @@ public class ProjectService {
             Files.deleteIfExists(zipPath);
 
             try {
-                codeProcessingService.processProject(projectId);
+                CodeProcessingService.ProcessingResult processingResult =
+                    codeProcessingService.processProject(projectId);
+                if (processingResult.hasFailures()) {
+                    String failedFiles = String.join(", ", processingResult.failedFiles());
+                    project.setStatus("error");
+                    project.setErrorMessage("Failed to index file(s): " + failedFiles);
+                    projectRepository.save(project);
+                    throw new ResponseStatusException(
+                        HttpStatus.BAD_GATEWAY, "Failed to index all project files");
+                }
             } catch (RuntimeException e) {
+                try {
+                    purgeExistingIndex(projectId);
+                } catch (RuntimeException cleanupFailure) {
+                    log.error("Failed to clean up incomplete index for project {}", projectId, cleanupFailure);
+                }
                 project.setStatus("error");
                 project.setErrorMessage("Failed to process upload: " + e.getMessage());
+                project.setFileCount(0);
+                project.setTotalSizeBytes(0L);
                 projectRepository.save(project);
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to process upload", e);
             }
