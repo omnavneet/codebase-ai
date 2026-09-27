@@ -93,7 +93,14 @@ public class ProjectService {
         }
     }
 
-    @Transactional
+    /**
+     * Deliberately NOT @Transactional: extraction and embedding generation make
+     * remote calls that can take minutes, so holding one DB transaction (and one
+     * pooled connection) for the whole upload is not acceptable. It also makes
+     * the failure paths below correct: they set {@code status="error"} and then
+     * throw, and inside a transaction that write would be rolled back, leaving
+     * the project stuck in "processing" forever.
+     */
     public void uploadZip(UUID projectId, UUID userId, MultipartFile file) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
@@ -220,6 +227,12 @@ public class ProjectService {
 
         ProjectFile file = projectFileRepository.findById(fileId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found"));
+
+        // The file must belong to the project named in the path, otherwise a
+        // caller could pair an owned project id with someone else's file id.
+        if (!file.getProjectId().equals(projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found in this project");
+        }
 
         try {
             Path filePath = fileStorageService.getProjectDirectory(projectId)

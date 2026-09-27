@@ -66,7 +66,9 @@ public class ZipExtractionService {
                     continue;
                 }
                 
-                // Check file size
+                // Fast path only: a ZIP header may under-report the entry size,
+                // and it is -1 for entries written as a stream. The bytes
+                // actually read below are what get enforced.
                 if (entry.getSize() > MAX_FILE_SIZE) {
                     log.warn("Skipping large file: {} ({} bytes)", fileName, entry.getSize());
                     continue;
@@ -83,14 +85,22 @@ public class ZipExtractionService {
                 // Create parent directories
                 Files.createDirectories(targetPath.getParent());
                 
-                // Extract file
-                long copiedSize = Files.copy(zis, targetPath);
+                // Read at most MAX_FILE_SIZE + 1 bytes: bounding the real byte
+                // count is the only reliable limit, given the header size may be
+                // missing or wrong. The cap also bounds this buffer, so a single
+                // entry can never exhaust memory or disk.
+                byte[] content = zis.readNBytes((int) MAX_FILE_SIZE + 1);
+                if (content.length > MAX_FILE_SIZE) {
+                    log.warn("Skipping oversized file: {} (>{} bytes)", fileName, MAX_FILE_SIZE);
+                    continue;
+                }
+                Files.write(targetPath, content);
 
-                // Add to result (entry.getSize() can be -1 for streamed entries)
+                // Add to result
                 extractedFiles.add(new ExtractedFile(
                     fileName,
                     targetPath,
-                    copiedSize
+                    content.length
                 ));
                 
                 fileCount++;

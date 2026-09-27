@@ -11,8 +11,6 @@ import com.codebaseai.backend.model.CodeChunk;
 
 public interface CodeChunkRepository extends JpaRepository<CodeChunk, UUID> {
     
-    List<CodeChunk> findByProjectId(UUID projectId);
-    
     @Query(value = """
         SELECT c.*, 1 - (c.embedding <=> CAST(:queryEmbedding AS vector)) as similarity
         FROM chunks c

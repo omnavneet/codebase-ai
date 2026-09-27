@@ -298,6 +298,22 @@ public class ChatService {
             persistPartial.run();
         });
 
+        // Deliver the sources up front. They are also persisted with the answer,
+        // but without this event a streamed answer would show no citations until
+        // the session is re-opened — the sync path returns them in its body, so
+        // the two paths must agree. Sends before the emitter is initialized are
+        // buffered by Spring and flushed in order by initialize().
+        try {
+            emitter.send(SseEmitter.event()
+                    .name("meta")
+                    .data(Map.of("citations", prepared.context())));
+        } catch (IOException e) {
+            // Client is already gone: nothing left to stream.
+            persistPartial.run();
+            emitter.complete();
+            return;
+        }
+
         // Run the streaming callbacks (JDBC persistence and SseEmitter sends)
         // on boundedElastic instead of the WebClient's event-loop threads,
         // which must never be blocked.

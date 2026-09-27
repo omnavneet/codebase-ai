@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;  
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -40,15 +41,19 @@ public class FileStorageService {
     public void deleteProjectDirectory(UUID projectId) throws IOException {
         Path projectDir = getProjectDirectory(projectId);
         if (Files.exists(projectDir)) {
-            Files.walk(projectDir)
-                .sorted(Comparator.reverseOrder())
-                .forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        log.warn("Failed to delete {}: {}", path, e.getMessage());
-                    }
-                });
+            // try-with-resources: an unclosed walk stream keeps a directory
+            // handle open, which on Windows prevents the directory from being
+            // deleted at all.
+            try (Stream<Path> paths = Files.walk(projectDir)) {
+                paths.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException e) {
+                            log.warn("Failed to delete {}: {}", path, e.getMessage());
+                        }
+                    });
+            }
         }
     }
 }

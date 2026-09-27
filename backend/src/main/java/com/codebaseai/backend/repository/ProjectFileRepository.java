@@ -9,5 +9,4 @@ import com.codebaseai.backend.model.ProjectFile;
 
 public interface ProjectFileRepository extends JpaRepository<ProjectFile, UUID> {
     List<ProjectFile> findByProjectId(UUID projectId);
-    long countByProjectId(UUID projectId);
 }

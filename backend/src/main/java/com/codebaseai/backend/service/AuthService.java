@@ -104,7 +104,8 @@ public class AuthService {
         tokenEntity.setExpiresAt(LocalDateTime.now().plusSeconds(jwtService.getRefreshTokenValidity() / 1000));
         refreshTokenRepository.save(tokenEntity);
 
-        cookieService.addRefreshTokenCookie(response, refreshToken);
+        cookieService.addRefreshTokenCookie(
+                response, refreshToken, jwtService.getRefreshTokenValidity() / 1000);
 
         return new AuthResponse(accessToken, user.getEmail(), user.getId().toString());
     }
