@@ -21,9 +21,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.codebaseai.backend.dto.ChatMessageRequest;
 import com.codebaseai.backend.dto.ChatMessageResponse;
 import com.codebaseai.backend.dto.RenameSessionRequest;
+import com.codebaseai.backend.config.AppProperties;
 import com.codebaseai.backend.model.ChatMessage;
 import com.codebaseai.backend.model.ChatSession;
 import com.codebaseai.backend.service.ChatService;
+import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
@@ -33,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 public class ChatController {
     
     private final ChatService chatService;
+    private final AppProperties properties;
     
     @PostMapping("/projects/{projectId}/sessions")
     public ResponseEntity<ChatSession> createSession(@PathVariable UUID projectId) {
@@ -63,7 +66,7 @@ public class ChatController {
     public ResponseEntity<ChatMessageResponse> sendMessage(
             @PathVariable UUID sessionId,
             @RequestParam(value = "userPersisted", defaultValue = "false") boolean userMessagePersisted,
-            @RequestBody ChatMessageRequest request) {
+            @Valid @RequestBody ChatMessageRequest request) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(chatService.sendMessage(
                 sessionId, userId, request.getContent(), userMessagePersisted));
@@ -78,12 +81,12 @@ public class ChatController {
     @PostMapping(value = "/sessions/{sessionId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(
             @PathVariable UUID sessionId,
-            @RequestBody ChatMessageRequest request) {
+            @Valid @RequestBody ChatMessageRequest request) {
         UUID userId = getCurrentUserId();
 
         ChatService.PreparedChat prepared = chatService.prepareChat(sessionId, userId, request.getContent());
 
-        SseEmitter emitter = new SseEmitter(120_000L);
+        SseEmitter emitter = new SseEmitter(properties.getChat().getStreamTimeoutMs());
         chatService.streamMessage(prepared, emitter);
         return emitter;
     }
@@ -98,7 +101,7 @@ public class ChatController {
     @PatchMapping("/sessions/{sessionId}")
     public ResponseEntity<ChatSession> renameSession(
             @PathVariable UUID sessionId,
-            @RequestBody RenameSessionRequest request) {
+            @Valid @RequestBody RenameSessionRequest request) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(chatService.renameSession(sessionId, userId, request.getTitle()));
     }

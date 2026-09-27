@@ -19,6 +19,7 @@ import com.codebaseai.backend.dto.ExplainCodeRequest;
 import com.codebaseai.backend.dto.GenerateDocsRequest;
 import com.codebaseai.backend.dto.ImproveCodeRequest;
 import com.codebaseai.backend.service.AgentService;
+import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
@@ -32,7 +33,7 @@ public class AgentController {
     @PostMapping("/investigate")
     public ResponseEntity<AgentInvestigateResponse> investigate(
             @PathVariable UUID projectId,
-            @RequestBody AgentInvestigateRequest request) {
+            @Valid @RequestBody AgentInvestigateRequest request) {
 
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(
@@ -43,7 +44,7 @@ public class AgentController {
     @PostMapping("/generate-docs")
     public ResponseEntity<Map<String, Object>> generateDocs(
             @PathVariable UUID projectId,
-            @RequestBody GenerateDocsRequest request) {
+            @Valid @RequestBody GenerateDocsRequest request) {
 
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(
@@ -60,7 +61,7 @@ public class AgentController {
     @PostMapping("/explain-code")
     public ResponseEntity<Map<String, Object>> explainCode(
             @PathVariable UUID projectId,
-            @RequestBody ExplainCodeRequest request) {
+            @Valid @RequestBody ExplainCodeRequest request) {
 
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(
@@ -71,7 +72,7 @@ public class AgentController {
     @PostMapping("/debug")
     public ResponseEntity<Map<String, Object>> debug(
             @PathVariable UUID projectId,
-            @RequestBody DebugRequest request) {
+            @Valid @RequestBody DebugRequest request) {
 
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(
@@ -83,7 +84,7 @@ public class AgentController {
     @PostMapping("/improve-code")
     public ResponseEntity<Map<String, Object>> improveCode(
             @PathVariable UUID projectId,
-            @RequestBody ImproveCodeRequest request) {
+            @Valid @RequestBody ImproveCodeRequest request) {
 
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(

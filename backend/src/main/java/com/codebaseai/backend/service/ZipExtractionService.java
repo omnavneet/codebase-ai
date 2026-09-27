@@ -10,11 +10,17 @@ import java.util.zip.ZipInputStream;
 
 import org.springframework.stereotype.Service;
 
+import com.codebaseai.backend.config.AppProperties;
+
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class ZipExtractionService {
+
+    private final AppProperties properties;
     
     private static final List<String> IGNORED_DIRECTORIES = List.of(
         "node_modules",
@@ -43,6 +49,8 @@ public class ZipExtractionService {
     public List<ExtractedFile> extractZip(Path zipPath, Path destinationDir) throws IOException {
         List<ExtractedFile> extractedFiles = new ArrayList<>();
         int fileCount = 0;
+        long totalBytes = 0;
+        long maxTotalBytes = properties.getUpload().getMaxTotalBytes();
         
         try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(zipPath))) {
             ZipEntry entry;
@@ -95,6 +103,16 @@ public class ZipExtractionService {
                     continue;
                 }
                 Files.write(targetPath, content);
+                totalBytes += content.length;
+
+                // Per-file limits do not bound the archive as a whole: a small
+                // ZIP can still expand to gigabytes over thousands of entries.
+                if (totalBytes > maxTotalBytes) {
+                    throw new ZipLimitExceededException(
+                            "The archive expands to more than "
+                                    + (maxTotalBytes / (1024 * 1024))
+                                    + " MB, which exceeds the configured limit");
+                }
 
                 // Add to result
                 extractedFiles.add(new ExtractedFile(

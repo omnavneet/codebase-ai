@@ -5,6 +5,7 @@ import com.codebaseai.backend.dto.LoginRequest;
 import com.codebaseai.backend.dto.RegisterRequest;
 import com.codebaseai.backend.service.AuthService;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,14 +19,14 @@ public class AuthController {
     
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(
-            @RequestBody RegisterRequest request,
+            @Valid @RequestBody RegisterRequest request,
             HttpServletResponse response) {
         return ResponseEntity.ok(authService.register(request, response));
     }
     
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
-            @RequestBody LoginRequest request,
+            @Valid @RequestBody LoginRequest request,
             HttpServletResponse response) {
         return ResponseEntity.ok(authService.login(request, response));
     }

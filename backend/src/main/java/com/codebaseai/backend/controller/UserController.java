@@ -18,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.codebaseai.backend.dto.UpdatePasswordRequest;
 import com.codebaseai.backend.model.User;
 import com.codebaseai.backend.repository.UserRepository;
+import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
@@ -40,7 +41,7 @@ public class UserController {
     }
 
     @PutMapping("/password")
-    public ResponseEntity<Void> updatePassword(@RequestBody UpdatePasswordRequest request) {
+    public ResponseEntity<Void> updatePassword(@Valid @RequestBody UpdatePasswordRequest request) {
         User user = getCurrentUserEntity();
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {

@@ -46,6 +46,14 @@ public class CodeChunk {
     @Column(name = "end_line")
     private Integer endLine;
     
+    /** Name of the function/class this chunk belongs to, when the parser found one. */
+    @Column(name = "symbol")
+    private String symbol;
+
+    /** Enclosing symbol (e.g. the class a method lives in). */
+    @Column(name = "parent_symbol")
+    private String parentSymbol;
+    
     @Column(name = "chunk_type")
     private String chunkType = "code";
     

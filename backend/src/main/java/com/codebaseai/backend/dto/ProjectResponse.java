@@ -14,5 +14,6 @@ public class ProjectResponse {
     private String status;
     private Integer fileCount;
     private Long totalSizeBytes;
+    private String errorMessage;
     private LocalDateTime createdAt;
 }

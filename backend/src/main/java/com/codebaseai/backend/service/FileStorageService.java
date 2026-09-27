@@ -8,22 +8,24 @@ import java.util.Comparator;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.codebaseai.backend.config.AppProperties;
+
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class FileStorageService {
-    
-    @Value("${app.upload.directory}")
-    private String uploadDirectory;
-    
+
+    private final AppProperties properties;
+
     public Path storeZipFile(MultipartFile file, UUID projectId) throws IOException {
         // Create project directory
-        Path projectDir = Paths.get(uploadDirectory, projectId.toString());
+        Path projectDir = getProjectDirectory(projectId);
         Files.createDirectories(projectDir);
         
         // Save ZIP file
@@ -35,7 +37,12 @@ public class FileStorageService {
     }
     
     public Path getProjectDirectory(UUID projectId) {
-        return Paths.get(uploadDirectory, projectId.toString());
+        return Paths.get(properties.getUpload().getDirectory(), projectId.toString());
+    }
+
+    /** Absolute path of the directory holding generated artefacts (never sources). */
+    public Path getGeneratedDirectory(UUID projectId) {
+        return getProjectDirectory(projectId).resolve("__generated__");
     }
     
     public void deleteProjectDirectory(UUID projectId) throws IOException {

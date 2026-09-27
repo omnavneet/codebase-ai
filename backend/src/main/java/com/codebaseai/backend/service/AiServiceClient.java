@@ -5,37 +5,62 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientException;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.codebaseai.backend.config.AppProperties;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiServiceClient {
-    
-    @Value("${app.ai-service.url}")
-    private String aiServiceUrl;
-    
+
+    private final AppProperties properties;
+
     private final WebClient webClient = WebClient.create();
-    
+
+    private String baseUrl() {
+        return properties.getAiService().getUrl();
+    }
+
+    /**
+     * Block on a single-shot AI call with a bounded timeout. Transport failures,
+     * HTTP error statuses and timeouts all surface as 502 with a clear reason,
+     * so a hung AI service can never pin a Tomcat thread forever.
+     */
+    private <T> T block(Mono<T> mono, Duration timeout, String call) {
+        try {
+            return mono.block(timeout);
+        } catch (WebClientException | IllegalStateException e) {
+            log.error("AI service call '{}' failed", call, e);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "The AI service call '" + call + "' failed or timed out", e);
+        }
+    }
+
     public List<List<Double>> generateEmbeddings(List<String> texts) {
         Map<String, Object> request = Map.of("texts", texts);
-        
-        Map<String, Object> response = webClient.post()
-                .uri(aiServiceUrl + "/embed")
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(Map.class)
-                // Bounded block: a hung AI service must not pin a Tomcat
-                // thread forever (the default block() waits indefinitely).
-                .block(Duration.ofSeconds(60));
-        
+
+        Map<String, Object> response = block(
+                webClient.post()
+                        .uri(baseUrl() + "/embed")
+                        .bodyValue(request)
+                        .retrieve()
+                        .bodyToMono(Map.class),
+                Duration.ofSeconds(properties.getAiService().getTimeoutSeconds()),
+                "embed");
+
         return (List<List<Double>>) response.get("embeddings");
     }
     
@@ -46,15 +71,15 @@ public class AiServiceClient {
             "context", context,
             "history", history
         );
-        
-        return webClient.post()
-                .uri(aiServiceUrl + "/chat")
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(Map.class)
-                // Bounded block: see generateEmbeddings. Generous, because the
-                // LLM call itself usually completes well inside this window.
-                .block(Duration.ofSeconds(60));
+
+        return block(
+                webClient.post()
+                        .uri(baseUrl() + "/chat")
+                        .bodyValue(request)
+                        .retrieve()
+                        .bodyToMono(Map.class),
+                Duration.ofSeconds(properties.getAiService().getTimeoutSeconds()),
+                "chat");
     }
 
     /**
@@ -70,7 +95,7 @@ public class AiServiceClient {
                 "history", history);
 
         return webClient.post()
-                .uri(aiServiceUrl + "/chat/stream")
+                .uri(baseUrl() + "/chat/stream")
                 .bodyValue(request)
                 .retrieve()
                 .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {});
@@ -143,11 +168,13 @@ public class AiServiceClient {
      * so this uses a generous timeout.
      */
     private Map<String, Object> callAgent(String path, Map<String, Object> request) {
-        return webClient.post()
-                .uri(aiServiceUrl + path)
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(Duration.ofMinutes(5));
+        return block(
+                webClient.post()
+                        .uri(baseUrl() + path)
+                        .bodyValue(request)
+                        .retrieve()
+                        .bodyToMono(Map.class),
+                Duration.ofSeconds(properties.getAiService().getAgentTimeoutSeconds()),
+                path);
     }
 }

@@ -22,6 +22,7 @@ import reactor.core.Disposable;
 import reactor.core.scheduler.Schedulers;
 
 import com.codebaseai.backend.dto.ChatMessageResponse;
+import com.codebaseai.backend.config.AppProperties;
 import com.codebaseai.backend.model.ChatMessage;
 import com.codebaseai.backend.model.ChatSession;
 import com.codebaseai.backend.model.CodeChunk;
@@ -50,6 +51,7 @@ public class ChatService {
     private final ProjectRepository projectRepository;
     private final AiServiceClient aiServiceClient;
     private final ObjectMapper objectMapper;
+    private final AppProperties properties;
     
     @Transactional
     public ChatSession createSession(UUID projectId, UUID userId) {
@@ -214,7 +216,7 @@ public class ChatService {
         List<CodeChunk> similarChunks = codeChunkRepository.findSimilarChunks(
             session.getProjectId(),
             embeddingString,
-            5
+            properties.getRetrieval().getChatTopK()
         );
 
         List<Map<String, Object>> context = similarChunks.stream()

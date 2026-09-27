@@ -21,6 +21,7 @@ import com.codebaseai.backend.dto.CreateProjectRequest;
 import com.codebaseai.backend.dto.ProjectResponse;
 import com.codebaseai.backend.dto.SearchRequest;
 import com.codebaseai.backend.service.ProjectService;
+import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
@@ -33,7 +34,7 @@ public class ProjectController {
 
     @PostMapping
     public ResponseEntity<ProjectResponse> createProject(
-            @RequestBody CreateProjectRequest request) {
+            @Valid @RequestBody CreateProjectRequest request) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(projectService.createProject(userId, request.getName()));
     }
@@ -83,7 +84,7 @@ public class ProjectController {
     @PostMapping("/{projectId}/search")
     public ResponseEntity<List<Map<String, Object>>> searchCode(
             @PathVariable UUID projectId,
-            @RequestBody SearchRequest request) {
+            @Valid @RequestBody SearchRequest request) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(projectService.searchCode(projectId, request.getQuery(), userId));
     }
@@ -94,6 +95,30 @@ public class ProjectController {
             @RequestParam String path) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(projectService.getFileContentByPath(projectId, path, userId));
+    }
+
+    /** Saves generated documentation as a NEW file; the source file is never modified. */
+    @PostMapping("/{projectId}/generated")
+    public ResponseEntity<Map<String, String>> exportGeneratedDoc(
+            @PathVariable UUID projectId,
+            @Valid @RequestBody com.codebaseai.backend.dto.GenerateDocsExportRequest request) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.exportGeneratedDoc(
+                projectId, userId, request.getFilePath(), request.getSymbol(), request.getContent()));
+    }
+
+    @GetMapping("/{projectId}/generated")
+    public ResponseEntity<List<Map<String, Object>>> getGeneratedFiles(@PathVariable UUID projectId) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.getGeneratedFiles(projectId, userId));
+    }
+
+    @GetMapping("/{projectId}/generated/{name}")
+    public ResponseEntity<Map<String, String>> getGeneratedFile(
+            @PathVariable UUID projectId,
+            @PathVariable String name) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.getGeneratedFile(projectId, name, userId));
     }
 
     private UUID getCurrentUserId() {
