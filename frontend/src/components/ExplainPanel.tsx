@@ -4,6 +4,8 @@ import {
   renderAnswerWithCitations,
   type AgentInvestigation,
 } from './citationUtils';
+import { type FileNode } from './FileTree';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Agent.css';
 
 interface ExplainPanelProps {
@@ -20,29 +22,28 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const fetchFiles = async () => {
+      try {
+        const response = await apiClient.get(`/projects/${projectId}/files`);
+        // Flatten file tree to a plain list
+        const fileList: string[] = [];
+        const flattenTree = (tree: FileNode[]) => {
+          tree.forEach(item => {
+            if (item.type === 'file') {
+              fileList.push(item.path);
+            } else if (item.children) {
+              flattenTree(item.children);
+            }
+          });
+        };
+        flattenTree(response.data);
+        setFiles(fileList);
+      } catch (error) {
+        console.error('Failed to fetch files:', error);
+      }
+    };
     fetchFiles();
   }, [projectId]);
-
-  const fetchFiles = async () => {
-    try {
-      const response = await apiClient.get(`/projects/${projectId}/files`);
-      // Flatten file tree to a plain list
-      const fileList: string[] = [];
-      const flattenTree = (tree: any[]) => {
-        tree.forEach(item => {
-          if (item.type === 'file') {
-            fileList.push(item.path);
-          } else if (item.children) {
-            flattenTree(item.children);
-          }
-        });
-      };
-      flattenTree(response.data);
-      setFiles(fileList);
-    } catch (error) {
-      console.error('Failed to fetch files:', error);
-    }
-  };
 
   const handleExplain = async () => {
     if (!selectedFile || loading) return;
@@ -57,8 +58,8 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
         symbol: symbol || null,
       });
       setResult(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to explain code');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to explain code'));
     } finally {
       setLoading(false);
     }

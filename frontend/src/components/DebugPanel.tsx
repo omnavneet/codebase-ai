@@ -4,6 +4,7 @@ import {
   renderAnswerWithCitations,
   type AgentInvestigation,
 } from './citationUtils';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Agent.css';
 import './Modal.css';
 
@@ -34,8 +35,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
         filePath: filePath.trim() || null,
       });
       setResult(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Debugging failed');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Debugging failed'));
     } finally {
       setLoading(false);
     }

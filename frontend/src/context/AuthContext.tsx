@@ -25,42 +25,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('access_token');
-      
+
       if (!token) {
         setLoading(false);
         return;
       }
 
+      // The request interceptor injects the bearer token from localStorage;
+      // there is no separate default header to maintain.
       try {
-        // Set token in axios headers
-        apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
         // Fetch user info
         const response = await apiClient.get('/user/me');
-        setUser({ 
-          email: response.data.email, 
-          userId: response.data.id 
+        setUser({
+          email: response.data.email,
+          userId: response.data.id
         });
         setIsAuthenticated(true);
-      } catch (error) {
+      } catch {
         // Token expired or invalid, try refresh
         try {
           const refreshResponse = await apiClient.post('/auth/refresh');
           const newToken = refreshResponse.data.accessToken;
-          
+
           localStorage.setItem('access_token', newToken);
-          apiClient.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-          
+
           const userResponse = await apiClient.get('/user/me');
-          setUser({ 
-            email: userResponse.data.email, 
-            userId: userResponse.data.id 
+          setUser({
+            email: userResponse.data.email,
+            userId: userResponse.data.id
           });
           setIsAuthenticated(true);
-        } catch (refreshError) {
+        } catch {
           // Refresh failed, clear everything
           localStorage.removeItem('access_token');
-          delete apiClient.defaults.headers.common['Authorization'];
           setUser(null);
           setIsAuthenticated(false);
         }
@@ -75,10 +72,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password: string) => {
     const response = await apiClient.post('/auth/login', { email, password });
     const token = response.data.accessToken;
-    
+
     localStorage.setItem('access_token', token);
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    
+
     setUser({ email: response.data.email, userId: response.data.userId });
     setIsAuthenticated(true);
   };
@@ -86,10 +82,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (email: string, password: string) => {
     const response = await apiClient.post('/auth/register', { email, password });
     const token = response.data.accessToken;
-    
+
     localStorage.setItem('access_token', token);
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    
+
     setUser({ email: response.data.email, userId: response.data.userId });
     setIsAuthenticated(true);
   };
@@ -99,7 +94,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await apiClient.post('/auth/logout');
     } finally {
       localStorage.removeItem('access_token');
-      delete apiClient.defaults.headers.common['Authorization'];
       setUser(null);
       setIsAuthenticated(false);
     }
@@ -119,6 +113,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
+// The context file also exports the useAuth hook; the Fast-Refresh rule
+// only allows component exports, so it is disabled for this single export.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

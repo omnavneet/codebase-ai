@@ -1,19 +1,27 @@
 import React from 'react';
 
+export interface FileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  fileId?: string;
+  children?: FileNode[];
+}
+
 interface FileTreeProps {
-  tree: any[];
+  tree: FileNode[];
   expandedDirs: Set<string>;
   onToggleDir: (path: string) => void;
-  onFileClick: (file: any) => void;
+  onFileClick: (file: FileNode) => void;
   level?: number;
 }
 
-const FileTree: React.FC<FileTreeProps> = ({ 
-  tree, 
-  expandedDirs, 
-  onToggleDir, 
+const FileTree: React.FC<FileTreeProps> = ({
+  tree,
+  expandedDirs,
+  onToggleDir,
   onFileClick,
-  level = 0 
+  level = 0
 }) => {
   return (
     <div>

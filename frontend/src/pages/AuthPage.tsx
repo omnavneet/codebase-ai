@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Auth.css';
 
 interface AuthPageProps {
@@ -46,8 +47,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
     try {
       await login(loginEmail, loginPassword);
       // navigation handled by useEffect
-    } catch (err: any) {
-      setLoginError(err.message || 'Login failed');
+    } catch (err) {
+      setLoginError(getApiErrorMessage(err, 'Login failed'));
     }
   };
 
@@ -61,8 +62,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
     try {
       await register(registerEmail, registerPassword);
       // navigation handled by useEffect
-    } catch (err: any) {
-      setRegisterError(err.message || 'Registration failed');
+    } catch (err) {
+      setRegisterError(getApiErrorMessage(err, 'Registration failed'));
     }
   };
 

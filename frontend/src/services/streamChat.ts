@@ -5,11 +5,20 @@
  * with an Authorization header, and the body must be read incrementally.
  * The server emits `meta` (optional), `token`, `done` and `error` events.
  */
+import { refreshAccessToken } from './apiClient';
 export interface StreamHandlers {
   onMeta?: (citations: unknown[]) => void;
   onToken: (token: string) => void;
   onDone?: (messageId: string) => void;
   onError: (message: string) => void;
+}
+
+/** JSON bodies emitted by the backend for each SSE event type. */
+interface StreamEventPayload {
+  citations?: unknown[];
+  t?: string;
+  messageId?: string;
+  message?: string;
 }
 
 export const streamChatMessage = async (
@@ -18,17 +27,29 @@ export const streamChatMessage = async (
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> => {
-  const token = localStorage.getItem('access_token');
+  const callStream = (authToken?: string | null) =>
+    fetch(`/api/sessions/${sessionId}/messages/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: JSON.stringify({ content }),
+      signal,
+    });
 
-  const response = await fetch(`/api/sessions/${sessionId}/messages/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ content }),
-    signal,
-  });
+  let response = await callStream(localStorage.getItem('access_token'));
+
+  // The stream endpoint bypasses axios, so it has no automatic token refresh.
+  // If the access token expired, refresh once and retry before giving up.
+  if (response.status === 401) {
+    try {
+      const refreshedToken = await refreshAccessToken();
+      response = await callStream(refreshedToken);
+    } catch {
+      // Fall through to the !response.ok error below.
+    }
+  }
 
   if (!response.ok || !response.body) {
     throw new Error(`Stream request failed with status ${response.status}`);
@@ -60,14 +81,14 @@ export const streamChatMessage = async (
       // `id:`, `retry:` and comment lines (":...") are intentionally ignored.
     }
     // Multiple `data:` lines of one event are joined with "\n" per the spec.
-    if (dataLines.length === 0) return;
+    if (dataLines.length === 0) return false;
     const data = dataLines.join('\n');
 
-    let payload: any;
+    let payload: StreamEventPayload;
     try {
-      payload = JSON.parse(data);
+      payload = JSON.parse(data) as StreamEventPayload;
     } catch {
-      return;
+      return false;
     }
 
     if (event === 'meta') {
@@ -76,9 +97,17 @@ export const streamChatMessage = async (
       handlers.onToken(payload.t ?? '');
     } else if (event === 'done') {
       handlers.onDone?.(payload.messageId ?? '');
+      // `done` is the authoritative end-of-answer signal. Stop reading
+      // immediately: dev proxies (and some intermediaries) keep the SSE
+      // connection open after the server completes, which would otherwise
+      // hang this promise and leave the composer locked forever.
+      return true;
     } else if (event === 'error') {
       handlers.onError(payload.message ?? 'The answer stream failed.');
+      // `error` is terminal as well — see `done` above.
+      return true;
     }
+    return false;
   };
 
   // Locate the blank-line separator that terminates an event. Servers and
@@ -111,8 +140,15 @@ export const streamChatMessage = async (
 
       let boundary = findBoundary(buffer);
       while (boundary !== null) {
-        processEvent(buffer.slice(0, boundary.index));
+        const isTerminal = processEvent(buffer.slice(0, boundary.index));
         buffer = buffer.slice(boundary.index + boundary.length);
+        if (isTerminal) {
+          // Terminal event received: the answer is complete. Cancel the
+          // reader (closing the connection, which the proxy fails to do)
+          // and settle the promise.
+          await reader.cancel().catch(() => {});
+          return;
+        }
         boundary = findBoundary(buffer);
       }
     }

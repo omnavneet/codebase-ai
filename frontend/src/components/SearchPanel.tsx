@@ -1,14 +1,25 @@
 import React, { useState } from 'react';
+import { isAxiosError } from 'axios';
 import apiClient from '../services/apiClient';
+import { getApiErrorMessage } from '../utils/apiError';
+
+interface SearchResult {
+  fileId: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+  similarity: number;
+}
 
 interface SearchPanelProps {
   projectId: string;
-  onFileClick: (file: any) => void;
+  onFileClick: (file: { fileId?: string }) => void;
 }
 
 const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
@@ -25,13 +36,14 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
         query: query,
       });
       setResults(response.data);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Search failed:', err);
       setResults([]);
+      const notFound = isAxiosError(err) && err.response?.status === 404;
       setError(
-        err.response?.status === 404
+        notFound
           ? 'Project not found or you do not have access to it.'
-          : 'Search failed. Is the AI service running?'
+          : getApiErrorMessage(err, 'Search failed. Is the AI service running?')
       );
     } finally {
       setLoading(false);
@@ -52,7 +64,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyPress}
           placeholder="Search code semantically..."
         />
         <button
@@ -80,12 +92,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
             <div
               key={index}
               className="search-result-item"
-              onClick={() =>
-                onFileClick({
-                  fileId: result.fileId,
-                  path: result.filePath,
-                })
-              }
+              onClick={() => onFileClick({ fileId: result.fileId })}
             >
               <div className="search-result-path">
                 <span className="search-result-file">{result.filePath}</span>

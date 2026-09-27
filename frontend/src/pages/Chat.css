@@ -43,6 +43,8 @@
   opacity: 0;
   border-right-color: transparent;
   pointer-events: none;
+}
+
 /* Drag handle on the right edge of the sidebar */
 .sidebar-resize-handle {
   position: absolute;
@@ -1057,5 +1059,173 @@
 
   .empty-prompts-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================
+   7. Enterprise UI Polish (additive refinements)
+   ============================================================ */
+
+/* ---------- Message stream ---------- */
+.message-row {
+  animation: fadeSlideUp 240ms var(--m3-easing-emphasized);
+}
+
+.message-avatar {
+  border: 1px solid transparent;
+}
+
+.message-row.assistant .message-avatar {
+  border-color: rgba(26, 115, 232, 0.16);
+}
+
+.message-bubble {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.message-row.user .message-bubble {
+  box-shadow: 0 1px 4px rgba(26, 115, 232, 0.16);
+}
+
+.message-time {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--m3-outline);
+  text-align: right;
+  user-select: none;
+}
+
+.message-row.user .message-time {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.typing-dot {
+  background: var(--m3-primary);
+}
+
+.citation-chip {
+  border-radius: var(--m3-shape-full);
+  padding: 4px 11px;
+  font-weight: 500;
+}
+
+/* ---------- Composer ---------- */
+.chat-composer-card:hover:not(:focus-within) {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.07);
+}
+
+.btn-send-message:disabled {
+  opacity: 0.55;
+}
+
+/* ---------- Empty state ---------- */
+.empty-hero-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.empty-prompts-grid {
+  max-width: 620px;
+}
+
+@media (min-width: 901px) {
+  .empty-prompts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.prompt-card {
+  min-height: 104px;
+}
+
+.prompt-card-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--m3-shape-sm);
+  background: var(--m3-surface-dim);
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.prompt-card:hover .prompt-card-icon {
+  background: var(--m3-primary-container);
+}
+
+/* ---------- Contextual-tools feature strip (previously unstyled) ---------- */
+.empty-features-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.features-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--m3-on-surface-variant);
+}
+
+.feature-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--m3-on-surface-variant);
+  background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.feature-chip:hover {
+  color: var(--m3-primary);
+  border-color: var(--m3-primary);
+  background: var(--m3-primary-container);
+}
+
+/* ---------- Sidebar ---------- */
+.session-item.active {
+  border-color: transparent;
+}
+
+.session-item.active::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: var(--m3-shape-full);
+  background: var(--m3-primary);
+}
+
+.session-item:hover .session-actions,
+.session-item.active .session-actions {
+  opacity: 1;
+}
+
+/* ---------- Small screens: keep the composer minimal ---------- */
+@media (max-width: 640px) {
+  .keyboard-shortcut-hint {
+    display: none;
+  }
+
+  .chat-composer-wrapper {
+    padding: 8px 12px 14px;
+  }
+
+  .message-bubble {
+    max-width: calc(100% - 48px);
   }
 }

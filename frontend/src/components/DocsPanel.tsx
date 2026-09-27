@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
+import { type FileNode } from './FileTree';
+import { getApiErrorMessage } from '../utils/apiError';
 
 interface DocsPanelProps {
   projectId: string;
@@ -16,29 +18,28 @@ const DocsPanel: React.FC<DocsPanelProps> = ({ projectId }) => {
   const [readme, setReadme] = useState<string>('');
 
   useEffect(() => {
+    const fetchFiles = async () => {
+      try {
+        const response = await apiClient.get(`/projects/${projectId}/files`);
+        // Flatten file tree to a plain list
+        const fileList: string[] = [];
+        const flattenTree = (tree: FileNode[]) => {
+          tree.forEach(item => {
+            if (item.type === 'file') {
+              fileList.push(item.path);
+            } else if (item.children) {
+              flattenTree(item.children);
+            }
+          });
+        };
+        flattenTree(response.data);
+        setFiles(fileList);
+      } catch (error) {
+        console.error('Failed to fetch files:', error);
+      }
+    };
     fetchFiles();
   }, [projectId]);
-
-  const fetchFiles = async () => {
-    try {
-      const response = await apiClient.get(`/projects/${projectId}/files`);
-      // Flatten file tree to a plain list
-      const fileList: string[] = [];
-      const flattenTree = (tree: any[]) => {
-        tree.forEach(item => {
-          if (item.type === 'file') {
-            fileList.push(item.path);
-          } else if (item.children) {
-            flattenTree(item.children);
-          }
-        });
-      };
-      flattenTree(response.data);
-      setFiles(fileList);
-    } catch (error) {
-      console.error('Failed to fetch files:', error);
-    }
-  };
 
   const generateDocs = async () => {
     if (!selectedFile || loading) return;
@@ -53,8 +54,8 @@ const DocsPanel: React.FC<DocsPanelProps> = ({ projectId }) => {
         symbol: selectedSymbol || null,
       });
       setDocumentation(response.data.documentation);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to generate documentation');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to generate documentation'));
     } finally {
       setLoading(false);
     }
@@ -70,8 +71,8 @@ const DocsPanel: React.FC<DocsPanelProps> = ({ projectId }) => {
     try {
       const response = await apiClient.post(`/projects/${projectId}/agent/generate-readme`, {});
       setReadme(response.data.readme);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to generate README');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to generate README'));
     } finally {
       setReadmeLoading(false);
     }

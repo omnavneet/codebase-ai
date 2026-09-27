@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../services/apiClient';
@@ -24,7 +24,22 @@ const DashboardPage: React.FC = () => {
   
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Stable identity so polling effects can depend on it safely.
+  const fetchProjects = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiClient.get('/projects');
+      setProjects(res.data);
+    } catch (err) {
+      console.error('Failed to fetch projects', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
+    // Async fetch — setState only runs after the request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProjects();
 
     const handleClickOutside = (event: MouseEvent) => {
@@ -42,28 +57,21 @@ const DashboardPage: React.FC = () => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchProjects = async () => {
-    try {
-      setLoading(true);
-      const res = await apiClient.get('/projects');
-      setProjects(res.data);
-    } catch (err) {
-      console.error('Failed to fetch projects', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Poll while any project is still indexing. The effect depends on the
+  // boolean, not the array — otherwise every fetch re-arms the interval.
+  const hasPendingProjects = projects.some(
+    (project) => project.status === 'processing' || project.status === 'pending'
+  );
 
   useEffect(() => {
-    if (!projects.some(project => project.status === 'processing' || project.status === 'pending')) {
-      return;
-    }
+    if (!hasPendingProjects) return;
 
     const intervalId = window.setInterval(fetchProjects, 5000);
     return () => window.clearInterval(intervalId);
-  }, [projects]);
+  }, [hasPendingProjects, fetchProjects]);
 
   const deleteProject = async (projectId: string) => {
     try {

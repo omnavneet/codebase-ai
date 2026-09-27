@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../services/apiClient';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Settings.css';
 
 const SettingsPage: React.FC = () => {
@@ -15,7 +16,6 @@ const SettingsPage: React.FC = () => {
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
   
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [themeEnabled, setThemeEnabled] = useState(false);
@@ -48,19 +48,9 @@ const SettingsPage: React.FC = () => {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch (err: any) {
-      setPasswordError(err.response?.data?.message || 'Failed to update password');
+    } catch (err) {
+      setPasswordError(getApiErrorMessage(err, 'Failed to update password'));
     }
-  };
-
-  const handleDeleteAccount = () => {
-    setShowDeleteConfirm(true);
-  };
-
-  const confirmDeleteAccount = () => {
-    // In a real app, we'd call an API to delete the account and log out
-    alert('Account deleted!');
-    setShowDeleteConfirm(false);
   };
 
   const userInitial = user?.email ? user.email.charAt(0).toUpperCase() : 'U';
@@ -208,32 +198,6 @@ const SettingsPage: React.FC = () => {
               </span>
             </label>
           </div>
-        </section>
-
-        <section className="settings-section danger-section">
-          <div className="section-header">
-            <h2 className="section-title">Danger Zone</h2>
-          </div>
-          
-          <div className="settings-description" style={{ marginBottom: '16px' }}>
-            Delete your account and all associated data. This action cannot be undone.
-          </div>
-          
-          {!showDeleteConfirm ? (
-            <button className="btn-danger-outlined" onClick={handleDeleteAccount}>
-              Delete Account
-            </button>
-          ) : (
-            <div className="confirm-delete">
-              <span>Are you sure? This cannot be undone.</span>
-              <button className="btn-danger-filled" onClick={confirmDeleteAccount}>
-                Yes, delete
-              </button>
-              <button className="btn-outlined" onClick={() => setShowDeleteConfirm(false)}>
-                Cancel
-              </button>
-            </div>
-          )}
         </section>
       </main>
     </div>

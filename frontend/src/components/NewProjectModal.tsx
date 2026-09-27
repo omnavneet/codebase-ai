@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/apiClient';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Modal.css';
 
 interface NewProjectModalProps {
@@ -65,8 +66,8 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
 
       // Navigate to project
       navigate(`/projects/${projectId}`);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create project');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to create project'));
     } finally {
       setLoading(false);
     }

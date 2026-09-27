@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
+import { type FileNode } from './FileTree';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Agent.css';
 
 interface ImprovementFinding {
@@ -33,29 +35,28 @@ const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const fetchFiles = async () => {
+      try {
+        const response = await apiClient.get(`/projects/${projectId}/files`);
+        // Flatten file tree to a plain list
+        const fileList: string[] = [];
+        const flattenTree = (tree: FileNode[]) => {
+          tree.forEach(item => {
+            if (item.type === 'file') {
+              fileList.push(item.path);
+            } else if (item.children) {
+              flattenTree(item.children);
+            }
+          });
+        };
+        flattenTree(response.data);
+        setFiles(fileList);
+      } catch (error) {
+        console.error('Failed to fetch files:', error);
+      }
+    };
     fetchFiles();
   }, [projectId]);
-
-  const fetchFiles = async () => {
-    try {
-      const response = await apiClient.get(`/projects/${projectId}/files`);
-      // Flatten file tree to a plain list
-      const fileList: string[] = [];
-      const flattenTree = (tree: any[]) => {
-        tree.forEach(item => {
-          if (item.type === 'file') {
-            fileList.push(item.path);
-          } else if (item.children) {
-            flattenTree(item.children);
-          }
-        });
-      };
-      flattenTree(response.data);
-      setFiles(fileList);
-    } catch (error) {
-      console.error('Failed to fetch files:', error);
-    }
-  };
 
   const handleImprove = async () => {
     if (!selectedFile || loading) return;
@@ -69,8 +70,8 @@ const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
         filePath: selectedFile,
       });
       setResult(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to review file');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to review file'));
     } finally {
       setLoading(false);
     }

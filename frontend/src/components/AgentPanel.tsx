@@ -4,6 +4,7 @@ import {
   renderAnswerWithCitations,
   type AgentInvestigation,
 } from './citationUtils';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Agent.css';
 
 interface AgentPanelProps {
@@ -30,8 +31,8 @@ const AgentPanel: React.FC<AgentPanelProps> = ({ projectId, onCitationClick }) =
         { question: question.trim() }
       );
       setResult(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Investigation failed');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Investigation failed'));
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ const AgentPanel: React.FC<AgentPanelProps> = ({ projectId, onCitationClick }) =
           className="agent-input"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyPress}
           placeholder="Ask a complex question about the codebase..."
           rows={3}
         />
