@@ -1,31 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
-import { type FileNode } from './FileTree';
+import { type Finding, sortFindings } from './findings';
+import { flattenFileTree } from '../utils/fileTree';
 import { getApiErrorMessage } from '../utils/apiError';
 import './Agent.css';
-
-interface ImprovementFinding {
-  severity: string;
-  category: string;
-  title: string;
-  lines: string;
-  description: string;
-  suggestion: string;
-  code_before?: string | null;
-  code_after?: string | null;
-}
 
 interface ImproveCodeResult {
   file_path: string;
   summary: string;
-  findings: ImprovementFinding[];
+  findings: Finding[];
 }
 
 interface ImprovePanelProps {
   projectId: string;
 }
-
-const SEVERITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
   const [files, setFiles] = useState<string[]>([]);
@@ -38,19 +26,7 @@ const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
     const fetchFiles = async () => {
       try {
         const response = await apiClient.get(`/projects/${projectId}/files`);
-        // Flatten file tree to a plain list
-        const fileList: string[] = [];
-        const flattenTree = (tree: FileNode[]) => {
-          tree.forEach(item => {
-            if (item.type === 'file') {
-              fileList.push(item.path);
-            } else if (item.children) {
-              flattenTree(item.children);
-            }
-          });
-        };
-        flattenTree(response.data);
-        setFiles(fileList);
+        setFiles(flattenFileTree(response.data));
       } catch (error) {
         console.error('Failed to fetch files:', error);
       }
@@ -77,12 +53,7 @@ const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
     }
   };
 
-  const sortedFindings = result
-    ? [...result.findings].sort(
-        (a, b) =>
-          (SEVERITY_ORDER[a.severity] ?? 99) - (SEVERITY_ORDER[b.severity] ?? 99),
-      )
-    : [];
+  const sortedFindings = result ? sortFindings(result.findings) : [];
 
   return (
     <div className="improve-panel">

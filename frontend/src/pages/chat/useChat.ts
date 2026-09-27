@@ -3,6 +3,9 @@ import apiClient from "../../services/apiClient"
 import { streamChatMessage } from "../../services/streamChat"
 import type { Citation, Message, Session } from "./types"
 
+/** Inactivity budget for one send: watchdog abort and stale-lock recovery. */
+const SEND_IDLE_MS = 45000
+
 /**
  * Owns all chat data: sessions, messages, the composer input and the
  * send/stream lifecycle (watchdog, sync fallback, orphaned-lock recovery).
@@ -163,7 +166,7 @@ export function useChat(projectId: string | undefined) {
     // activity has been recorded for a while, the lock is stale — release it
     // instead of blocking the composer forever.
     const lockIsStale =
-      loading && Date.now() - lastSendActivityRef.current > 45000
+      loading && Date.now() - lastSendActivityRef.current > SEND_IDLE_MS
     if (!queryText.trim() || (loading && !lockIsStale)) return
     if (lockIsStale) setLoading(false)
 
@@ -215,7 +218,7 @@ export function useChat(projectId: string | undefined) {
       watchdogId = setTimeout(() => {
         watchdogFired = true
         abortController.abort()
-      }, 45000)
+      }, SEND_IDLE_MS)
     }
 
     const abortController = new AbortController()

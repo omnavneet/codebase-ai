@@ -10,6 +10,7 @@ interface Project {
   name: string;
   status: 'pending' | 'processing' | 'ready' | 'error';
   fileCount?: number;
+  errorMessage?: string | null;
   createdAt: string;
 }
 
@@ -178,7 +179,10 @@ const DashboardPage: React.FC = () => {
                   <div className="project-row-name">{project.name}</div>
                   <div className="project-row-meta">
                     {project.status !== 'ready' && (
-                      <span className={`status-pill status-${project.status}`}>
+                      <span
+                        className={`status-pill status-${project.status}`}
+                        title={project.errorMessage || undefined}
+                      >
                         {getStatusText(project.status)}
                       </span>
                     )}

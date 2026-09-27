@@ -4,7 +4,7 @@ import {
   renderAnswerWithCitations,
   type AgentInvestigation,
 } from './citationUtils';
-import { type FileNode } from './FileTree';
+import { flattenFileTree } from '../utils/fileTree';
 import { getApiErrorMessage } from '../utils/apiError';
 import './Agent.css';
 
@@ -25,19 +25,7 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
     const fetchFiles = async () => {
       try {
         const response = await apiClient.get(`/projects/${projectId}/files`);
-        // Flatten file tree to a plain list
-        const fileList: string[] = [];
-        const flattenTree = (tree: FileNode[]) => {
-          tree.forEach(item => {
-            if (item.type === 'file') {
-              fileList.push(item.path);
-            } else if (item.children) {
-              flattenTree(item.children);
-            }
-          });
-        };
-        flattenTree(response.data);
-        setFiles(fileList);
+        setFiles(flattenFileTree(response.data));
       } catch (error) {
         console.error('Failed to fetch files:', error);
       }
