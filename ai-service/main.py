@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import json
@@ -16,16 +15,10 @@ from agent_tools import AgentTools
 load_dotenv()
 
 # Initialize FastAPI
+# NOTE: no CORS middleware is configured on purpose. This service is only ever
+# called server-to-server by the Spring backend (WebClient), never by a browser;
+# if it is ever exposed to one, add an explicit allow-list here.
 app = FastAPI(title="Codebase AI Service")
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:8080"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Initialize services
 embedding_service = EmbeddingService()
