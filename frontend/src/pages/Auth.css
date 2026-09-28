@@ -229,3 +229,65 @@
     opacity: 1;
   }
 }
+
+.auth-notice {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--m3-on-surface);
+  background: var(--m3-surface-container-high);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-sm);
+  padding: 14px 16px;
+  animation: slideDown 200ms var(--m3-easing-standard) both;
+}
+
+.auth-notice strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.auth-notice p {
+  margin: 0;
+}
+
+.auth-notice.success {
+  background: var(--m3-primary-container);
+  border-color: var(--m3-primary);
+  color: var(--m3-on-primary-container);
+}
+
+.auth-notice.error {
+  background: var(--m3-error-container);
+  border-color: var(--m3-error);
+  color: var(--m3-error);
+}
+
+/* Plain column form used outside the login/register slider. */
+.auth-verify-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.auth-resend-link {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--m3-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.auth-resend-link:hover {
+  text-decoration: underline;
+}
+
+.auth-resend-link:disabled {
+  color: var(--m3-outline);
+  cursor: not-allowed;
+  text-decoration: none;
+}

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import AuthPage from './pages/AuthPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
 import SettingsPage from './pages/SettingsPage';
@@ -43,6 +44,8 @@ function App() {
           <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
           <Route path="/register" element={<Navigate to="/auth?mode=register" replace />} />
           <Route path="/auth" element={<AuthPage />} />
+          {/* Target of the link in the verification email; the token is consumed here. */}
+          <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
           <Route
             path="/dashboard"
             element={

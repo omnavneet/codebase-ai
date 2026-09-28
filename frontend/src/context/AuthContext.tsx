@@ -6,12 +6,20 @@ interface User {
   userId: string;
 }
 
+export interface RegisterResult {
+  /** Server message, shown verbatim ("Check your email to verify your account."). */
+  message: string;
+  /** Address the verification link was sent to. */
+  email: string;
+}
+
 interface AuthContextType {
   isAuthenticated: boolean;
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<RegisterResult>;
+  resendVerification: (email: string) => Promise<string>;
   logout: () => Promise<void>;
 }
 
@@ -79,14 +87,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(true);
   };
 
-  const register = async (email: string, password: string) => {
+  /**
+   * Registration does not sign the user in: the backend creates the account
+   * unverified and emails a confirmation link, so the caller shows the "check your
+   * email" panel (and can offer a resend) instead of navigating to the dashboard.
+   */
+  const register = async (email: string, password: string): Promise<RegisterResult> => {
     const response = await apiClient.post('/auth/register', { email, password });
-    const token = response.data.accessToken;
 
-    localStorage.setItem('access_token', token);
+    return {
+      message: response.data?.message ?? 'Check your email to verify your account.',
+      email: response.data?.email ?? email,
+    };
+  };
 
-    setUser({ email: response.data.email, userId: response.data.userId });
-    setIsAuthenticated(true);
+  const resendVerification = async (email: string): Promise<string> => {
+    const response = await apiClient.post('/auth/resend-verification', { email });
+    return response.data?.message
+      ?? 'If that address still needs verification, a new link is on its way.';
   };
 
   const logout = async () => {
@@ -106,6 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       loading,
       login, 
       register, 
+      resendVerification,
       logout 
     }}>
       {children}

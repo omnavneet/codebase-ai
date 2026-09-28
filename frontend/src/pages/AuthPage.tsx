@@ -11,7 +11,7 @@ interface AuthPageProps {
 const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, isAuthenticated, loading } = useAuth();
+  const { login, register, resendVerification, isAuthenticated, loading } = useAuth();
   
   const queryMode = searchParams.get('mode');
   const startMode = (queryMode === 'register' || queryMode === 'login') ? queryMode : initialMode;
@@ -28,6 +28,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
   const [registerConfirm, setRegisterConfirm] = useState('');
   const [registerError, setRegisterError] = useState('');
 
+  // Set once registration succeeds: the account exists but is not usable yet, so the
+  // form is replaced by a "check your email" panel with a resend action.
+  const [verificationEmail, setVerificationEmail] = useState('');
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [resendNotice, setResendNotice] = useState('');
+  const [resending, setResending] = useState(false);
+
   useEffect(() => {
     if (isAuthenticated) {
       navigate('/dashboard');
@@ -39,6 +46,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
     setSearchParams({ mode: newMode });
     setLoginError('');
     setRegisterError('');
+    setVerificationEmail('');
+    setResendNotice('');
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -60,12 +69,30 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
       return;
     }
     try {
-      await register(registerEmail, registerPassword);
-      // navigation handled by useEffect
+      const result = await register(registerEmail, registerPassword);
+      // No session yet: the account becomes usable once the emailed link is opened.
+      setVerificationEmail(result.email);
+      setVerificationMessage(result.message);
+      setResendNotice('');
     } catch (err) {
       setRegisterError(getApiErrorMessage(err, 'Registration failed'));
     }
   };
+
+  const handleResendVerification = async (email: string) => {
+    setResending(true);
+    setResendNotice('');
+    try {
+      setResendNotice(await resendVerification(email));
+    } catch (err) {
+      setResendNotice(getApiErrorMessage(err, 'Could not send the verification email'));
+    } finally {
+      setResending(false);
+    }
+  };
+
+  // A 403 on login means the credentials were right but the address is unverified.
+  const loginNeedsVerification = loginError.toLowerCase().includes('verification');
 
   const isLoginActive = mode === 'login';
 
@@ -137,6 +164,19 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
               </div>
               
               {loginError && <div className="auth-error">{loginError}</div>}
+
+              {loginNeedsVerification && (
+                <button
+                  type="button"
+                  className="auth-resend-link"
+                  disabled={resending}
+                  onClick={() => handleResendVerification(loginEmail)}
+                >
+                  {resending ? 'Sending…' : 'Resend verification email'}
+                </button>
+              )}
+
+              {resendNotice && <div className="auth-notice">{resendNotice}</div>}
               
               <button type="submit" className="auth-submit" disabled={loading}>
                 {loading ? (
@@ -155,6 +195,39 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
             </form>
 
             {/* Register Form */}
+            {verificationEmail ? (
+              <div className="auth-form">
+                <div className="auth-notice">
+                  <strong>{verificationMessage || 'Check your email'}</strong>
+                  <p>
+                    We sent a verification link to <b>{verificationEmail}</b>. Open it to
+                    activate your account — the link expires in 24 hours.
+                  </p>
+                </div>
+
+                {resendNotice && <div className="auth-notice">{resendNotice}</div>}
+
+                <button
+                  type="button"
+                  className="auth-submit"
+                  disabled={resending}
+                  onClick={() => handleResendVerification(verificationEmail)}
+                >
+                  {resending ? (
+                    <span className="loading-dots">
+                      <span className="dot">.</span><span className="dot">.</span><span className="dot">.</span>
+                    </span>
+                  ) : 'Resend verification email'}
+                </button>
+
+                <div className="auth-footer">
+                  Already verified?{' '}
+                  <button type="button" className="auth-footer-link" onClick={() => handleModeSwitch('login')}>
+                    Sign in
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form className="auth-form" onSubmit={handleRegister}>
               <div className="form-field">
                 <input
@@ -210,6 +283,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       </div>
