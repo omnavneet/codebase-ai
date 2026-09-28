@@ -5,6 +5,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Published so the backend can also run on the host (the normal dev flow in the
+    # README, which points spring.datasource.url at localhost:5432); inside Compose it
+    # is reached as postgres:5432. Do not publish this in production.
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -14,6 +19,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Local-dev SMTP sink: verification emails land here instead of a real inbox.
+  # SMTP on 1025 (the backend talks to this), web UI on http://localhost:8025.
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - codebase-network
 
   ai-service:
     build:
@@ -56,6 +71,12 @@ services:
       APP_AI_SERVICE_URL: http://ai-service:8000
       APP_AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
       APP_JWT_SECRET: ${JWT_SECRET}
+      # Inside the compose network the SMTP host is the mailhog service; the
+      # verification link has to point at the SPA port published on the host.
+      SPRING_MAIL_HOST: mailhog
+      SPRING_MAIL_PORT: "1025"
+      APP_MAIL_FROM: ${MAIL_FROM:-no-reply@codebase-ai.local}
+      APP_PUBLIC_URL: http://localhost:${FRONTEND_PORT:-3000}
     volumes:
       - project-uploads:/app/uploads
     networks:

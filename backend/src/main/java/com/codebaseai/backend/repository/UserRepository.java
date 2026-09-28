@@ -8,4 +8,7 @@ import java.util.UUID;
 public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
+
+    /** Looks up the pending email-verification token by its hash (indexed). */
+    Optional<User> findByVerificationTokenHash(String verificationTokenHash);
 }

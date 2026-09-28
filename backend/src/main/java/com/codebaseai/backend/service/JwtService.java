@@ -7,10 +7,7 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Date;
-import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
@@ -76,13 +73,7 @@ public class JwtService {
     }
 
     public String hashToken(String token) {
-        // Use SHA-256 to hash refresh token before storing
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(token.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 algorithm not available", e);
-        }
+        // Only the SHA-256 digest is stored; see TokenHasher.
+        return TokenHasher.sha256Hex(token);
     }
 }

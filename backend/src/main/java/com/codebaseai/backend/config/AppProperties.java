@@ -21,6 +21,15 @@ public class AppProperties {
     private Chunking chunking = new Chunking();
     private Retrieval retrieval = new Retrieval();
     private Chat chat = new Chat();
+    private Mail mail = new Mail();
+    private Verification verification = new Verification();
+
+    /**
+     * Public URL of the SPA (what a user types in the browser), used to build links
+     * that are clicked from an email. Never the API base URL: the SPA route calls
+     * the API.
+     */
+    private String publicUrl = "http://localhost:5173";
 
     @Data
     public static class AiService {
@@ -63,5 +72,19 @@ public class AppProperties {
     public static class Chat {
         /** Server-side lifetime of one SSE answer stream. */
         private long streamTimeoutMs = 120_000L;
+    }
+
+    @Data
+    public static class Mail {
+        /** From address on outgoing mail; providers such as SES need a verified sender. */
+        private String from = "no-reply@codebase-ai.local";
+    }
+
+    @Data
+    public static class Verification {
+        /** How long a verification link stays valid. */
+        private int tokenTtlHours = 24;
+        /** Minimum seconds between two verification emails for the same address. */
+        private int resendCooldownSeconds = 60;
     }
 }

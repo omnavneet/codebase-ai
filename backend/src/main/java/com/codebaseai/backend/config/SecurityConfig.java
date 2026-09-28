@@ -20,6 +20,7 @@ public class SecurityConfig {
     
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final InMemoryRateLimitFilter inMemoryRateLimitFilter;
+    private final VerifiedUserFilter verifiedUserFilter;
     
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -42,7 +43,10 @@ public class SecurityConfig {
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
             .addFilterBefore(jwtAuthenticationFilter, 
                 UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(inMemoryRateLimitFilter, JwtAuthenticationFilter.class);
+            .addFilterAfter(inMemoryRateLimitFilter, JwtAuthenticationFilter.class)
+            // Anchored to a built-in filter so it is guaranteed to run after the JWT
+            // filter that populates the SecurityContext.
+            .addFilterAfter(verifiedUserFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();
     }

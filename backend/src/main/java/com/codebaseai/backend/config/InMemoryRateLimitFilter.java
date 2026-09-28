@@ -3,6 +3,7 @@ package com.codebaseai.backend.config;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.http.HttpStatus;
@@ -27,6 +28,12 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
     private static final int AI_LIMIT = 20;
     private static final long WINDOW_MILLIS = 60_000L;
 
+    /** Password entry, sign-up and verification-mail requests share the tight limit. */
+    private static final Set<String> AUTH_PATHS = Set.of(
+            "/api/auth/login",
+            "/api/auth/register",
+            "/api/auth/resend-verification");
+
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
     @Override
@@ -47,7 +54,7 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
     }
 
     private int limitFor(String path) {
-        if (path.equals("/api/auth/login") || path.equals("/api/auth/register")) {
+        if (AUTH_PATHS.contains(path)) {
             return AUTH_LIMIT;
         }
         if (path.matches("/api/projects/[^/]+/agent/.*")
