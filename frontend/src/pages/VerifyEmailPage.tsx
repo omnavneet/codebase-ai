@@ -29,7 +29,6 @@ const VerifyEmailPage: React.FC = () => {
 
   useEffect(() => {
     const token = tokenRef.current;
-    setSearchParams({}, { replace: true });
 
     if (!token) {
       setState('error');
@@ -44,25 +43,20 @@ const VerifyEmailPage: React.FC = () => {
     }
     verificationStartedRef.current = true;
 
-    let cancelled = false;
-
     apiClient
       .get('/auth/verify-email', { params: { token } })
       .then(response => {
-        if (cancelled) return;
         setState('success');
         setMessage(response.data?.message ?? 'Email verified. You can now sign in.');
+        setSearchParams({}, { replace: true });
       })
       .catch(error => {
-        if (cancelled) return;
         setState('error');
         setMessage(getApiErrorMessage(error, 'This verification link is invalid or has expired.'));
+        setSearchParams({}, { replace: true });
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [setSearchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleResend = async (event: React.FormEvent) => {
     event.preventDefault();
