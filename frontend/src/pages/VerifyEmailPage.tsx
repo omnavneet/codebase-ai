@@ -20,6 +20,7 @@ const VerifyEmailPage: React.FC = () => {
 
   // Captured once on mount: the effect below removes the token from the URL.
   const tokenRef = useRef<string | null>(searchParams.get('token'));
+  const verificationStartedRef = useRef(false);
   const [state, setState] = useState<VerificationState>('verifying');
   const [message, setMessage] = useState('');
   const [email, setEmail] = useState('');
@@ -35,6 +36,13 @@ const VerifyEmailPage: React.FC = () => {
       setMessage('This link is missing its verification token. Request a new email below.');
       return;
     }
+
+    // React StrictMode re-runs effects in development. Verification is a
+    // single-use server operation, so never submit the same token twice.
+    if (verificationStartedRef.current) {
+      return;
+    }
+    verificationStartedRef.current = true;
 
     let cancelled = false;
 
