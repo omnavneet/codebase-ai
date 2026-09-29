@@ -10,6 +10,9 @@
   background-color: var(--m3-surface);
   color: var(--m3-on-surface);
   font-family: inherit;
+  /* Explicit containing block for the absolutely-positioned overlay drawer and
+     its scrim on compact layouts, instead of relying on the viewport. */
+  position: relative;
 }
 
 /* ============================================================
@@ -1194,6 +1197,219 @@
 @media (prefers-reduced-motion: reduce) {
   .message-actions {
     transition: none;
+  }
+}
+
+/* ============================================================
+   9. Workspace chrome polish (additive refinements)
+   ============================================================ */
+
+/* ---------- Session rows ----------
+   The clickable region is a real button, styled as the row itself so the
+   wrapper stays invisible while remaining reachable by keyboard. */
+.session-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+
+.session-open:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--m3-shape-sm);
+}
+
+/* Both children are spans inside the button, so they need an explicit
+   display for the ellipsis/overflow rules to take effect. */
+.session-title,
+.session-date {
+  display: block;
+}
+
+.session-item {
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+/* The delete action is a sibling of the open button; reveal it whenever
+   anything inside the row has keyboard focus, not just on hover. */
+.session-item:hover .session-actions,
+.session-item.active .session-actions,
+.session-item:focus-within .session-actions {
+  opacity: 1;
+}
+
+.session-item:focus-within {
+  background: var(--m3-surface-variant);
+}
+
+/* ---------- Sidebar empty state ---------- */
+.sidebar-empty-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+}
+
+.sidebar-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: var(--space-3);
+  border-radius: 50%;
+  background: var(--m3-surface-container);
+  color: var(--m3-outline);
+}
+
+.sidebar-empty-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+}
+
+.sidebar-empty-text {
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--m3-on-surface-subtle);
+}
+
+.btn-start-chat-hint {
+  margin-top: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.btn-start-chat-hint:hover {
+  background: var(--m3-primary-soft);
+}
+
+.btn-start-chat-hint:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* ---------- Drawer scrim (compact layouts) ----------
+   Sits under the drawer and over the workspace, starting below the header. */
+.sidebar-backdrop {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 19;
+  padding: 0;
+  border: 0;
+  background: rgba(20, 22, 26, 0.32);
+  cursor: pointer;
+  animation: fadeIn var(--m3-duration-short) var(--m3-ease-out) both;
+}
+
+/* ---------- Header: focus + current-section affordances ---------- */
+.nav-pill:focus-visible,
+.btn-header-back:focus-visible,
+.btn-icon-header:focus-visible,
+.tools-menu-item:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.nav-pill {
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+/* Mirrors `.active` so the current section is still obvious without the
+   class, e.g. for assistive tech reading the DOM. */
+.nav-pill[aria-current='page'] {
+  background: var(--m3-surface);
+  color: var(--m3-primary);
+  box-shadow: var(--shadow-xs);
+}
+
+/* The tools dropdown opens the same way as every other menu in the product. */
+.tools-menu {
+  box-shadow: var(--shadow-md);
+  transform-origin: top right;
+  animation: menuIn var(--m3-duration-short) var(--m3-ease-out) both;
+}
+
+.tools-menu-item {
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+/* ---------- Project indexing pill ---------- */
+.project-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-label);
+  padding: 2px 8px;
+  border-radius: var(--m3-shape-full);
+  white-space: nowrap;
+}
+
+.project-status-pill.processing,
+.project-status-pill.pending {
+  background: var(--m3-primary-soft);
+  color: var(--m3-primary-active);
+}
+
+.project-status-pill.error {
+  background: var(--m3-error-container);
+  color: var(--m3-error);
+}
+
+/* ---------- Composer status row ---------- */
+.composer-hints {
+  min-height: 18px;
+}
+
+.composer-status,
+.composer-context-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+}
+
+.composer-status {
+  color: var(--m3-primary);
+}
+
+.composer-context-hint {
+  color: var(--m3-on-surface-subtle);
+}
+
+/* ---------- Empty-state chips ---------- */
+.feature-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+@media (max-width: 900px) {
+  .chat-header {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .project-title-text {
+    max-width: 130px;
   }
 }
 

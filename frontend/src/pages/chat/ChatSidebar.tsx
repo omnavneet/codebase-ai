@@ -109,6 +109,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         </div>
         {activeTab === "chat" && (
           <button
+            type="button"
             className="btn-new-chat"
             onClick={onCreateSession}
             title="Start a new chat"
@@ -127,9 +128,21 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 <>
             {sessions.length === 0 ? (
               <div className="sidebar-empty-hint">
-                <p>No conversations yet.</p>
-                <button className="btn-start-chat-hint" onClick={onCreateSession}>
-                  Create your first chat
+                <span className="sidebar-empty-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                </span>
+                <p className="sidebar-empty-title">No conversations yet</p>
+                <p className="sidebar-empty-text">
+                  Ask a question to start one — it is saved here.
+                </p>
+                <button
+                  type="button"
+                  className="btn-start-chat-hint"
+                  onClick={onCreateSession}
+                >
+                  Start a chat
                 </button>
               </div>
             ) : (
@@ -137,41 +150,53 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 <div
                   key={session.id}
                   className={`session-item ${session.id === activeSession ? "active" : ""}`}
-                  onClick={() => onSelectSession(session.id)}
                 >
-                  <div className="session-icon">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                    </svg>
-                  </div>
-                  <div className="session-info">
-                    {renamingSessionId === session.id ? (
-                      <input
-                        className="session-title-input"
-                        value={renameTitle}
-                        autoFocus
-                        onChange={(event) => onRenameTitleChange(event.target.value)}
-                        onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") onSaveRenaming(session.id)
-                          if (event.key === "Escape") onCancelRenaming()
-                        }}
-                        onBlur={() => onCancelRenaming()}
-                      />
-                    ) : (
-                      <div
-                        className="session-title"
-                        title={session.title}
-                        onDoubleClick={(event) => {
-                          event.stopPropagation()
-                          onStartRenaming(session)
-                        }}
-                      >
-                        {session.title}
-                      </div>
-                    )}
-                    <div className="session-date">{formatDate(session.updatedAt)}</div>
-                  </div>
+                  {/* The row's clickable region is a real button so the list is
+                      reachable by keyboard. The delete action sits beside it
+                      rather than inside it — nested buttons are invalid. */}
+                  {renamingSessionId === session.id ? (
+                    <div className="session-open">
+                      <span className="session-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                      </span>
+                      <span className="session-info">
+                        <input
+                          className="session-title-input"
+                          value={renameTitle}
+                          autoFocus
+                          aria-label="Chat title"
+                          onChange={(event) => onRenameTitleChange(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") onSaveRenaming(session.id)
+                            if (event.key === "Escape") onCancelRenaming()
+                          }}
+                          onBlur={() => onCancelRenaming()}
+                        />
+                        <span className="session-date">{formatDate(session.updatedAt)}</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="session-open"
+                      onClick={() => onSelectSession(session.id)}
+                      onDoubleClick={() => onStartRenaming(session)}
+                      title={`${session.title} — double-click to rename`}
+                      aria-current={session.id === activeSession ? "true" : undefined}
+                    >
+                      <span className="session-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                      </span>
+                      <span className="session-info">
+                        <span className="session-title">{session.title}</span>
+                        <span className="session-date">{formatDate(session.updatedAt)}</span>
+                      </span>
+                    </button>
+                  )}
                   <div className="session-actions">
                     <button
                       type="button"

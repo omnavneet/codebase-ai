@@ -13,6 +13,13 @@ interface ChatHeaderProps {
 
 const TOOLS: TabId[] = ["docs", "explain", "debug", "improve"]
 
+/** Human labels for the indexing states the API reports. */
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  pending: "Queued",
+  processing: "Indexing",
+  error: "Indexing failed",
+}
+
 const TOOL_META: Record<
   string,
   { name: string; desc: string; icon: React.ReactNode }
@@ -119,9 +126,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     <header className="chat-header">
       <div className="header-left">
         <button
+          type="button"
           className="btn-header-back"
           onClick={onBack}
           title="Return to projects dashboard"
+          aria-label="Back to projects"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="19" y1="12" x2="5" y2="12"></line>
@@ -141,15 +150,23 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
             </svg>
           </span>
           <span className="project-title-text" title={projectName}>
-            {projectName || "Loading project..."}
+            {projectName || "Loading project…"}
           </span>
-          {projectStatus && (
+          {/* Only non-ready states are worth surfacing: a permanent "ready"
+              badge is pure noise once indexing has finished. Previously the
+              class produced `status-processing` while the CSS expected
+              `.processing`, so the pill was always rendered neutral. */}
+          {projectStatus && projectStatus !== "ready" && (
             <span
-              className={`project-status-pill ${
-                projectStatus !== "ready" ? `status-${projectStatus}` : ""
-              }`}
+              className={`project-status-pill ${projectStatus}`}
+              title={
+                projectStatus === "error"
+                  ? "Indexing failed for this project"
+                  : "Indexing in progress"
+              }
             >
-              {projectStatus}
+              <span className="ui-dot ui-dot-pulse" aria-hidden="true" />
+              {PROJECT_STATUS_LABELS[projectStatus] ?? projectStatus}
             </span>
           )}
         </div>
@@ -158,8 +175,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
       {/* Unified Navigation Segments */}
       <div className="header-nav">
         <button
+          type="button"
           className={`nav-pill ${activeTab === "chat" ? "active" : ""}`}
           onClick={() => onSelectTab("chat")}
+          aria-current={activeTab === "chat" ? "page" : undefined}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -168,8 +187,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         </button>
 
         <button
+          type="button"
           className={`nav-pill ${activeTab === "files" ? "active" : ""}`}
           onClick={() => onSelectTab("files")}
+          aria-current={activeTab === "files" ? "page" : undefined}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -178,8 +199,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         </button>
 
         <button
+          type="button"
           className={`nav-pill ${activeTab === "search" ? "active" : ""}`}
           onClick={() => onSelectTab("search")}
+          aria-current={activeTab === "search" ? "page" : undefined}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8"></circle>
@@ -189,8 +212,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         </button>
 
         <button
+          type="button"
           className={`nav-pill ${activeTab === "agent" ? "active" : ""}`}
           onClick={() => onSelectTab("agent")}
+          aria-current={activeTab === "agent" ? "page" : undefined}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
@@ -201,10 +226,12 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         {/* Contextual Tools Dropdown */}
         <div className="tools-dropdown-wrapper" ref={toolsMenuRef}>
           <button
+            type="button"
             className={`nav-pill tools-trigger ${isToolActive ? "active" : ""}`}
             onClick={() => setToolsMenuOpen(!toolsMenuOpen)}
-            aria-haspopup="true"
+            aria-haspopup="menu"
             aria-expanded={toolsMenuOpen}
+            aria-current={isToolActive ? "page" : undefined}
           >
             <span>{isToolActive ? getToolTitle(activeTab) : "Tools"}</span>
             <svg
@@ -228,9 +255,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
                 const meta = TOOL_META[tab]
                 return (
                   <button
+                    type="button"
                     key={tab}
                     className={`tools-menu-item ${activeTab === tab ? "active" : ""}`}
                     role="menuitem"
+                    aria-current={activeTab === tab ? "page" : undefined}
                     onClick={() => {
                       onSelectTab(tab)
                       setToolsMenuOpen(false)

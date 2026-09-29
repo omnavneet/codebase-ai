@@ -57,6 +57,36 @@ const ChatPage: React.FC = () => {
   // user's scroll position when deciding whether to follow the answer.
   const chatBodyRef = useRef<HTMLDivElement>(null)
 
+  // Below this width the sidebar overlays the workspace rather than sitting
+  // beside it, so it has to behave as a dismissable drawer.
+  const [isCompact, setIsCompact] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 900px)").matches,
+  )
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)")
+    const handleChange = () => setIsCompact(query.matches)
+    query.addEventListener("change", handleChange)
+    return () => query.removeEventListener("change", handleChange)
+  }, [])
+
+  const closeDrawerIfCompact = () => {
+    if (isCompact) setSidebarCollapsed(true)
+  }
+
+  // Escape dismisses the overlay drawer. On desktop this is a no-op because
+  // the sidebar is docked and always visible.
+  useEffect(() => {
+    if (!isCompact || sidebarCollapsed) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarCollapsed(true)
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [isCompact, sidebarCollapsed])
+
   const fetchProjectInfo = async () => {
     try {
       const response = await apiClient.get(`/projects/${projectId}`)
@@ -187,6 +217,9 @@ const ChatPage: React.FC = () => {
   const handleSelectSession = (sessionId: string) => {
     chat.selectSession(sessionId)
     setActiveTab("chat")
+    // On phones the drawer would otherwise stay open over the conversation the
+    // user just chose.
+    closeDrawerIfCompact()
   }
 
   const handleCreateSession = () => {
@@ -215,6 +248,16 @@ const ChatPage: React.FC = () => {
   }
   return (
     <div className="chat-container">
+      {/* Drawer scrim: only exists while the sidebar overlays the workspace. */}
+      {isCompact && !sidebarCollapsed && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setSidebarCollapsed(true)}
+        />
+      )}
+
       <ChatSidebar
         projectId={projectId}
         activeTab={activeTab}

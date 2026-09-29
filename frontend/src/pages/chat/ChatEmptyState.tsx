@@ -102,20 +102,37 @@ const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({
         ))}
       </div>
 
-      {/* Quick Feature Chips */}
+      {/* Quick Feature Chips — SVG icons rather than emoji so they inherit
+          the text colour and stay legible at small sizes. */}
       <div className="empty-features-strip">
-        <span className="features-label">Contextual Tools:</span>
-        <button className="feature-chip" onClick={() => onNavigate("files")}>
-          📁 Browse Files
+        <span className="features-label">Go to</span>
+        <button type="button" className="feature-chip" onClick={() => onNavigate("files")}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          Files
         </button>
-        <button className="feature-chip" onClick={() => onNavigate("search")}>
-          🔍 Code Search
+        <button type="button" className="feature-chip" onClick={() => onNavigate("search")}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          Semantic search
         </button>
-        <button className="feature-chip" onClick={() => onNavigate("agent")}>
-          ⚡ Deep Agent
+        <button type="button" className="feature-chip" onClick={() => onNavigate("agent")}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          Agent
         </button>
-        <button className="feature-chip" onClick={() => onNavigate("docs")}>
-          📝 Generate README
+        <button type="button" className="feature-chip" onClick={() => onNavigate("docs")}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+          Generate README
         </button>
       </div>
     </div>
