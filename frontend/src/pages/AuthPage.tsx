@@ -8,10 +8,17 @@ interface AuthPageProps {
   initialMode?: 'login' | 'register';
 }
 
+/**
+ * Shape check only. Anything stricter rejects addresses that are actually
+ * deliverable, and the backend is the authority on whether one exists.
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+
 const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, resendVerification, isAuthenticated, loading } = useAuth();
+  const { login, register, resendVerification, isAuthenticated } = useAuth();
   
   const queryMode = searchParams.get('mode');
   const startMode = (queryMode === 'register' || queryMode === 'login') ? queryMode : initialMode;
@@ -35,6 +42,27 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
   const [resendNotice, setResendNotice] = useState('');
   const [resending, setResending] = useState(false);
 
+  /**
+   * Which submit is currently in flight. Drives the button's loading state and
+   * blocks double submissions. Note this is deliberately NOT `useAuth().loading`
+   * — that flag only covers restoring an existing session, so reusing it left
+   * the submit button live and silent during a login request.
+   */
+  const [submitting, setSubmitting] = useState<'login' | 'register' | null>(null);
+
+  // Field-level validation lives apart from the form-level error so each
+  // message can be attached to the input that produced it.
+  const [loginFieldErrors, setLoginFieldErrors] = useState<{
+    email?: string;
+    password?: string;
+  }>({});
+  const [registerFieldErrors, setRegisterFieldErrors] = useState<{
+    email?: string;
+    password?: string;
+    confirm?: string;
+  }>({});
+
+
   useEffect(() => {
     if (isAuthenticated) {
       navigate('/dashboard');
@@ -42,40 +70,76 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
   }, [isAuthenticated, navigate]);
 
   const handleModeSwitch = (newMode: 'login' | 'register') => {
+    // Switching panels invalidates every message from the previous one,
+    // otherwise an error left over from one form lingers under the other.
     setMode(newMode);
     setSearchParams({ mode: newMode });
     setLoginError('');
     setRegisterError('');
+    setLoginFieldErrors({});
+    setRegisterFieldErrors({});
     setVerificationEmail('');
     setResendNotice('');
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+
+    const nextErrors = {
+      email: EMAIL_PATTERN.test(loginEmail.trim())
+        ? undefined
+        : 'Enter a valid email address.',
+      password: loginPassword ? undefined : 'Enter your password.',
+    };
+    setLoginFieldErrors(nextErrors);
     setLoginError('');
+    if (nextErrors.email || nextErrors.password) return;
+
+    setSubmitting('login');
     try {
-      await login(loginEmail, loginPassword);
-      // navigation handled by useEffect
+      await login(loginEmail.trim(), loginPassword);
+      // Success keeps the button in its loading state: the redirect above
+      // unmounts this page, so clearing it here would only cause a flash.
     } catch (err) {
-      setLoginError(getApiErrorMessage(err, 'Login failed'));
+      setLoginError(
+        getApiErrorMessage(err, 'Sign in failed. Check your email and password.'),
+      );
+      setSubmitting(null);
     }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+
+    const nextErrors = {
+      email: EMAIL_PATTERN.test(registerEmail.trim())
+        ? undefined
+        : 'Enter a valid email address.',
+      password: registerPassword ? undefined : 'Choose a password.',
+      confirm:
+        registerPassword === registerConfirm
+          ? undefined
+          : 'Passwords do not match.',
+    };
+    setRegisterFieldErrors(nextErrors);
     setRegisterError('');
-    if (registerPassword !== registerConfirm) {
-      setRegisterError('Passwords do not match');
-      return;
-    }
+    if (nextErrors.email || nextErrors.password || nextErrors.confirm) return;
+
+    setSubmitting('register');
     try {
-      const result = await register(registerEmail, registerPassword);
+      const result = await register(registerEmail.trim(), registerPassword);
       // No session yet: the account becomes usable once the emailed link is opened.
       setVerificationEmail(result.email);
       setVerificationMessage(result.message);
       setResendNotice('');
     } catch (err) {
-      setRegisterError(getApiErrorMessage(err, 'Registration failed'));
+      setRegisterError(
+        getApiErrorMessage(err, 'Could not create your account.'),
+      );
+    } finally {
+      setSubmitting(null);
     }
   };
 
@@ -137,53 +201,103 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
             style={{ transform: `translateX(${isLoginActive ? '0%' : '-50%'})` }}
           >
             {/* Login Form */}
-            <form className="auth-form" onSubmit={handleLogin}>
-              <div className="form-field">
-                <input
-                  id="login-email"
-                  type="email"
-                  placeholder=" "
-                  required
-                  value={loginEmail}
-                  onChange={e => setLoginEmail(e.target.value)}
-                  className={loginError ? 'error-input' : ''}
-                />
-                <label htmlFor="login-email">Email</label>
+            <form className="auth-form" onSubmit={handleLogin} noValidate>
+              <div className="auth-field-group">
+                <div className="form-field">
+                  <input
+                    id="login-email"
+                    type="email"
+                    placeholder=" "
+                    required
+                    autoComplete="email"
+                    autoFocus
+                    value={loginEmail}
+                    onChange={e => {
+                      setLoginEmail(e.target.value);
+                      if (loginFieldErrors.email) {
+                        setLoginFieldErrors(prev => ({ ...prev, email: undefined }));
+                      }
+                    }}
+                    aria-invalid={loginFieldErrors.email ? true : undefined}
+                    aria-describedby={loginFieldErrors.email ? 'login-email-error' : undefined}
+                    className={loginFieldErrors.email ? 'error-input' : ''}
+                  />
+                  <label htmlFor="login-email">Email</label>
+                </div>
+                {loginFieldErrors.email && (
+                  <p className="ui-field-error" id="login-email-error" role="alert">
+                    {loginFieldErrors.email}
+                  </p>
+                )}
               </div>
-              <div className="form-field">
-                <input
-                  id="login-password"
-                  type="password"
-                  placeholder=" "
-                  required
-                  value={loginPassword}
-                  onChange={e => setLoginPassword(e.target.value)}
-                  className={loginError ? 'error-input' : ''}
-                />
-                <label htmlFor="login-password">Password</label>
+              <div className="auth-field-group">
+                <div className="form-field">
+                  <input
+                    id="login-password"
+                    type="password"
+                    placeholder=" "
+                    required
+                    autoComplete="current-password"
+                    value={loginPassword}
+                    onChange={e => {
+                      setLoginPassword(e.target.value);
+                      if (loginFieldErrors.password) {
+                        setLoginFieldErrors(prev => ({ ...prev, password: undefined }));
+                      }
+                    }}
+                    aria-invalid={loginFieldErrors.password ? true : undefined}
+                    aria-describedby={loginFieldErrors.password ? 'login-password-error' : undefined}
+                    className={loginFieldErrors.password ? 'error-input' : ''}
+                  />
+                  <label htmlFor="login-password">Password</label>
+                </div>
+                {loginFieldErrors.password && (
+                  <p className="ui-field-error" id="login-password-error" role="alert">
+                    {loginFieldErrors.password}
+                  </p>
+                )}
               </div>
               
-              {loginError && <div className="auth-error">{loginError}</div>}
+              {loginError && (
+                <div className="auth-error" role="alert">
+                  {loginError}
+                </div>
+              )}
 
               {loginNeedsVerification && (
                 <button
                   type="button"
                   className="auth-resend-link"
                   disabled={resending}
-                  onClick={() => handleResendVerification(loginEmail)}
+                  onClick={() => handleResendVerification(loginEmail.trim())}
                 >
-                  {resending ? 'Sending…' : 'Resend verification email'}
+                  {resending ? (
+                    <>
+                      <span className="spinner spinner-xs" aria-hidden="true" />
+                      Sending…
+                    </>
+                  ) : (
+                    'Resend verification email'
+                  )}
                 </button>
               )}
 
               {resendNotice && <div className="auth-notice">{resendNotice}</div>}
-              
-              <button type="submit" className="auth-submit" disabled={loading}>
-                {loading ? (
-                  <span className="loading-dots">
-                    <span className="dot">.</span><span className="dot">.</span><span className="dot">.</span>
-                  </span>
-                ) : 'Sign In'}
+
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={submitting !== null}
+                aria-busy={submitting === 'login'}
+              >
+                {submitting === 'login' ? (
+                  <>
+                    <span className="spinner spinner-sm" aria-hidden="true" />
+                    <span>Signing in…</span>
+                  </>
+                ) : (
+                  'Sign In'
+                )}
               </button>
 
               <div className="auth-footer">
@@ -211,13 +325,17 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
                   type="button"
                   className="auth-submit"
                   disabled={resending}
+                  aria-busy={resending}
                   onClick={() => handleResendVerification(verificationEmail)}
                 >
                   {resending ? (
-                    <span className="loading-dots">
-                      <span className="dot">.</span><span className="dot">.</span><span className="dot">.</span>
-                    </span>
-                  ) : 'Resend verification email'}
+                    <>
+                      <span className="spinner spinner-sm" aria-hidden="true" />
+                      <span>Sending…</span>
+                    </>
+                  ) : (
+                    'Resend verification email'
+                  )}
                 </button>
 
                 <div className="auth-footer">
@@ -228,52 +346,113 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
                 </div>
               </div>
             ) : (
-            <form className="auth-form" onSubmit={handleRegister}>
-              <div className="form-field">
-                <input
-                  id="register-email"
-                  type="email"
-                  placeholder=" "
-                  required
-                  value={registerEmail}
-                  onChange={e => setRegisterEmail(e.target.value)}
-                  className={registerError ? 'error-input' : ''}
-                />
-                <label htmlFor="register-email">Email</label>
+            <form className="auth-form" onSubmit={handleRegister} noValidate>
+              <div className="auth-field-group">
+                <div className="form-field">
+                  <input
+                    id="register-email"
+                    type="email"
+                    placeholder=" "
+                    required
+                    autoComplete="email"
+                    value={registerEmail}
+                    onChange={e => {
+                      setRegisterEmail(e.target.value);
+                      if (registerFieldErrors.email) {
+                        setRegisterFieldErrors(prev => ({ ...prev, email: undefined }));
+                      }
+                    }}
+                    aria-invalid={registerFieldErrors.email ? true : undefined}
+                    aria-describedby={registerFieldErrors.email ? 'register-email-error' : undefined}
+                    className={registerFieldErrors.email ? 'error-input' : ''}
+                  />
+                  <label htmlFor="register-email">Email</label>
+                </div>
+                {registerFieldErrors.email && (
+                  <p className="ui-field-error" id="register-email-error" role="alert">
+                    {registerFieldErrors.email}
+                  </p>
+                )}
               </div>
-              <div className="form-field">
-                <input
-                  id="register-password"
-                  type="password"
-                  placeholder=" "
-                  required
-                  value={registerPassword}
-                  onChange={e => setRegisterPassword(e.target.value)}
-                  className={registerError ? 'error-input' : ''}
-                />
-                <label htmlFor="register-password">Password</label>
+              <div className="auth-field-group">
+                <div className="form-field">
+                  <input
+                    id="register-password"
+                    type="password"
+                    placeholder=" "
+                    required
+                    autoComplete="new-password"
+                    value={registerPassword}
+                    onChange={e => {
+                      setRegisterPassword(e.target.value);
+                      if (registerFieldErrors.password || registerFieldErrors.confirm) {
+                        setRegisterFieldErrors(prev => ({
+                          ...prev,
+                          password: undefined,
+                          confirm: undefined,
+                        }));
+                      }
+                    }}
+                    aria-invalid={registerFieldErrors.password ? true : undefined}
+                    aria-describedby={registerFieldErrors.password ? 'register-password-error' : undefined}
+                    className={registerFieldErrors.password ? 'error-input' : ''}
+                  />
+                  <label htmlFor="register-password">Password</label>
+                </div>
+                {registerFieldErrors.password && (
+                  <p className="ui-field-error" id="register-password-error" role="alert">
+                    {registerFieldErrors.password}
+                  </p>
+                )}
               </div>
-              <div className="form-field">
-                <input
-                  id="register-confirm"
-                  type="password"
-                  placeholder=" "
-                  required
-                  value={registerConfirm}
-                  onChange={e => setRegisterConfirm(e.target.value)}
-                  className={registerError ? 'error-input' : ''}
-                />
-                <label htmlFor="register-confirm">Confirm Password</label>
+              <div className="auth-field-group">
+                <div className="form-field">
+                  <input
+                    id="register-confirm"
+                    type="password"
+                    placeholder=" "
+                    required
+                    autoComplete="new-password"
+                    value={registerConfirm}
+                    onChange={e => {
+                      setRegisterConfirm(e.target.value);
+                      if (registerFieldErrors.confirm) {
+                        setRegisterFieldErrors(prev => ({ ...prev, confirm: undefined }));
+                      }
+                    }}
+                    aria-invalid={registerFieldErrors.confirm ? true : undefined}
+                    aria-describedby={registerFieldErrors.confirm ? 'register-confirm-error' : undefined}
+                    className={registerFieldErrors.confirm ? 'error-input' : ''}
+                  />
+                  <label htmlFor="register-confirm">Confirm Password</label>
+                </div>
+                {registerFieldErrors.confirm && (
+                  <p className="ui-field-error" id="register-confirm-error" role="alert">
+                    {registerFieldErrors.confirm}
+                  </p>
+                )}
               </div>
 
-              {registerError && <div className="auth-error">{registerError}</div>}
+              {registerError && (
+                <div className="auth-error" role="alert">
+                  {registerError}
+                </div>
+              )}
 
-              <button type="submit" className="auth-submit" disabled={loading}>
-                {loading ? (
-                  <span className="loading-dots">
-                    <span className="dot">.</span><span className="dot">.</span><span className="dot">.</span>
-                  </span>
-                ) : 'Create Account'}
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={submitting !== null}
+                aria-busy={submitting === 'register'}
+              >
+                {submitting === 'register' ? (
+                  <>
+                    <span className="spinner spinner-sm" aria-hidden="true" />
+                    <span>Creating account…</span>
+                  </>
+                ) : (
+                  'Create Account'
+                )}
               </button>
 
               <div className="auth-footer">

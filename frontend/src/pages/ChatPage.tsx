@@ -53,6 +53,9 @@ const ChatPage: React.FC = () => {
   // Drag-to-resize sidebar
   const [sidebarWidth, setSidebarWidth] = useState(260)
   const resizeHandleRef = useRef<HTMLDivElement>(null)
+  // The scrollable conversation region. Owned here so MessageList can read the
+  // user's scroll position when deciding whether to follow the answer.
+  const chatBodyRef = useRef<HTMLDivElement>(null)
 
   const fetchProjectInfo = async () => {
     try {
@@ -249,7 +252,7 @@ const ChatPage: React.FC = () => {
         />
 
         {/* Conversation Stream or Purposeful Empty State */}
-        <div className="chat-body">
+        <div className="chat-body" ref={chatBodyRef}>
           {activeTab === "chat" &&
             (chat.messages.length === 0 ? (
               <ChatEmptyState
@@ -262,6 +265,7 @@ const ChatPage: React.FC = () => {
                 messages={chat.messages}
                 loading={chat.loading}
                 onCitationClick={setSelectedCitation}
+                scrollContainerRef={chatBodyRef}
               />
             ))}
         </div>

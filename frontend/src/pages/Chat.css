@@ -1066,6 +1066,137 @@
    7. Enterprise UI Polish (additive refinements)
    ============================================================ */
 
+
+/* ============================================================
+   8. Conversation polish (additive refinements)
+   ============================================================ */
+
+/* Messages rise into place with a short, staggered-feeling entrance. The
+   distance is tiny on purpose: it should read as "arrived", not "animated". */
+.message-row {
+  animation: rowEnter var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
+/* ---------- Footer row: timestamp + contextual actions ----------
+   They share one reserved row, so revealing the actions on hover never
+   changes the height of the message. */
+.message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: 6px;
+  min-height: 20px;
+}
+
+.message-footer .message-time {
+  margin-top: 0;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--m3-duration-short) var(--m3-ease-out);
+}
+
+/* Revealed by pointer hover OR keyboard focus anywhere inside the message,
+   so the action is reachable without a mouse. */
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions {
+  opacity: 1;
+}
+
+.message-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--m3-shape-xs);
+  border: 1px solid var(--m3-outline-variant);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface-variant);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out),
+              border-color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.message-action:hover {
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface);
+  border-color: var(--m3-border-strong);
+}
+
+.message-action:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* On the blue user bubble the action adopts the bubble's own palette. */
+.message-row.user .message-action {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--m3-on-primary);
+}
+
+.message-row.user .message-action:hover {
+  background: rgba(255, 255, 255, 0.26);
+  color: var(--m3-on-primary);
+}
+
+/* ---------- Citations ---------- */
+.citations-header {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-label);
+}
+
+.citation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              border-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.citation-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.citations-list {
+  gap: 6px;
+}
+
+/* ---------- Streaming body ---------- */
+/* Leave room at the end of the transcript so the last line is never flush
+   against the composer. */
+.messages-stream {
+  padding-bottom: var(--space-4);
+}
+
+/* Fade the transcript into the composer instead of cutting it. Kept to a
+   single stop so it reads as a vignette, not a gradient. */
+.chat-composer-wrapper {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    var(--m3-surface) 45%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-actions {
+    transition: none;
+  }
+}
+
 /* ---------- Message stream ---------- */
 .message-row {
   animation: fadeSlideUp 240ms var(--m3-easing-emphasized);

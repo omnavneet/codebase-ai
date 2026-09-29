@@ -6,9 +6,11 @@
 :root {
   /* Primary */
   --m3-primary: #1a73e8;
-  --m3-primary-hover: #1567d3;
+  --m3-primary-hover: #1666cf;
+  --m3-primary-active: #1257b0;
   --m3-on-primary: #ffffff;
   --m3-primary-container: #d3e3fd;
+  --m3-primary-soft: #eaf1fd;
   --m3-on-primary-container: #041e49;
 
   /* Secondary */
@@ -17,21 +19,26 @@
   --m3-secondary-container: #e8eaed;
   --m3-on-secondary-container: #3c4043;
 
-  /* Surface */
+  /* Surface — calm neutral ramp; surfaces stay quiet, hierarchy comes from type */
   --m3-surface: #ffffff;
-  --m3-surface-dim: #f8f9fa;
-  --m3-surface-variant: #f1f3f4;
+  --m3-surface-dim: #f7f8f9;
+  --m3-surface-variant: #f1f2f4;
   --m3-surface-container-lowest: #ffffff;
-  --m3-surface-container-low: #f8f9fa;
-  --m3-surface-container: #f1f3f4;
-  --m3-surface-container-high: #eceef0;
-  --m3-surface-container-highest: #e3e5e8;
-  --m3-on-surface: #1f1f1f;
-  --m3-on-surface-variant: #444746;
+  --m3-surface-container-low: #fafbfb;
+  --m3-surface-container: #f4f5f6;
+  --m3-surface-container-high: #eef0f1;
+  --m3-surface-container-highest: #e6e8ea;
+  --m3-on-surface: #14161a;
+  --m3-on-surface-variant: #5c6169;
+  /* Tertiary text/meta — only ever used for non-essential metadata. */
+  --m3-on-surface-subtle: #83888f;
 
-  /* Outline */
-  --m3-outline: #747775;
-  --m3-outline-variant: #c4c7c5;
+  /* Outline — `outline` is for icons, `outline-variant` is the hairline border */
+  --m3-outline: #7c8189;
+  --m3-outline-variant: #e5e8ea;
+  /* Hairline border that works on any surface (used by newer components) */
+  --m3-border: rgba(20, 22, 26, 0.09);
+  --m3-border-strong: rgba(20, 22, 26, 0.16);
 
   /* Error */
   --m3-error: #b3261e;
@@ -48,13 +55,23 @@
   --m3-warning: #e37400;
   --m3-warning-container: #fef7e0;
 
-  /* --------- Elevation (box-shadow) --------- */
+  /* --------- Elevation ---------
+     Soft, wide, low-opacity only. Nothing in the product should look "lifted";
+     elevation exists to separate layers, not to decorate them. */
   --m3-elevation-0: none;
-  --m3-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
-  --m3-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
-  --m3-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --m3-elevation-4: 0 6px 10px 4px rgba(0, 0, 0, 0.15), 0 2px 3px rgba(0, 0, 0, 0.3);
-  --m3-elevation-5: 0 8px 12px 6px rgba(0, 0, 0, 0.15), 0 4px 4px rgba(0, 0, 0, 0.3);
+  --m3-elevation-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 1px rgba(16, 24, 40, 0.04);
+  --m3-elevation-2: 0 2px 4px rgba(16, 24, 40, 0.05), 0 4px 12px rgba(16, 24, 40, 0.06);
+  --m3-elevation-3: 0 4px 8px rgba(16, 24, 40, 0.06), 0 12px 28px rgba(16, 24, 40, 0.10);
+  --m3-elevation-4: 0 8px 16px rgba(16, 24, 40, 0.08), 0 20px 40px rgba(16, 24, 40, 0.12);
+  --m3-elevation-5: 0 12px 24px rgba(16, 24, 40, 0.10), 0 32px 64px rgba(16, 24, 40, 0.16);
+
+  /* Semantic aliases used by the newer primitives */
+  --shadow-xs: var(--m3-elevation-1);
+  --shadow-sm: var(--m3-elevation-2);
+  --shadow-md: var(--m3-elevation-3);
+  --shadow-lg: var(--m3-elevation-4);
+  --ring-focus: 0 0 0 3px rgba(26, 115, 232, 0.28);
+  --ring-error: 0 0 0 3px rgba(179, 38, 30, 0.18);
 
   /* --------- Shape Scale --------- */
   --m3-shape-xs: 4px;
@@ -64,17 +81,70 @@
   --m3-shape-xl: 28px;
   --m3-shape-full: 9999px;
 
-  /* --------- Motion Tokens --------- */
+  /* --------- Motion Tokens ---------
+     One vocabulary: durations are short, easings decelerate into rest. UI
+     feedback must feel immediate, so nothing above ~320ms is used for state. */
+  --m3-duration-instant: 90ms;
   --m3-duration-short: 150ms;
-  --m3-duration-medium: 250ms;
-  --m3-duration-long: 300ms;
+  --m3-duration-medium: 200ms;
+  --m3-duration-long: 320ms;
   --m3-easing-standard: cubic-bezier(0.2, 0.0, 0.0, 1.0);
   --m3-easing-emphasized: cubic-bezier(0.2, 0.0, 0.0, 1.0);
   --m3-easing-decelerated: cubic-bezier(0.0, 0.0, 0.0, 1.0);
   --m3-easing-accelerated: cubic-bezier(0.3, 0.0, 1.0, 1.0);
+  /* Entering/leaving surfaces: quick out, slightly slower in */
+  --m3-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --m3-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --------- Type Scale ---------
+     Sizes are deliberately close together: hierarchy comes from weight and
+     colour first, size second. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  /* Tracked-in for labels, tracked-out for display headings */
+  --tracking-label: 0.02em;
+  --tracking-tight: -0.01em;
+  --tracking-display: -0.022em;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  /* --------- Spacing Scale (4px grid) --------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
 
   /* --------- Layout --------- */
   --sidebar-width: 280px;
+  --header-height: 56px;
+  --content-max: 1200px;
+  /* Comfortable reading measure for chat answers */
+  --measure: 68ch;
+
+  /* --------- Layering --------- */
+  --z-base: 1;
+  --z-sticky: 10;
+  --z-sidebar: 20;
+  --z-overlay: 40;
+  --z-modal: 60;
+  --z-toast: 80;
+  --z-progress: 90;
 
   /* --------- Legacy compat (for ChatPage) --------- */
   --bg-primary: var(--m3-surface);
@@ -213,6 +283,42 @@ img {
   border-radius: var(--m3-shape-full);
 }
 
+/* ---------- App boot skeleton (session restore) ----------
+   Mirrors the dashboard shell so the loading state occupies the same
+   geometry as the page that replaces it. */
+.app-boot {
+  min-height: 100vh;
+  background: var(--m3-surface-dim);
+}
+
+.app-boot-header {
+  height: var(--header-height);
+  padding: 0 var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--m3-surface);
+  border-bottom: 1px solid var(--m3-outline-variant);
+}
+
+.skeleton-brand {
+  width: 132px;
+  height: 18px;
+}
+
+.app-boot-main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--space-10) var(--space-6);
+}
+
+.app-boot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+
 /* ============================================================
    Indeterminate Linear Progress Bar
    ============================================================ */
@@ -283,6 +389,543 @@ img {
 
 @keyframes slideInLeft {
   from {
+/* ============================================================
+   PRIMITIVES
+   A small, opinionated component layer. Every value comes from a
+   token above; nothing here introduces new colours or spacing.
+   ============================================================ */
+
+/* ---------- Screen-reader-only (visually hidden, still announced) ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Truncation ---------- */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ============================================================
+   Spinner
+   Single source of truth for "this is working". Sized via
+   --spinner-size so it drops into buttons, panels and pages.
+   ============================================================ */
+.spinner {
+  --spinner-size: 16px;
+  --spinner-weight: 1.75px;
+  display: inline-block;
+  width: var(--spinner-size);
+  height: var(--spinner-size);
+  flex-shrink: 0;
+  border: var(--spinner-weight) solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.9;
+  animation: spin 620ms linear infinite;
+}
+
+.spinner-xs { --spinner-size: 12px; --spinner-weight: 1.5px; }
+.spinner-sm { --spinner-size: 14px; }
+.spinner-md { --spinner-size: 18px; --spinner-weight: 2px; }
+.spinner-lg { --spinner-size: 28px; --spinner-weight: 2.5px; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   Buttons
+   Three intents (primary / neutral / ghost) plus destructive.
+   Every button communicates hover, press and disabled distinctly.
+   ============================================================ */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-4);
+  border-radius: var(--m3-shape-sm);
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              border-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out),
+              box-shadow var(--m3-duration-short) var(--m3-ease-out),
+              transform var(--m3-duration-instant) var(--m3-ease-out);
+}
+
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.ui-btn:disabled,
+.ui-btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Keyboard focus ring layered on top of hover styling. */
+.ui-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.ui-btn-sm { height: 30px; padding: 0 var(--space-3); font-size: var(--text-xs); }
+.ui-btn-lg { height: 42px; padding: 0 var(--space-5); font-size: var(--text-base); }
+.ui-btn-block { width: 100%; }
+
+.ui-btn-primary {
+  background: var(--m3-primary);
+  color: var(--m3-on-primary);
+}
+.ui-btn-primary:hover:not(:disabled) { background: var(--m3-primary-hover); }
+.ui-btn-primary:active:not(:disabled) { background: var(--m3-primary-active); }
+
+.ui-btn-neutral {
+  background: var(--m3-surface);
+  color: var(--m3-on-surface);
+  border-color: var(--m3-outline-variant);
+  box-shadow: var(--shadow-xs);
+}
+.ui-btn-neutral:hover:not(:disabled) {
+  background: var(--m3-surface-container-low);
+  border-color: var(--m3-border-strong);
+}
+
+.ui-btn-ghost {
+  background: transparent;
+  color: var(--m3-on-surface-variant);
+}
+.ui-btn-ghost:hover:not(:disabled) {
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface);
+}
+
+.ui-btn-danger {
+  background: var(--m3-error);
+  color: var(--m3-on-error);
+}
+.ui-btn-danger:hover:not(:disabled) { background: var(--m3-error-hover); }
+
+/* Mid-flight buttons keep their label and add a spinner, so the button
+   never changes width and the layout never jumps. Further clicks are
+   blocked by [disabled] plus a progress cursor. */
+.ui-btn[data-loading='true'] {
+  cursor: progress;
+}
+
+/* ---------- Icon button (square, tooltip-friendly) ---------- */
+.ui-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--m3-shape-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--m3-on-surface-variant);
+  cursor: pointer;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out),
+              border-color var(--m3-duration-short) var(--m3-ease-out),
+              transform var(--m3-duration-instant) var(--m3-ease-out);
+}
+
+.ui-icon-btn:hover:not(:disabled) {
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface);
+}
+
+.ui-icon-btn:active:not(:disabled) { transform: scale(0.94); }
+
+.ui-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.ui-icon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.ui-icon-btn-sm { width: 26px; height: 26px; border-radius: var(--m3-shape-xs); }
+.ui-icon-btn-lg { width: 38px; height: 38px; }
+
+/* Destructive icon action: only reveals its intent on hover/focus. */
+.ui-icon-btn-danger:hover:not(:disabled) {
+  background: var(--m3-error-container);
+  color: var(--m3-error);
+}
+
+/* ---------- Keyboard hint ---------- */
+.ui-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--m3-shape-xs);
+  background: var(--m3-surface-container);
+  border: 1px solid var(--m3-outline-variant);
+  border-bottom-width: 2px;
+  font-family: inherit;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  line-height: 1;
+  color: var(--m3-on-surface-variant);
+}
+
+/* ---------- Text field ---------- */
+.ui-input,
+.ui-textarea {
+  width: 100%;
+  padding: 9px var(--space-3);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-sm);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  transition: border-color var(--m3-duration-short) var(--m3-ease-out),
+              box-shadow var(--m3-duration-short) var(--m3-ease-out),
+              background-color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.ui-input::placeholder,
+.ui-textarea::placeholder {
+  color: var(--m3-on-surface-subtle);
+}
+
+.ui-input:hover:not(:disabled),
+.ui-textarea:hover:not(:disabled) {
+  border-color: var(--m3-border-strong);
+}
+
+.ui-input:focus,
+.ui-textarea:focus {
+  outline: none;
+  border-color: var(--m3-primary);
+  box-shadow: var(--ring-focus);
+}
+
+.ui-input[aria-invalid='true'],
+.ui-textarea[aria-invalid='true'] {
+  border-color: var(--m3-error);
+}
+
+.ui-input[aria-invalid='true']:focus,
+.ui-textarea[aria-invalid='true']:focus {
+  box-shadow: var(--ring-error);
+}
+
+.ui-input:disabled,
+.ui-textarea:disabled {
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-subtle);
+  cursor: not-allowed;
+}
+
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-field-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+}
+
+/* Inline validation message; reserves no space until it exists. */
+.ui-field-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--m3-error);
+  animation: fadeSlideDown var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
+.ui-field-hint {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+}
+
+/* ---------- Badge / pill ---------- */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--m3-shape-full);
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-variant);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+}
+
+.ui-badge-primary {
+  background: var(--m3-primary-soft);
+  color: var(--m3-primary-active);
+}
+
+.ui-badge-success {
+  background: var(--m3-success-container);
+  color: var(--m3-success);
+}
+
+.ui-badge-error {
+  background: var(--m3-error-container);
+  color: var(--m3-error);
+}
+
+/* Status dot: a 6px circle that inherits the badge's text colour. */
+.ui-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Only live/busy states pulse — never decorative dots. */
+.ui-dot-pulse {
+  animation: dotPulse 1.6s var(--m3-ease-in-out) infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---------- Card / surface ---------- */
+.ui-card {
+  background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+}
+
+.ui-card-interactive {
+  cursor: pointer;
+  transition: border-color var(--m3-duration-short) var(--m3-ease-out),
+              box-shadow var(--m3-duration-short) var(--m3-ease-out),
+              transform var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.ui-card-interactive:hover {
+  border-color: var(--m3-border-strong);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.ui-card-interactive:active { transform: translateY(0); }
+
+.ui-divider {
+  height: 1px;
+  background: var(--m3-outline-variant);
+  border: 0;
+}
+
+/* ============================================================
+   Menus & popovers
+   Attached to their trigger: they grow from the top edge they
+   were opened from, so the motion explains the relationship.
+   ============================================================ */
+.ui-menu {
+  min-width: 200px;
+  padding: var(--space-1);
+  background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  box-shadow: var(--shadow-md);
+  transform-origin: var(--menu-origin, top right);
+  animation: menuIn var(--m3-duration-short) var(--m3-ease-out) both;
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.ui-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--m3-shape-sm);
+  background: transparent;
+  color: var(--m3-on-surface);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--m3-duration-instant) var(--m3-ease-out),
+              color var(--m3-duration-instant) var(--m3-ease-out);
+}
+
+.ui-menu-item:hover,
+.ui-menu-item[data-highlighted='true'] {
+  background: var(--m3-surface-container);
+}
+
+.ui-menu-item:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.ui-menu-item[data-tone='danger'] {
+  color: var(--m3-error);
+}
+
+.ui-menu-item[data-tone='danger']:hover {
+  background: var(--m3-error-container);
+}
+
+.ui-menu-label {
+  padding: 8px 10px 6px;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--m3-on-surface-subtle);
+}
+
+.ui-menu-separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--m3-outline-variant);
+}
+
+/* ============================================================
+   Motion helpers
+   ============================================================ */
+
+/* Entering a workspace: a short rise. Deliberately under 200ms so it
+   reads as responsiveness rather than as an animation. */
+@keyframes fadeSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes viewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Applied to the main content region when a workspace/mode changes. */
+.view-enter {
+  animation: viewEnter var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
+/* Staggered list entrance: rows rise in sequence. Index comes from the
+   consumer as --row-index; capped by the consumer so it never feels slow. */
+@keyframes rowEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.row-enter {
+  animation: rowEnter var(--m3-duration-medium) var(--m3-ease-out) both;
+  animation-delay: calc(var(--row-index, 0) * 24ms);
+}
+
+/* Streaming caret: shows that more text is still arriving. */
+.stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--m3-primary);
+  border-radius: 1px;
+  animation: caretBlink 1s steps(2, start) infinite;
+}
+
+@keyframes caretBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ============================================================
+   Reduced motion: keep every state change, drop all movement.
+   Transforms and animations are neutralised; colour, opacity and
+   layout feedback still apply so nothing becomes ambiguous.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .ui-card-interactive:hover,
+  .message-row,
+  .row-enter,
+  .view-enter,
+  .ui-menu {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .ui-btn:active:not(:disabled),
+  .ui-icon-btn:active:not(:disabled) {
+    transform: none !important;
+  }
+
+  .stream-caret,
+  .ui-dot-pulse,
+  .spinner {
+    animation-duration: 2s !important;
+  }
+}
+
     opacity: 0;
     transform: translateX(-24px);
   }

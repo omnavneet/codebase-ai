@@ -83,14 +83,17 @@ const VerifyEmailPage: React.FC = () => {
 
       <div className="auth-card">
         {state === 'verifying' && (
-          <div className="auth-notice">
-            <strong>Verifying your email</strong>
+          <div className="auth-notice auth-notice-progress" role="status">
+            <strong>
+              <span className="spinner spinner-sm" aria-hidden="true" />
+              Verifying your email
+            </strong>
             <p>One moment while we confirm your link.</p>
           </div>
         )}
 
         {state === 'success' && (
-          <div className="auth-notice success">
+          <div className="auth-notice success" role="status">
             <strong>Email verified</strong>
             <p>{message}</p>
           </div>
@@ -98,7 +101,7 @@ const VerifyEmailPage: React.FC = () => {
 
         {state === 'error' && (
           <>
-            <div className="auth-notice error">
+            <div className="auth-notice error" role="alert">
               <strong>Verification failed</strong>
               <p>{message}</p>
             </div>
@@ -118,12 +121,20 @@ const VerifyEmailPage: React.FC = () => {
 
               {resendNotice && <div className="auth-notice">{resendNotice}</div>}
 
-              <button type="submit" className="auth-submit" disabled={resending}>
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={resending}
+                aria-busy={resending}
+              >
                 {resending ? (
-                  <span className="loading-dots">
-                    <span className="dot">.</span><span className="dot">.</span><span className="dot">.</span>
-                  </span>
-                ) : 'Send a new verification link'}
+                  <>
+                    <span className="spinner spinner-sm" aria-hidden="true" />
+                    <span>Sending…</span>
+                  </>
+                ) : (
+                  'Send a new verification link'
+                )}
               </button>
             </form>
           </>

@@ -27,10 +27,20 @@
   width: 100%;
   max-width: 420px;
   background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
   border-radius: var(--m3-shape-lg);
-  box-shadow: var(--m3-elevation-2);
-  padding: 36px;
-  animation: fadeSlideUp 300ms var(--m3-easing-emphasized) both;
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+  animation: viewEnter var(--m3-duration-long) var(--m3-ease-out) both;
+}
+
+/* ---------- Field + its validation message ----------
+   The message sits outside .form-field so the floating label keeps being
+   positioned against the input box alone. */
+.auth-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .auth-tabs {
@@ -46,11 +56,21 @@
   border: 0;
   background: transparent;
   text-align: center;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
   color: var(--m3-on-surface-variant);
   cursor: pointer;
-  transition: color var(--m3-duration-medium) var(--m3-easing-standard);
+  transition: color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.auth-tab:hover {
+  color: var(--m3-on-surface);
+}
+
+.auth-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--m3-shape-sm);
 }
 
 .auth-tab.active {
@@ -107,13 +127,17 @@
 
 .form-field input:focus {
   border-color: var(--m3-primary);
-  box-shadow: 0 0 0 1px var(--m3-primary);
+  box-shadow: var(--ring-focus);
   outline: none;
 }
 
 .form-field input.error-input {
   border-color: var(--m3-error);
-  box-shadow: 0 0 0 1px var(--m3-error);
+  background: var(--m3-surface);
+}
+
+.form-field input.error-input:focus {
+  box-shadow: var(--ring-error);
 }
 
 .form-field label {
@@ -136,9 +160,13 @@
 }
 
 .auth-error {
-  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
   color: var(--m3-error);
-  animation: slideDown 200ms var(--m3-easing-standard) both;
+  animation: fadeSlideDown var(--m3-duration-medium) var(--m3-ease-out) both;
   padding: 10px 14px;
   background: var(--m3-error-container);
   border-radius: var(--m3-shape-sm);
@@ -161,24 +189,45 @@
   border-radius: var(--m3-shape-full);
   background: var(--m3-primary);
   color: var(--m3-on-primary);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--m3-duration-short) var(--m3-easing-standard);
+  gap: var(--space-2);
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              box-shadow var(--m3-duration-short) var(--m3-ease-out),
+              transform var(--m3-duration-instant) var(--m3-ease-out);
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--m3-primary-hover);
 }
 
 .auth-submit:active:not(:disabled) {
-  transform: scale(0.98);
+  background: var(--m3-primary-active);
+  transform: scale(0.99);
+}
+
+.auth-submit:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 
 .auth-submit:disabled {
   background: var(--m3-surface-container-high);
   color: var(--m3-outline);
   cursor: not-allowed;
+}
+
+/* In flight: keep the primary fill so the button reads as "working" rather
+   than "unavailable". The spinner and the cursor carry the state. */
+.auth-submit[aria-busy='true'] {
+  background: var(--m3-primary);
+  color: var(--m3-on-primary);
+  cursor: progress;
 }
 
 .auth-footer {
@@ -242,9 +291,17 @@
 }
 
 .auth-notice strong {
-  display: block;
-  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
   margin-bottom: 6px;
+}
+
+/* In-progress notice: the spinner sits inline with the title. */
+.auth-notice-progress strong {
+  color: var(--m3-on-surface);
 }
 
 .auth-notice p {
@@ -273,12 +330,15 @@
 
 .auth-resend-link {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--m3-primary);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
   cursor: pointer;
 }
 
@@ -290,4 +350,23 @@
   color: var(--m3-outline);
   cursor: not-allowed;
   text-decoration: none;
+}
+
+/* ---------- Small screens ----------
+   The card keeps its padding rhythm rather than shrinking the tap targets. */
+@media (max-width: 480px) {
+  .auth-page {
+    padding: var(--space-4);
+    justify-content: flex-start;
+    padding-top: var(--space-8);
+  }
+
+  .auth-card {
+    padding: var(--space-5);
+    border-radius: var(--m3-shape-md);
+  }
+
+  .auth-branding {
+    margin-bottom: var(--space-4);
+  }
 }

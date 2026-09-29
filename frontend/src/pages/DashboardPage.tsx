@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import apiClient from '../services/apiClient';
+import { getApiErrorMessage } from '../utils/apiError';
 import NewProjectModal from '../components/NewProjectModal';
 import './Dashboard.css';
 
@@ -16,25 +18,47 @@ interface Project {
 
 const DashboardPage: React.FC = () => {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
+
+  // A failed load must never be reported as "no projects yet".
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Id of the project whose delete is in flight — blocks double deletion.
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  // True once a list has been received; keeps a failed background poll from
+  // replacing good data with an error panel.
+  const hasProjectsRef = useRef(false);
+
   
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Stable identity so polling effects can depend on it safely.
-  const fetchProjects = useCallback(async () => {
+  /**
+   * `silent` is used by the polling loop. Polling must not flip the list back
+   * to skeletons: while a project is still indexing the dashboard would then
+   * flicker every few seconds.
+   */
+  const fetchProjects = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
     try {
-      setLoading(true);
       const res = await apiClient.get('/projects');
       setProjects(res.data);
+      hasProjectsRef.current = true;
+      setLoadError(null);
     } catch (err) {
-      console.error('Failed to fetch projects', err);
+      // Only report a load failure when there is nothing on screen to keep.
+      if (!hasProjectsRef.current) {
+        setLoadError(
+          getApiErrorMessage(err, 'Something went wrong while loading your projects.'),
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }, []);
 
@@ -54,9 +78,18 @@ const DashboardPage: React.FC = () => {
       }
     };
     
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Escape backs out of the most transient layer first.
+      setMenuOpen(false);
+      setDeleteProjectId(null);
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -70,17 +103,50 @@ const DashboardPage: React.FC = () => {
   useEffect(() => {
     if (!hasPendingProjects) return;
 
-    const intervalId = window.setInterval(fetchProjects, 5000);
+    const intervalId = window.setInterval(
+      () => fetchProjects({ silent: true }),
+      5000,
+    );
     return () => window.clearInterval(intervalId);
   }, [hasPendingProjects, fetchProjects]);
 
-  const deleteProject = async (projectId: string) => {
+  /**
+   * Optimistic delete: the row leaves immediately, and is restored in place
+   * with an explanation (plus a retry) if the server refuses.
+   */
+  const deleteProject = async (project: Project) => {
+    if (deletingProjectId) return;
+
+    const index = projects.findIndex(item => item.id === project.id);
+    setDeletingProjectId(project.id);
+    setDeleteProjectId(null);
+    setProjects(current => current.filter(item => item.id !== project.id));
+
     try {
-      await apiClient.delete(`/projects/${projectId}`);
-      setProjects(currentProjects => currentProjects.filter(project => project.id !== projectId));
-      setDeleteProjectId(null);
+      await apiClient.delete(`/projects/${project.id}`);
+      toast({
+        tone: 'success',
+        title: 'Project deleted',
+        description: `${project.name} and its indexed files were removed.`,
+      });
     } catch (error) {
-      console.error('Failed to delete project:', error);
+      setProjects(current => {
+        if (current.some(item => item.id === project.id)) return current;
+        const restored = [...current];
+        restored.splice(Math.min(index, restored.length), 0, project);
+        return restored;
+      });
+      toast({
+        tone: 'error',
+        title: 'Could not delete the project',
+        description: getApiErrorMessage(
+          error,
+          'Nothing was changed. Please try again.',
+        ),
+        action: { label: 'Retry', onSelect: () => void deleteProject(project) },
+      });
+    } finally {
+      setDeletingProjectId(null);
     }
   };
 
@@ -114,19 +180,40 @@ const DashboardPage: React.FC = () => {
         </div>
         
         <div className="user-menu" ref={menuRef}>
-          <div className="user-avatar" onClick={() => setMenuOpen(!menuOpen)}>
+          <button
+            type="button"
+            className="user-avatar"
+            onClick={() => setMenuOpen(open => !open)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label={`Account menu for ${user?.email ?? 'your account'}`}
+          >
             {user?.email?.charAt(0).toUpperCase() || 'U'}
-          </div>
+          </button>
           
-          <div className={`user-dropdown ${menuOpen ? 'open' : ''}`}>
-            <div className="user-dropdown-email">{user?.email}</div>
-            <button className="user-dropdown-item" onClick={() => navigate('/settings')}>
-              Settings
-            </button>
-            <button className="user-dropdown-item" onClick={logout}>
-              Sign out
-            </button>
-          </div>
+          {menuOpen && (
+            <div className="user-dropdown" role="menu">
+              <div className="user-dropdown-email" title={user?.email}>
+                {user?.email}
+              </div>
+              <button
+                type="button"
+                className="user-dropdown-item"
+                role="menuitem"
+                onClick={() => navigate('/settings')}
+              >
+                Settings
+              </button>
+              <button
+                type="button"
+                className="user-dropdown-item"
+                role="menuitem"
+                onClick={logout}
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -137,15 +224,36 @@ const DashboardPage: React.FC = () => {
             <p className="dashboard-subtitle">Manage and explore your codebases</p>
           </div>
           <button className="btn-primary" onClick={() => setShowModal(true)}>
-            + New Project
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            New Project
           </button>
         </div>
 
         {loading ? (
           <div className="project-list">
             {[0, 1, 2].map(i => (
-              <div key={i} className="skeleton-row" style={{ animationDelay: `${i * 100}ms` }} />
+              <div key={i} className="skeleton-row" />
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="empty-state" role="alert">
+            <svg className="empty-state-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <h2 className="empty-state-title">Couldn’t load your projects</h2>
+            <p className="empty-state-text">{loadError}</p>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => fetchProjects()}
+            >
+              Try again
+            </button>
           </div>
         ) : projects.length === 0 ? (
           <div className="empty-state">
@@ -176,7 +284,18 @@ const DashboardPage: React.FC = () => {
                 </div>
 
                 <div className="project-row-info">
-                  <div className="project-row-name">{project.name}</div>
+                  {/* The row is clickable for convenience; this button is the
+                      accessible, keyboard-reachable control. */}
+                  <button
+                    type="button"
+                    className="project-row-name"
+                    onClick={event => {
+                      event.stopPropagation();
+                      navigate(`/projects/${project.id}`);
+                    }}
+                  >
+                    {project.name}
+                  </button>
                   <div className="project-row-meta">
                     {project.status !== 'ready' && (
                       <span
@@ -192,14 +311,28 @@ const DashboardPage: React.FC = () => {
                 </div>
 
                 {deleteProjectId === project.id ? (
-                  <div className="project-row-confirm" onClick={event => event.stopPropagation()}>
-                    <span>Delete this project?</span>
+                  <div
+                    className="project-row-confirm"
+                    role="group"
+                    aria-label={`Confirm deleting ${project.name}`}
+                    onClick={event => event.stopPropagation()}
+                  >
+                    <span>Delete permanently?</span>
                     <button
                       type="button"
                       className="confirm"
-                      onClick={() => deleteProject(project.id)}
+                      disabled={deletingProjectId === project.id}
+                      aria-busy={deletingProjectId === project.id}
+                      onClick={() => deleteProject(project)}
                     >
-                      Delete
+                      {deletingProjectId === project.id ? (
+                        <>
+                          <span className="spinner spinner-xs" aria-hidden="true" />
+                          Deleting…
+                        </>
+                      ) : (
+                        'Delete'
+                      )}
                     </button>
                     <button
                       type="button"
@@ -215,6 +348,7 @@ const DashboardPage: React.FC = () => {
                     className="project-row-menu"
                     aria-label={`Delete ${project.name}`}
                     title="Delete project"
+                    disabled={deletingProjectId === project.id}
                     onClick={event => {
                       event.stopPropagation();
                       setDeleteProjectId(project.id);
