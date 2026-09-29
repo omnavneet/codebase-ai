@@ -1,0 +1,93 @@
+# ===========================================================================
+# Copy to backend/src/main/resources/application.properties and fill in the
+# secrets. Both files are git-ignored; the real one is also excluded from the
+# Docker build context (backend/.dockerignore). The backend image ships THIS
+# file as its runtime configuration (see backend/Dockerfile), so anything that
+# must exist at runtime has to live here with non-secret defaults, or arrive
+# as an environment variable.
+#
+# Secrets have NO fallback values on purpose: a deployment that forgets to set
+# APP_JWT_SECRET or APP_AI_SERVICE_INTERNAL_TOKEN must fail at startup instead
+# of silently running on a publicly known value (see SecretValidationConfig).
+# For local development, copy this file and replace the secret lines with real
+# dev values, or export the environment variables before starting.
+# ===========================================================================
+
+# --- DataSource ------------------------------------------------------------
+# Inside Docker Compose these are overridden via SPRING_DATASOURCE_* (the
+# database host is the postgres service name, not localhost).
+spring.datasource.url=${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/codebase_ai}
+spring.datasource.username=${SPRING_DATASOURCE_USERNAME:admin}
+# No default on purpose: an image started without SPRING_DATASOURCE_PASSWORD
+# must fail at startup, not try to authenticate with an empty password.
+spring.datasource.password=${SPRING_DATASOURCE_PASSWORD}
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+
+spring.flyway.enabled=true
+spring.flyway.locations=classpath:db/migration
+# Ignore migrations that were applied in the DB but deliberately removed from source
+# (e.g. the old V5__create_vector_index.sql, now superseded by V7 chat tables).
+spring.flyway.ignore-migration-patterns=*:missing
+
+server.port=${SERVER_PORT:8080}
+
+# Only trust X-Forwarded-* / Forwarded headers from a proxy you control.
+#   none      - never trust them. Correct whenever the port is directly
+#               reachable: a client could otherwise spoof X-Forwarded-For and
+#               get a fresh per-IP rate-limit bucket for every request.
+#   framework - Spring rewrites getRemoteAddr() from X-Forwarded-For so the
+#               per-IP rate limiter keeps working behind nginx: without it all
+#               anonymous users share the proxy container's single IP bucket.
+#               Only enable when the backend is NOT reachable except through
+#               that proxy (in both compose files the backend publishes no
+#               port, so only the frontend nginx container can reach it).
+server.forward-headers-strategy=${SERVER_FORWARD_HEADERS_STRATEGY:none}
+
+# --- Secrets (env-only; no fallback values, see SecretValidationConfig) -----
+# HS256 signing key: at least 32 random bytes. Generate with:
+#   openssl rand -base64 48
+app.jwt.secret=${APP_JWT_SECRET}
+app.jwt.access-token-validity-ms=900000
+app.jwt.refresh-token-validity-ms=604800000
+
+app.upload.directory=${APP_UPLOAD_DIRECTORY:./uploads}
+
+spring.servlet.multipart.max-file-size=50MB
+spring.servlet.multipart.max-request-size=50MB
+
+app.ai-service.url=${APP_AI_SERVICE_URL:http://localhost:8000}
+# Shared with the ai-service (its AI_SERVICE_INTERNAL_TOKEN); generate with:
+#   openssl rand -base64 24
+app.ai-service.internal-token=${APP_AI_SERVICE_INTERNAL_TOKEN}
+
+# --- Refresh cookie ----------------------------------------------------------
+# Secure must be true whenever the app is served over HTTPS (production
+# requires HTTPS); only plain-HTTP local development may set false.
+app.cookie.secure=${APP_COOKIE_SECURE:true}
+
+# --- Outgoing mail (account verification) -----------------------------------
+# Local development: MailHog runs in Docker with its SMTP port published to the
+# host. When the backend also runs inside Compose, SPRING_MAIL_HOST is
+# overridden to "mailhog" there (see docker-compose.yml). Production: point
+# these at a real SMTP provider via SPRING_MAIL_HOST / SPRING_MAIL_PORT /
+# SPRING_MAIL_USERNAME / SPRING_MAIL_PASSWORD and enable auth + STARTTLS
+# (docker-compose.prod.yml sets both flags to true).
+spring.mail.host=${SPRING_MAIL_HOST:localhost}
+spring.mail.port=${SPRING_MAIL_PORT:1025}
+spring.mail.properties.mail.smtp.auth=${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:false}
+spring.mail.properties.mail.smtp.starttls.enable=${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:false}
+# Never let an unreachable SMTP server hang a registration request.
+spring.mail.properties.mail.smtp.connectiontimeout=5000
+spring.mail.properties.mail.smtp.timeout=5000
+spring.mail.properties.mail.smtp.writetimeout=5000
+
+# Base URL for the verification link: {app.public-url}/auth/verify-email?token=...
+# In Docker Compose this is overridden with the published frontend port
+# (APP_PUBLIC_URL); production must use the https origin.
+app.public-url=${APP_PUBLIC_URL:http://localhost:5173}
+app.mail.from=${APP_MAIL_FROM:no-reply@codebase-ai.local}
+app.verification.token-ttl-hours=24
+app.verification.resend-cooldown-seconds=60

@@ -1,0 +1,131 @@
+# =============================================================================
+# PRODUCTION deployment stack. Run with:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Hardening differences from the development docker-compose.yml:
+#   * Postgres and MailHog publish NO host ports (MailHog is omitted entirely -
+#     a real SMTP provider is required via the SPRING_MAIL_* variables).
+#   * Every secret uses ${VAR:?...}, so compose refuses to start with gaps.
+#   * The refresh cookie keeps its secure default (APP_COOKIE_SECURE=true):
+#     serve the app over HTTPS - terminate TLS at this frontend's nginx (see
+#     the commented TLS block in frontend/nginx.conf) or at an upstream load
+#     balancer that sets X-Forwarded-Proto honestly.
+# =============================================================================
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - codebase-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    environment:
+      AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN:?AI_SERVICE_INTERNAL_TOKEN}
+      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:?LLM_MODEL}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - project-uploads:/app/uploads
+    networks:
+      - codebase-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_UPLOAD_DIRECTORY: /app/uploads
+      APP_AI_SERVICE_URL: http://ai-service:8000
+      APP_AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
+      APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET}
+      # Reachable only from the frontend nginx container (no published port),
+      # so X-Forwarded-For can be trusted - without it every visitor would
+      # share the proxy's single IP in the per-IP rate limiter.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      # Production must serve HTTPS, so the refresh cookie stays Secure (this
+      # is also the backend's default; set explicitly to make it visible).
+      APP_COOKIE_SECURE: "true"
+      # Real SMTP provider (SES/Postmark/etc.); unauthenticated plaintext mail
+      # is not acceptable for verification links.
+      SPRING_MAIL_HOST: ${SPRING_MAIL_HOST:?SPRING_MAIL_HOST}
+      SPRING_MAIL_PORT: ${SPRING_MAIL_PORT:?SPRING_MAIL_PORT}
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:?SPRING_MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:?SPRING_MAIL_PASSWORD}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "true"
+      APP_MAIL_FROM: ${APP_MAIL_FROM:?APP_MAIL_FROM}
+      # Public HTTPS origin of the SPA; verification links are built from it.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL}
+    volumes:
+      - project-uploads:/app/uploads
+    networks:
+      - codebase-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - codebase-network
+    restart: unless-stopped
+    depends_on:
+      - backend
+    # When TLS terminates at an upstream load balancer keep 80; when serving
+    # directly, enable the TLS block in frontend/nginx.conf and also publish
+    # "443:443" with the certificate mounted into the container.
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  project-uploads:
+
+networks:
+  codebase-network:
+    driver: bridge

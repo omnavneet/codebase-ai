@@ -1,15 +1,21 @@
+# =============================================================================
+# LOCAL DEVELOPMENT STACK - not a production deployment file. Use
+# docker-compose.prod.yml to deploy. Postgres and MailHog are published to the
+# host here because the README workflow runs the backend/ai-service on the
+# host against them; both are bound to 127.0.0.1 so they never join the LAN,
+# and MailHog's UI is an unauthenticated mailbox full of verification links.
+# =============================================================================
 services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    # Published so the backend can also run on the host (the normal dev flow in the
-    # README, which points spring.datasource.url at localhost:5432); inside Compose it
-    # is reached as postgres:5432. Do not publish this in production.
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set in .env}
+    # Published on 127.0.0.1 only, for the host-run backend/ai-service dev flow;
+    # inside Compose the database is reached as postgres:5432 without this.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -24,9 +30,10 @@ services:
   # SMTP on 1025 (the backend talks to this), web UI on http://localhost:8025.
   mailhog:
     image: mailhog/mailhog
+    # 127.0.0.1 binding: the UI is unauthenticated and holds verification links.
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
     networks:
       - codebase-network
 
@@ -35,9 +42,9 @@ services:
       context: ./ai-service
       dockerfile: Dockerfile
     environment:
-      AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
-      GROQ_API_KEY: ${GROQ_API_KEY}
-      LLM_MODEL: ${LLM_MODEL}
+      AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN:?AI_SERVICE_INTERNAL_TOKEN must be set in .env}
+      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY must be set in .env}
+      LLM_MODEL: ${LLM_MODEL:?LLM_MODEL must be set in .env}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${POSTGRES_DB}
@@ -64,13 +71,21 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-codebase_ai}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       APP_UPLOAD_DIRECTORY: /app/uploads
       APP_AI_SERVICE_URL: http://ai-service:8000
       APP_AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
-      APP_JWT_SECRET: ${JWT_SECRET}
+      APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+      # The backend has no published port - only the frontend nginx container
+      # can reach it - so X-Forwarded-For may be trusted. Without this, every
+      # anonymous request arrives from the proxy's single IP and all users
+      # share one bucket in the per-IP rate limiter.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      # This stack is served over plain HTTP on localhost, so opt out of the
+      # Secure-cookie safe default (production keeps it on).
+      APP_COOKIE_SECURE: "false"
       # Inside the compose network the SMTP host is the mailhog service; the
       # verification link has to point at the SPA port published on the host.
       SPRING_MAIL_HOST: mailhog

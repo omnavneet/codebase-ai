@@ -4,3 +4,6 @@ uploads
 .env
 .env.*
 *.log
+# Never bake local dev secrets into the image. Ship application.properties.example
+# instead; real values come from environment variables (see docker-compose.yml).
+src/main/resources/application.properties

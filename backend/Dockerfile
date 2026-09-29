@@ -4,7 +4,12 @@ WORKDIR /app
 COPY pom.xml .
 RUN mvn -B dependency:go-offline
 COPY src ./src
-RUN mvn -B -DskipTests package
+# backend/.dockerignore removes the developer's real application.properties
+# (it holds local secrets). Ship the secret-free example as the image's runtime
+# configuration instead; secret values are injected as environment variables
+# at container start (see docker-compose.prod.yml).
+RUN cp src/main/resources/application.properties.example src/main/resources/application.properties \
+    && mvn -B -DskipTests package
 
 FROM eclipse-temurin:17-jre-alpine
 

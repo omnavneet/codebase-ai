@@ -9,11 +9,12 @@ import org.springframework.stereotype.Service;
 public class CookieService {
     
     /**
-     * Marks the refresh cookie as HTTPS-only. Must be true wherever the service
-     * is reachable over TLS; false is only acceptable for plain-HTTP local
-     * development (see app.cookie.secure in application.properties).
+     * Marks the refresh cookie as HTTPS-only. Defaults to TRUE so any
+     * deployment that forgets the setting stays safe; only plain-HTTP local
+     * development should opt out (APP_COOKIE_SECURE=false, as the dev
+     * docker-compose.yml and application.properties do).
      */
-    @Value("${app.cookie.secure:false}")
+    @Value("${app.cookie.secure:true}")
     private boolean secureCookie;
     
     /**
@@ -38,6 +39,8 @@ public class CookieService {
         cookie.setHttpOnly(true);
         cookie.setSecure(secureCookie);
         cookie.setAttribute("SameSite", "Lax");
-        cookie.setPath("/");
+        // Only the AuthController endpoints (/api/auth/refresh, /api/auth/logout)
+        // ever read this cookie, so keep it off every other API request.
+        cookie.setPath("/api/auth");
     }
 }
