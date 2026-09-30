@@ -3,22 +3,33 @@ import { useNavigate, useParams } from "react-router-dom"
 import apiClient from "../services/apiClient"
 import CitationModal from "../components/CitationModal"
 import FilePreview from "../components/FilePreview"
+import type { FileNode } from "../components/FileTree"
+import SearchPanel from "../components/SearchPanel"
+import AgentPanel from "../components/AgentPanel"
+import DocsPanel from "../components/DocsPanel"
+import ExplainPanel from "../components/ExplainPanel"
+import DebugPanel from "../components/DebugPanel"
+import ImprovePanel from "../components/ImprovePanel"
+import WorkspaceMode from "../components/WorkspaceMode"
+import { getApiErrorMessage } from "../utils/apiError"
 import { useChat } from "./chat/useChat"
 import ChatSidebar from "./chat/ChatSidebar"
 import ChatHeader from "./chat/ChatHeader"
 import ChatEmptyState from "./chat/ChatEmptyState"
 import MessageList from "./chat/MessageList"
 import ChatComposer from "./chat/ChatComposer"
+import FilesMode from "./chat/FilesMode"
+import { WORKSPACE_MODES } from "./chat/workspaceModes"
 import type { Citation, TabId } from "./chat/types"
 import "./Chat.css"
 
-interface FileNode {
-  name: string
-  path: string
-  type: "file" | "directory"
-  fileId?: string
-  children?: FileNode[]
-}
+/**
+ * Modes that keep the conversation list docked. Chat and Files are both about
+ * looking at something while still being one keystroke away from a chat, so the
+ * sidebar earns its space. The rest are focused tasks that want the width, so
+ * the sidebar folds and the workspace takes over completely.
+ */
+const SIDEBAR_MODES: TabId[] = ["chat", "files"]
 
 /**
  * Composition root for the chat workspace. All chat data (sessions, messages,
@@ -37,11 +48,19 @@ const ChatPage: React.FC = () => {
   const [projectStatus, setProjectStatus] = useState("")
   const [activeTab, setActiveTab] = useState<TabId>("chat")
   const [fileTree, setFileTree] = useState<FileNode[]>([])
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [filesError, setFilesError] = useState("")
+  // The id is kept alongside the content so the viewer can retry the exact
+  // same request when the fetch fails.
   const [selectedFile, setSelectedFile] = useState<{
+    fileId?: string
     path: string
     content: string
   } | null>(null)
+  // True while a file's content is in flight. The viewer opens immediately with
+  // the path it already knows plus a skeleton, so the click is never silent.
+  const [fileLoading, setFileLoading] = useState(false)
+  const [fileError, setFileError] = useState("")
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(
     null,
   )
@@ -87,6 +106,22 @@ const ChatPage: React.FC = () => {
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [isCompact, sidebarCollapsed])
 
+  // Ctrl/Cmd+K opens search from anywhere. It is the gesture people already
+  // know from Linear, Notion and VS Code, and search is the one mode worth
+  // interrupting anything else to reach.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setActiveTab("search")
+        // Search wants the full width, so the sidebar folds out of its way.
+        setSidebarCollapsed(true)
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
   const fetchProjectInfo = async () => {
     try {
       const response = await apiClient.get(`/projects/${projectId}`)
@@ -98,11 +133,22 @@ const ChatPage: React.FC = () => {
   }
 
   const fetchFileTree = async () => {
+    setFilesLoading(true)
+    setFilesError("")
     try {
       const response = await apiClient.get(`/projects/${projectId}/files`)
       setFileTree(response.data)
     } catch (error) {
       console.error("Failed to fetch file tree:", error)
+      setFileTree([])
+      setFilesError(
+        getApiErrorMessage(
+          error,
+          "Something went wrong while loading this project’s files.",
+        ),
+      )
+    } finally {
+      setFilesLoading(false)
     }
   }
 
@@ -115,7 +161,9 @@ const ChatPage: React.FC = () => {
   }, [projectId])
 
   useEffect(() => {
-    if (activeTab === "files" && projectId) {
+    // Files are only worth fetching for the mode that shows them, and only
+    // once — the toolbar's Refresh button re-fetches on demand.
+    if (activeTab === "files" && projectId && fileTree.length === 0) {
       // Async fetch — setState only runs after the request resolves.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchFileTree()
@@ -169,49 +217,83 @@ const ChatPage: React.FC = () => {
       document.removeEventListener("mouseup", onMouseUp)
     }
   }, [])
-  const toggleDir = (path: string) => {
-    setExpandedDirs((currentExpanded) => {
-      const nextExpanded = new Set(currentExpanded)
-      if (nextExpanded.has(path)) {
-        nextExpanded.delete(path)
-      } else {
-        nextExpanded.add(path)
-      }
-      return nextExpanded
+  /**
+   * Opens the viewer immediately with the path that is already known and fills
+   * the content in when it arrives, so a click is never silent while the
+   * request is in flight.
+   */
+  const openFile = async (file: { fileId?: string; path?: string }) => {
+    if (!file.fileId || !projectId) return
+    setSelectedFile({
+      fileId: file.fileId,
+      path: file.path ?? "",
+      content: "",
     })
-  }
-
-  const handleFileClick = async (file: { fileId?: string }) => {
-    if (!file.fileId) return
+    setFileError("")
+    setFileLoading(true)
     try {
       const response = await apiClient.get(
         `/projects/${projectId}/files/${file.fileId}/content`,
       )
       setSelectedFile({
-        path: response.data.path,
+        fileId: file.fileId,
+        path: response.data.path ?? file.path ?? "",
         content: response.data.content,
       })
     } catch (error) {
       console.error("Failed to fetch file content:", error)
+      setFileError(getApiErrorMessage(error, "This file could not be opened."))
+    } finally {
+      setFileLoading(false)
     }
   }
 
-  const handleCitationClick = (filePath: string) => {
-    apiClient
-      .get(`/projects/${projectId}/files/by-path`, {
-        params: { path: filePath },
-      })
-      .then((response) => {
-        setSelectedFile({ path: filePath, content: response.data.content })
-      })
-      .catch((error) => console.error("Failed to fetch file:", error))
+  const closeFile = () => {
+    setSelectedFile(null)
+    setFileError("")
   }
 
-  // Selecting a non-chat nav item auto-expands the sidebar so its panel is
-  // actually visible.
+  /** Citations arrive as paths rather than ids, so they resolve by path. */
+  const openFileByPath = async (filePath: string) => {
+    if (!projectId) return
+    setSelectedFile({ path: filePath, content: "" })
+    setFileError("")
+    setFileLoading(true)
+    try {
+      const response = await apiClient.get(
+        `/projects/${projectId}/files/by-path`,
+        { params: { path: filePath } },
+      )
+      setSelectedFile({ path: filePath, content: response.data.content })
+    } catch (error) {
+      console.error("Failed to fetch file:", error)
+      setFileError("This file is no longer part of the indexed project.")
+    } finally {
+      setFileLoading(false)
+    }
+  }
+
+  const retryFile = () => {
+    if (!selectedFile) return
+    if (selectedFile.fileId) {
+      void openFile({
+        fileId: selectedFile.fileId,
+        path: selectedFile.path,
+      })
+    } else {
+      void openFileByPath(selectedFile.path)
+    }
+  }
+
+  /**
+   * Switching modes. The sidebar follows the workspace instead of fighting it:
+   * it stays for the modes that use it, folds for the ones that want the width,
+   * and on compact layouts choosing a mode also dismisses the drawer it was
+   * opened from.
+   */
   const handleSelectTab = (tab: TabId) => {
     setActiveTab(tab)
-    if (tab !== "chat" && sidebarCollapsed) setSidebarCollapsed(false)
+    setSidebarCollapsed(isCompact || !SIDEBAR_MODES.includes(tab))
   }
 
   const handleSelectSession = (sessionId: string) => {
@@ -246,10 +328,28 @@ const ChatPage: React.FC = () => {
       </div>
     )
   }
+  // Only chat and files have anything to show in the side column; every other
+  // mode uses the whole workspace.
+  const showSidebar = SIDEBAR_MODES.includes(activeTab)
+
   return (
     <div className="chat-container">
+      {/* The toolbar spans the whole shell — never the main column alone —
+          so its horizontal position is identical whether or not the current
+          mode renders a sidebar. Only the grid columns below react to it. */}
+      <ChatHeader
+        projectName={projectName}
+        projectStatus={projectStatus}
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        showSidebarToggle={showSidebar}
+        onBack={() => navigate("/dashboard")}
+      />
+
       {/* Drawer scrim: only exists while the sidebar overlays the workspace. */}
-      {isCompact && !sidebarCollapsed && (
+      {isCompact && showSidebar && !sidebarCollapsed && (
         <button
           type="button"
           className="sidebar-backdrop"
@@ -258,78 +358,119 @@ const ChatPage: React.FC = () => {
         />
       )}
 
-      <ChatSidebar
-        projectId={projectId}
-        activeTab={activeTab}
-        sessions={chat.sessions}
-        activeSession={chat.activeSession}
-        onSelectSession={handleSelectSession}
-        onCreateSession={handleCreateSession}
-        onDeleteSession={chat.deleteSession}
-        renamingSessionId={chat.renamingSessionId}
-        renameTitle={chat.renameTitle}
-        onRenameTitleChange={chat.setRenameTitle}
-        onStartRenaming={chat.startRenaming}
-        onSaveRenaming={chat.saveSessionTitle}
-        onCancelRenaming={() => chat.setRenamingSessionId(null)}
-        fileTree={fileTree}
-        expandedDirs={expandedDirs}
-        onToggleDir={toggleDir}
-        onFileClick={handleFileClick}
-        onCitationClick={handleCitationClick}
-        collapsed={sidebarCollapsed}
-        width={sidebarWidth}
-        resizeHandleRef={resizeHandleRef}
-      />
-
-      {/* Main Workspace */}
-      <main className="chat-main">
-        <ChatHeader
-          projectName={projectName}
-          projectStatus={projectStatus}
-          activeTab={activeTab}
-          onSelectTab={handleSelectTab}
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onBack={() => navigate("/dashboard")}
+      {showSidebar && (
+        <ChatSidebar
+          sessions={chat.sessions}
+          activeSession={chat.activeSession}
+          onSelectSession={handleSelectSession}
+          onCreateSession={handleCreateSession}
+          onDeleteSession={chat.deleteSession}
+          renamingSessionId={chat.renamingSessionId}
+          renameTitle={chat.renameTitle}
+          onRenameTitleChange={chat.setRenameTitle}
+          onStartRenaming={chat.startRenaming}
+          onSaveRenaming={chat.saveSessionTitle}
+          onCancelRenaming={() => chat.setRenamingSessionId(null)}
+          collapsed={sidebarCollapsed}
+          width={sidebarWidth}
+          resizeHandleRef={resizeHandleRef}
         />
+      )}
 
-        {/* Conversation Stream or Purposeful Empty State */}
-        <div className="chat-body" ref={chatBodyRef}>
-          {activeTab === "chat" &&
-            (chat.messages.length === 0 ? (
-              <ChatEmptyState
-                projectName={projectName}
-                onPrompt={chat.sendQuery}
-                onNavigate={handleSelectTab}
-              />
-            ) : (
-              <MessageList
-                messages={chat.messages}
-                loading={chat.loading}
-                onCitationClick={setSelectedCitation}
-                scrollContainerRef={chatBodyRef}
-              />
-            ))}
-        </div>
+      {/* Main Workspace — one shell, many modes */}
+      <main className={`chat-main ${showSidebar ? "" : "sidebar-free"}`}>
+        {activeTab === "chat" ? (
+          <>
+            {/* Conversation Stream or Purposeful Empty State */}
+            <div className="chat-body" ref={chatBodyRef}>
+              {chat.messages.length === 0 ? (
+                <ChatEmptyState
+                  projectName={projectName}
+                  onPrompt={chat.sendQuery}
+                  onNavigate={handleSelectTab}
+                />
+              ) : (
+                <MessageList
+                  messages={chat.messages}
+                  loading={chat.loading}
+                  onCitationClick={setSelectedCitation}
+                  scrollContainerRef={chatBodyRef}
+                />
+              )}
+            </div>
 
-        {/* Modern AI Chat Composer */}
-        <ChatComposer
-          value={chat.input}
-          onChange={chat.setInput}
-          onSend={() => chat.sendQuery(chat.input)}
-          loading={chat.loading}
-        />
+            {/* Modern AI Chat Composer */}
+            <ChatComposer
+              value={chat.input}
+              onChange={chat.setInput}
+              onSend={() => chat.sendQuery(chat.input)}
+              loading={chat.loading}
+            />
+          </>
+        ) : (
+          <div className="workspace-body">
+            {/* Keyed by mode so each switch replays the subtle enter
+                transition instead of changing content in place. */}
+            <WorkspaceMode
+              key={activeTab}
+              title={WORKSPACE_MODES[activeTab].title}
+              description={WORKSPACE_MODES[activeTab].description}
+              icon={WORKSPACE_MODES[activeTab].icon}
+            >
+              {activeTab === "files" && (
+                <FilesMode
+                  tree={fileTree}
+                  loading={filesLoading}
+                  error={filesError}
+                  onRetry={fetchFileTree}
+                  onFileClick={openFile}
+                />
+              )}
+              {activeTab === "search" && (
+                <SearchPanel projectId={projectId} onFileClick={openFile} />
+              )}
+              {activeTab === "agent" && (
+                <AgentPanel
+                  projectId={projectId}
+                  onCitationClick={openFileByPath}
+                />
+              )}
+              {activeTab === "docs" && <DocsPanel projectId={projectId} />}
+              {activeTab === "explain" && (
+                <ExplainPanel
+                  projectId={projectId}
+                  onCitationClick={openFileByPath}
+                />
+              )}
+              {activeTab === "debug" && (
+                <DebugPanel
+                  projectId={projectId}
+                  onCitationClick={openFileByPath}
+                />
+              )}
+              {activeTab === "improve" && <ImprovePanel projectId={projectId} />}
+            </WorkspaceMode>
+          </div>
+        )}
       </main>
 
       <CitationModal
         citation={selectedCitation}
         onClose={() => setSelectedCitation(null)}
+        onOpenFile={(path) => {
+          // Swap the snippet for the whole file instead of stacking a second
+          // dialog on top of the first.
+          setSelectedCitation(null)
+          void openFileByPath(path)
+        }}
       />
 
       <FilePreview
         file={selectedFile}
-        onClose={() => setSelectedFile(null)}
+        loading={fileLoading}
+        error={fileError}
+        onRetry={retryFile}
+        onClose={closeFile}
       />
     </div>
   )

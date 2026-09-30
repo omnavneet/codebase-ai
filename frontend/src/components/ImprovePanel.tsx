@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import apiClient from '../services/apiClient';
 import { type Finding, sortFindings } from './findings';
-import { flattenFileTree } from '../utils/fileTree';
+import { useProjectFiles } from '../hooks/useProjectFiles';
 import { getApiErrorMessage } from '../utils/apiError';
-import './Agent.css';
+import { FilePicker, FindingsList, PanelEmpty, PanelError, PanelRun } from './PanelKit';
 
 interface ImproveCodeResult {
   file_path: string;
@@ -15,26 +15,28 @@ interface ImprovePanelProps {
   projectId: string;
 }
 
+const reviewIcon = (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="9 11 12 14 22 4" />
+    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+  </svg>
+);
+
+/** Findings are shown worst-first; the shared helper owns that ordering. */
+
+/**
+ * Code review for a single file. The result is a summary plus a list of
+ * findings; a clean file is a valid, happy outcome, so it gets its own calm
+ * state rather than an empty list.
+ */
 const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
-  const [files, setFiles] = useState<string[]>([]);
+  const { files, loading: filesLoading, error: filesError, reload } = useProjectFiles(projectId);
   const [selectedFile, setSelectedFile] = useState('');
   const [result, setResult] = useState<ImproveCodeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const fetchFiles = async () => {
-      try {
-        const response = await apiClient.get(`/projects/${projectId}/files`);
-        setFiles(flattenFileTree(response.data));
-      } catch (error) {
-        console.error('Failed to fetch files:', error);
-      }
-    };
-    fetchFiles();
-  }, [projectId]);
-
-  const handleImprove = async () => {
+  const runReview = useCallback(async () => {
     if (!selectedFile || loading) return;
 
     setLoading(true);
@@ -47,90 +49,79 @@ const ImprovePanel: React.FC<ImprovePanelProps> = ({ projectId }) => {
       });
       setResult(response.data);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to review file'));
+      setError(getApiErrorMessage(err, 'This file could not be reviewed.'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [loading, projectId, selectedFile]);
 
   const sortedFindings = result ? sortFindings(result.findings) : [];
 
   return (
-    <div className="improve-panel">
-      <div className="improve-controls">
-        <select
-          className="file-select"
+    <div className="tool-panel">
+      <div className="panel-toolbar">
+        <FilePicker
+          id="review-file"
+          label="File to review"
           value={selectedFile}
-          onChange={(e) => setSelectedFile(e.target.value)}
-        >
-          <option value="">Select a file...</option>
-          {files.map((file, index) => (
-            <option key={index} value={file}>{file}</option>
-          ))}
-        </select>
-
+          onChange={setSelectedFile}
+          files={files}
+          loading={filesLoading}
+          error={filesError}
+          onReload={() => void reload()}
+        />
         <button
-          className="improve-button"
-          onClick={handleImprove}
+          type="button"
+          className="ui-btn ui-btn-primary"
+          onClick={() => void runReview()}
           disabled={!selectedFile || loading}
         >
-          {loading ? 'Reviewing...' : 'Review File'}
+          {loading ? (
+            <>
+              <span className="spinner spinner-xs" aria-hidden="true" />
+              Reviewing…
+            </>
+          ) : (
+            'Review file'
+          )}
         </button>
       </div>
 
-      {error && <div className="error-message">{error}</div>}
+      {error && <PanelError message={error} onRetry={() => void runReview()} />}
 
       {loading && (
-        <div className="agent-loading">
-          <div className="loading-spinner" />
-          <span>Reviewing file... this can take a moment</span>
-        </div>
+        <PanelRun
+          label="Reviewing the file"
+          hint="Looking for bugs, performance, security and readability issues."
+        />
+      )}
+
+      {!loading && !error && !result && (
+        <PanelEmpty
+          icon={reviewIcon}
+          title="Review a file"
+          hint="Each finding comes with the current code and a suggested replacement, so nothing is a mystery edit."
+        />
       )}
 
       {result && (
-        <div className="improve-result">
-          <div className="improve-summary">
-            <h4>Review Summary</h4>
-            <div className="summary-content">{result.summary}</div>
-          </div>
+        <div className="panel-result">
+          <section className="panel-card" aria-label="Review summary">
+            <div className="panel-card-header">
+              <h3 className="panel-section-title">Summary</h3>
+              <span className="panel-meta">
+                {sortedFindings.length === 0
+                  ? 'No findings'
+                  : `${sortedFindings.length} ${sortedFindings.length === 1 ? 'finding' : 'findings'}`}
+              </span>
+            </div>
+            <p className="finding-text suggestion">{result.summary}</p>
+          </section>
 
           {sortedFindings.length === 0 ? (
-            <div className="improve-clean">No significant issues found in this file.</div>
+            <p className="panel-success">No significant issues found in this file.</p>
           ) : (
-            sortedFindings.map((finding, index) => (
-              <div key={index} className="finding-card">
-                <div className="finding-header">
-                  <span className={`finding-badge ${finding.severity}`}>
-                    {finding.severity}
-                  </span>
-                  <span className="finding-badge category">{finding.category}</span>
-                  <span className="finding-title">{finding.title}</span>
-                  <span className="finding-lines">L{finding.lines}</span>
-                </div>
-
-                {finding.description && (
-                  <div className="finding-text">{finding.description}</div>
-                )}
-
-                {finding.suggestion && (
-                  <div className="finding-text suggestion">{finding.suggestion}</div>
-                )}
-
-                {finding.code_before && (
-                  <div className="diff-block diff-before">
-                    <div className="diff-label">Current</div>
-                    <pre>{finding.code_before}</pre>
-                  </div>
-                )}
-
-                {finding.code_after && (
-                  <div className="diff-block diff-after">
-                    <div className="diff-label">Suggested</div>
-                    <pre>{finding.code_after}</pre>
-                  </div>
-                )}
-              </div>
-            ))
+            <FindingsList findings={sortedFindings} />
           )}
         </div>
       )}

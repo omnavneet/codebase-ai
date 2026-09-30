@@ -8,6 +8,8 @@ interface ChatHeaderProps {
   onSelectTab: (tab: TabId) => void
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
+  /** False in modes that have no sidebar to show or hide. */
+  showSidebarToggle: boolean
   onBack: () => void
 }
 
@@ -91,6 +93,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   onSelectTab,
   sidebarCollapsed,
   onToggleSidebar,
+  showSidebarToggle,
   onBack,
 }) => {
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false)
@@ -279,17 +282,22 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
       </div>
 
       <div className="header-right">
-        <button
-          className="btn-icon-header"
-          onClick={onToggleSidebar}
-          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-          </svg>
-        </button>
+        {/* Only modes that actually own a sidebar get a control for it. */}
+        {showSidebarToggle && (
+          <button
+            type="button"
+            className="btn-icon-header"
+            onClick={onToggleSidebar}
+            aria-pressed={!sidebarCollapsed}
+            title={sidebarCollapsed ? "Show chat list" : "Hide chat list"}
+            aria-label={sidebarCollapsed ? "Show chat list" : "Hide chat list"}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+        )}
       </div>
     </header>
   )

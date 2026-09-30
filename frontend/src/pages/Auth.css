@@ -12,14 +12,27 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 10px;
+  margin-bottom: var(--space-6);
+  color: var(--m3-primary);
+}
+
+/* The mark sits in a soft tile so the wordmark reads as a lockup, and the
+   tile doubles as the app's "identity" anchor across auth screens. */
+.auth-logo-icon {
+  width: 34px;
+  height: 34px;
+  padding: 7px;
+  box-sizing: border-box;
+  border-radius: var(--m3-shape-sm);
+  background: var(--m3-primary-soft);
   color: var(--m3-primary);
 }
 
 .auth-logo-text {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-tight);
   color: var(--m3-on-surface);
 }
 

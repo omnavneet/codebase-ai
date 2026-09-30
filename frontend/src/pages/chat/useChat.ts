@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import apiClient from "../../services/apiClient"
 import { streamChatMessage } from "../../services/streamChat"
+import { useToast } from "../../context/ToastContext"
 import type { Citation, Message, Session } from "./types"
 
 /** Inactivity budget for one send: watchdog abort and stale-lock recovery. */
@@ -12,6 +13,7 @@ const SEND_IDLE_MS = 45000
  * Presentation stays in the components; debugging starts here.
  */
 export function useChat(projectId: string | undefined) {
+  const { toast } = useToast()
   const [sessions, setSessions] = useState<Session[]>([])
   const [activeSession, setActiveSession] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -100,6 +102,13 @@ export function useChat(projectId: string | undefined) {
       }
     } catch (error) {
       console.error("Failed to delete session:", error)
+      // The row only leaves the list on success, so this toast is what tells
+      // the user the delete did not happen and the chat is still there.
+      toast({
+        tone: 'error',
+        title: 'Could not delete the chat',
+        description: 'Nothing was removed — try again in a moment.',
+      })
     }
   }
 
@@ -126,6 +135,12 @@ export function useChat(projectId: string | undefined) {
       setRenamingSessionId(null)
     } catch (error) {
       console.error("Failed to rename session:", error)
+      // Keep the row in rename mode so the typed title is not thrown away.
+      toast({
+        tone: 'error',
+        title: 'Could not rename the chat',
+        description: 'Your text is still here — try saving again.',
+      })
     }
   }
 
@@ -156,6 +171,13 @@ export function useChat(projectId: string | undefined) {
       return newSession.id
     } catch (error) {
       console.error("Failed to create session:", error)
+      // The send bails out right after this, so without a toast the user
+      // would press Enter and see nothing at all happen.
+      toast({
+        tone: 'error',
+        title: 'Could not start the conversation',
+        description: 'Check your connection and press Enter to try again.',
+      })
       return null
     }
   }
@@ -251,13 +273,14 @@ export function useChat(projectId: string | undefined) {
               updateAssistant((message) => ({ ...message, id: messageId }))
             }
           },
-          onError: (errorMessage) => {
+          onError: () => {
             updateAssistant((message) =>
               message.content
                 ? message
                 : {
                     ...message,
-                    content: `Sorry, an error occurred while analyzing the codebase. (${errorMessage})`,
+                    content:
+                      'The answer never started — the AI service may be briefly unavailable. Your question is safe in the conversation above; press Enter in the composer to try again.',
                   },
             )
           },
@@ -295,8 +318,12 @@ export function useChat(projectId: string | undefined) {
           updateAssistant((message) => ({
             ...message,
             content:
-              "Sorry, an error occurred while analyzing the codebase. Please try again.",
+              'The answer could not be generated right now. Your question is safe in the conversation above; press Enter in the composer to try again.',
           }))
+          // Return the failed question to the composer so retrying is one
+          // keystroke — unless the user has already started typing something
+          // new, which always wins.
+          setInput((current) => (current.trim() ? current : userMessageText))
         }
       }
     } finally {

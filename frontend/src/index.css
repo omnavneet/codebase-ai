@@ -50,6 +50,7 @@
   /* Success */
   --m3-success: #1e8e3e;
   --m3-success-container: #ceead6;
+  --m3-on-success-container: #0b4a20;
 
   /* Warning */
   --m3-warning: #e37400;
@@ -389,6 +390,15 @@ img {
 
 @keyframes slideInLeft {
   from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* ============================================================
    PRIMITIVES
    A small, opinionated component layer. Every value comes from a
@@ -650,12 +660,34 @@ img {
   cursor: not-allowed;
 }
 
+/* ---------- Select ----------
+   A native select wearing the text-field clothes: same metrics, same focus
+   ring, plus a chevron drawn as a background image so no wrapper element is
+   needed and the control stays a plain <select> for keyboard users. */
+.ui-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235c6169' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  text-overflow: ellipsis;
+}
+
+.ui-select:disabled {
+  background-image: none;
+}
+
+.ui-select option {
+  color: var(--m3-on-surface);
+}
+
 .ui-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-
 .ui-field-label {
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
@@ -926,15 +958,6 @@ img {
   }
 }
 
-    opacity: 0;
-    transform: translateX(-24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 /* ============================================================
    Scrollbar (thin, M3 styled)
    ============================================================ */
@@ -956,21 +979,31 @@ img {
   background: var(--m3-outline);
 }
 
-/* ---------- Accessibility: Visible Keyboard Focus ---------- */
-:focus-visible {
-  outline: 2px solid var(--m3-primary);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
-/* ---------- Accessibility: Reduced Motion ---------- */
+/* ---------- Accessibility: Reduced Motion (blanket safety net) ----------
+   The targeted block above handles this app's own entrance animations. This
+   one covers everything else (third-party markup, transitions added later):
+   transition/animation on `transform` is switched off, while colour, opacity,
+   border and shadow feedback still animate so state changes stay legible.
+   Progress indicators keep spinning — a frozen spinner reads as a broken
+   request — but they slow down and stay within the same visual amplitude. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+    transition-property: background-color, border-color, color, box-shadow,
+      opacity, outline-color, text-decoration-color, fill, stroke !important;
+    transition-duration: var(--m3-duration-short) !important;
+  }
+
+  /* Movement-free, but still visibly alive. */
+  .spinner,
+  .ui-dot-pulse,
+  .stream-caret {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
   }
 }
+

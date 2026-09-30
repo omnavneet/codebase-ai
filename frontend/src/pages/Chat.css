@@ -3,15 +3,23 @@
    ============================================================ */
 
 .chat-container {
-  display: flex;
+  display: grid;
+  /* Two bands, four cells:
+     Row 1 — the toolbar band. It is ALWAYS full width, no matter what the
+     columns below do, so the top navigation never moves horizontally.
+     Row 2 — the workspace: column 1 sizes itself to the sidebar (0px when a
+     mode renders none) and column 2 takes the rest, so only the page content
+     reacts to the sidebar appearing. */
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: var(--header-height) minmax(0, 1fr);
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   background-color: var(--m3-surface);
   color: var(--m3-on-surface);
   font-family: inherit;
-  /* Explicit containing block for the absolutely-positioned overlay drawer and
-     its scrim on compact layouts, instead of relying on the viewport. */
+  /* Explicit containing block for the absolutely-positioned overlay drawer,
+     its scrim, and the toolbar (anchored to the shell, not to a column). */
   position: relative;
 }
 
@@ -26,6 +34,10 @@
   width: 260px;
   min-width: 180px;
   max-width: 520px;
+  /* Workspace band, left column — sits BELOW the toolbar band (row 1) and
+     takes no space at all when this element isn't rendered. */
+  grid-column: 1;
+  grid-row: 2;
   height: 100%;
   background: var(--m3-surface-dim);
   border-right: 1px solid var(--m3-outline-variant);
@@ -263,6 +275,10 @@
    2. Main Workspace
    ============================================================ */
 .chat-main {
+  /* Workspace band, right column — starts after column 1 (the sidebar), so
+     the content accounts for it while the toolbar above does not move. */
+  grid-column: 2;
+  grid-row: 2;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -272,9 +288,18 @@
   position: relative;
 }
 
-/* Unified App Header (56px) */
+/* Unified App Header (56px)
+   Anchored to the SHELL, not to the main column: it spans the full width in
+   every mode, so its x-position is identical whether or not a sidebar exists.
+   It overlays the reserved first grid row (var(--header-height)); the sidebar
+   and main content live in row 2 below it. Absolutely positioned so it never
+   participates in (or perturbs) the column sizing. */
 .chat-header {
-  height: 56px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-height);
   padding: 0 20px;
   border-bottom: 1px solid var(--m3-outline-variant);
   display: flex;
@@ -283,7 +308,7 @@
   flex-shrink: 0;
   background: var(--m3-surface);
   gap: 16px;
-  z-index: 10;
+  z-index: 30;
 }
 
 .header-left {
@@ -342,19 +367,25 @@
 }
 
 .project-status-pill {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-label);
+  padding: 2px 8px;
   border-radius: var(--m3-shape-full);
-  background: var(--m3-surface-variant);
+  white-space: nowrap;
+  background: var(--m3-surface-container);
   color: var(--m3-on-surface-variant);
 }
 
-/* Status shown only when it matters (never for "ready") */
+/* Status shown only when it matters (never for "ready"). The darker
+   primary tone keeps 11px text above AA against the container fill. */
 .project-status-pill.processing,
 .project-status-pill.pending {
   background: var(--m3-primary-container);
-  color: var(--m3-primary);
+  color: var(--m3-primary-active);
 }
 
 .project-status-pill.error {
@@ -881,161 +912,16 @@
   to { transform: rotate(360deg); }
 }
 
-/* File Tree Container & Secondary Panels in Sidebar */
-.file-tree-container {
-  padding: 12px;
-  height: 100%;
-}
-
-/* ============================================================
-   5b. Semantic Search Panel (sidebar)
-   ============================================================ */
-.search-panel {
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.search-input-container {
-  display: flex;
-  gap: 8px;
-}
-
-.search-input {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--m3-shape-sm);
-  font-size: 13px;
-  background: var(--m3-surface);
-  color: var(--m3-on-surface);
-  outline: none;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
-}
-
-.search-input:focus {
-  border-color: var(--m3-primary);
-  box-shadow: 0 0 0 3px var(--m3-primary-container);
-}
-
-.search-input::placeholder {
-  color: var(--m3-outline);
-}
-
-.search-button {
-  padding: 8px 12px;
-  background: var(--m3-primary);
-  color: var(--m3-on-primary);
-  border: none;
-  border-radius: var(--m3-shape-sm);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 140ms ease;
-}
-
-.search-button:hover:not(:disabled) {
-  background: var(--m3-primary-hover);
-}
-
-.search-button:disabled {
-  background: var(--m3-surface-variant);
-  color: var(--m3-outline);
-  cursor: not-allowed;
-}
-
-.search-results {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.search-placeholder {
-  text-align: center;
-  color: var(--m3-on-surface-variant);
-  font-size: 13px;
-  padding: 28px 12px;
-  line-height: 1.5;
-}
-
-.search-error {
-  padding: 10px 12px;
-  border: 1px solid var(--m3-error);
-  border-radius: var(--m3-shape-sm);
-  background: var(--m3-error-container);
-  color: var(--m3-error);
-  font-size: 12px;
-}
-
-.search-result-item {
-  padding: 10px 12px;
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--m3-shape-sm);
-  background: var(--m3-surface);
-  cursor: pointer;
-  transition: all 140ms ease;
-}
-
-.search-result-item:hover {
-  border-color: var(--m3-primary);
-  background: var(--m3-surface-dim);
-}
-
-.search-result-path {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--m3-on-surface);
-  margin-bottom: 6px;
-}
-
-.search-result-file {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-result-lines {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--m3-on-surface-variant);
-  background: var(--m3-surface-variant);
-  padding: 1px 6px;
-  border-radius: var(--m3-shape-full);
-}
-
-.search-result-content {
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--m3-on-surface-variant);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin-bottom: 6px;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.search-result-similarity {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--m3-primary);
-}
-
 /* ============================================================
    6. Responsive Adaptations
    ============================================================ */
 @media (max-width: 900px) {
   .chat-sidebar {
     position: absolute;
+    /* Drop the base rule's grid placement so this drawer resolves against
+       the shell's padding box exactly like the scrim below does — top: 56px
+       is flush under the full-width toolbar, in every mode. */
+    grid-area: auto;
     top: 56px;
     bottom: 0;
     left: 0;
@@ -1351,17 +1237,81 @@
   transition: background-color var(--m3-duration-short) var(--m3-ease-out);
 }
 
-/* ---------- Project indexing pill ---------- */
-.project-status-pill {
+/* ---------- Empty-state hero (Chat) ----------
+   Badge, headline and one line of orientation. The badge is the only
+   place the assistant's identity is stated, so it stays quiet. */
+.empty-chat-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.empty-hero-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: var(--text-2xs);
-  font-weight: var(--font-medium);
-  letter-spacing: var(--tracking-label);
-  padding: 2px 8px;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+  padding: 4px 10px 4px 8px;
+  border: 1px solid var(--m3-outline-variant);
   border-radius: var(--m3-shape-full);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface-variant);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-tight);
+}
+
+.badge-spark {
+  color: var(--m3-primary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.empty-hero-title {
+  margin-bottom: var(--space-3);
+}
+
+.project-highlight {
+  color: var(--m3-primary);
+}
+
+.empty-hero-subtitle {
+  max-width: 54ch;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--m3-on-surface-variant);
+}
+
+/* ---------- Citation chip internals ---------- */
+.citation-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--m3-on-surface-subtle);
+}
+
+.citation-chip:hover .citation-icon {
+  color: var(--m3-primary);
+}
+
+.citation-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 34ch;
+}
+
+@media (max-width: 720px) {
+  .citation-path {
+    max-width: 18ch;
+  }
+
+  .empty-hero-title {
+    font-size: var(--text-xl);
+  }
 }
 
 .project-status-pill.processing,
@@ -1574,5 +1524,27 @@
 
   .message-bubble {
     max-width: calc(100% - 48px);
+  }
+}
+
+/* ---------- Touch targets ----------
+   Compact pointer targets (30–36px) are comfortable with a mouse but miss
+   the ~40px floor with a finger. Only the small controls grow; their
+   internal spacing and type stay as they are, so nothing reflows on desktop. */
+@media (max-width: 900px) and (pointer: coarse) {
+  .btn-send-message,
+  .btn-icon-header,
+  .btn-header-back,
+  .ui-icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .nav-pill {
+    min-height: 40px;
+  }
+
+  .ui-btn {
+    min-height: 40px;
   }
 }

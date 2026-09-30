@@ -1,0 +1,629 @@
+/* ============================================================
+   WORKSPACE PATTERNS
+   The layer between the primitives in index.css and the feature
+   stylesheets: the frame every workspace mode renders inside, the
+   Files browser, the file tree and the shared panel kit.
+
+   Loaded once from main.tsx, after index.css, so it can rely on
+   every token and primitive defined there.
+   ============================================================ */
+
+/* ============================================================
+   1. Mode frame
+   Every non-chat mode renders inside this. The frame answers the
+   two questions a mode switch raises — "where am I" and "what can
+   I do here" — with a heading and one line of explanation, then
+   hands the rest of the space to the mode's own content.
+   ============================================================ */
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--m3-surface);
+}
+
+.workspace-mode {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.workspace-mode-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.workspace-mode-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: var(--m3-shape-sm);
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-variant);
+}
+
+.workspace-mode-heading {
+  min-width: 0;
+}
+
+.workspace-mode-title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-display);
+  color: var(--m3-on-surface);
+  line-height: 1.25;
+}
+
+.workspace-mode-description {
+  margin-top: 3px;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--m3-on-surface-variant);
+  max-width: 62ch;
+}
+
+/* The body is a plain column: each mode decides its own internal
+   rhythm, but the outside spacing stays identical everywhere. */
+.workspace-mode-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-height: 0;
+}
+
+/* ============================================================
+   2. Files mode
+   A browsing surface: toolbar, then either the tree or a flat
+   list of matches. Kept deliberately quiet — the filenames carry
+   the hierarchy, the chrome stays out of the way.
+   ============================================================ */
+.files-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.files-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.files-filter {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.files-filter-icon {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  color: var(--m3-on-surface-subtle);
+  pointer-events: none;
+}
+
+.files-filter .ui-input {
+  padding-left: 32px;
+  padding-right: 32px;
+}
+
+/* The clear affordance only costs space while there is something to clear. */
+.files-filter .ui-icon-btn {
+  position: absolute;
+  right: 4px;
+}
+
+.files-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.files-count {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+  font-variant-numeric: tabular-nums;
+  padding-left: var(--space-1);
+  margin-right: var(--space-1);
+  white-space: nowrap;
+}
+
+/* ---------- Skeleton ---------- */
+.files-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) 0;
+}
+
+.files-skeleton span {
+  height: 12px;
+  border-radius: var(--m3-shape-full);
+  background: linear-gradient(
+    90deg,
+    var(--m3-surface-container) 25%,
+    var(--m3-surface-container-high) 50%,
+    var(--m3-surface-container) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* Indent every placeholder line slightly differently so the block
+   reads as a tree waiting to load, not as a list of bars. */
+.files-skeleton span:nth-child(3n + 2) { margin-left: 16px; }
+.files-skeleton span:nth-child(3n + 3) { margin-left: 8px; }
+
+/* ---------- Filtered results (flat list) ---------- */
+.files-results {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+}
+
+.files-result-row button {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 7px var(--space-3);
+  border: 0;
+  border-radius: var(--m3-shape-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--m3-duration-instant) var(--m3-ease-out);
+}
+
+.files-result-row button:hover {
+  background: var(--m3-surface-container);
+}
+
+.files-result-row button:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.files-result-name {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+  flex-shrink: 0;
+}
+
+.files-result-path {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.files-no-match,
+.files-truncated {
+  padding: var(--space-4) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--m3-on-surface-variant);
+  line-height: 1.5;
+}
+
+.files-truncated {
+  padding: var(--space-3) var(--space-3) 0;
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+}
+
+.files-tree {
+  padding-bottom: var(--space-2);
+}
+
+/* ============================================================
+   3. File tree
+   Indentation comes from one custom property (--tree-depth) set
+   by the component, so nested levels cost nothing extra in the
+   DOM and can never drift out of alignment.
+   ============================================================ */
+.file-tree {
+  list-style: none;
+}
+
+.file-tree-node {
+  position: relative;
+}
+
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  /* 8px base + 14px per level keeps deep trees readable without ever
+     pushing the name off-screen. */
+  padding: 4px var(--space-2) 4px calc(var(--space-2) + var(--tree-depth, 0) * 14px);
+  border: 0;
+  border-radius: var(--m3-shape-sm);
+  background: transparent;
+  color: var(--m3-on-surface);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--m3-duration-instant) var(--m3-ease-out),
+              color var(--m3-duration-instant) var(--m3-ease-out);
+}
+
+.file-tree-row:hover {
+  background: var(--m3-surface-container);
+}
+
+.file-tree-row:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.file-tree-row.dir {
+  font-weight: var(--font-medium);
+}
+
+/* Twisty: its space is reserved even for files, so names line up. */
+.file-tree-twisty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--m3-on-surface-subtle);
+  transition: transform var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.file-tree-twisty.open {
+  transform: rotate(90deg);
+}
+
+.file-tree-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--m3-on-surface-subtle);
+}
+
+/* Extension tones. Five muted hues are enough to separate source from
+   config from docs at a glance; anything finer is decoration. */
+.file-tree-icon[data-tone='folder'] { color: #b1791f; }
+.file-tree-icon[data-tone='code'] { color: var(--m3-primary); }
+.file-tree-icon[data-tone='style'] { color: #7b4bd6; }
+.file-tree-icon[data-tone='data'] { color: var(--m3-warning); }
+.file-tree-icon[data-tone='doc'] { color: var(--m3-success); }
+.file-tree-icon[data-tone='shell'] { color: var(--m3-on-surface-variant); }
+
+.file-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-tree-empty-dir {
+  padding: 3px var(--space-2) 3px calc(var(--space-2) + var(--tree-depth, 0) * 14px + 20px);
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--m3-on-surface-subtle);
+}
+
+/* ============================================================
+   4. Panel kit
+   Shared by every tool mode: first-run state, failure state,
+   skeletons, long-run indicator and the inline copy control. One
+   definition is what keeps the six modes from drifting apart.
+   ============================================================ */
+
+/* ---------- Empty / first-run ---------- */
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-10) var(--space-5);
+  border: 1px dashed var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface-container-lowest);
+}
+
+.panel-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--space-4);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-variant);
+}
+
+.panel-empty-title {
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--m3-on-surface);
+}
+
+.panel-empty-hint {
+  margin-top: 4px;
+  max-width: 52ch;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--m3-on-surface-variant);
+}
+
+.panel-examples {
+  margin-top: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.panel-examples-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--m3-on-surface-subtle);
+}
+
+.panel-examples-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: 62ch;
+}
+
+.panel-example {
+  padding: 6px 11px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface-variant);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              border-color var(--m3-duration-short) var(--m3-ease-out),
+              color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.panel-example:hover {
+  background: var(--m3-primary-soft);
+  border-color: var(--m3-primary);
+  color: var(--m3-primary-active);
+}
+
+.panel-example:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* ---------- Error ---------- */
+.panel-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--m3-error-container);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-error-container);
+  animation: fadeSlideDown var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
+.panel-error-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--m3-error);
+}
+
+.panel-error-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-error-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--m3-on-error-container);
+}
+
+.panel-error-text {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--m3-on-error-container);
+}
+
+.panel-error .ui-btn {
+  flex-shrink: 0;
+  color: var(--m3-on-error-container);
+}
+
+.panel-error .ui-btn:hover:not(:disabled) {
+  background: rgba(65, 14, 11, 0.08);
+  color: var(--m3-on-error-container);
+}
+
+/* ---------- Skeletons ---------- */
+.panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.panel-skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: var(--space-4);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface);
+}
+
+.panel-skeleton-card span {
+  height: 10px;
+  border-radius: var(--m3-shape-full);
+  background: linear-gradient(
+    90deg,
+    var(--m3-surface-container) 25%,
+    var(--m3-surface-container-high) 50%,
+    var(--m3-surface-container) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* ---------- Long-running operation ---------- */
+.panel-run {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface-container-low);
+}
+
+.panel-run-spinner {
+  color: var(--m3-primary);
+}
+
+.panel-run-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-run-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+}
+
+.panel-run-hint {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+}
+
+/* A ticking counter is the cheapest proof that a slow request is alive. */
+.panel-run-elapsed {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--m3-on-surface-subtle);
+}
+
+/* ---------- Copy control ---------- */
+.panel-copy.copied {
+  color: var(--m3-success);
+}
+
+.panel-copy.failed {
+  color: var(--m3-warning);
+}
+
+/* Inline link-style action, e.g. "Retry" inside a field-level error. */
+.panel-inline-action {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  font-weight: var(--font-medium);
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.panel-inline-action:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--m3-shape-xs);
+}
+
+/* ============================================================
+   5. Adaptations
+   Modes keep their column but lose the wide gutters; toolbars
+   wrap instead of scrolling sideways.
+   ============================================================ */
+@media (max-width: 720px) {
+  .workspace-mode {
+    padding: var(--space-5) var(--space-4) var(--space-10);
+    gap: var(--space-5);
+  }
+
+  .workspace-mode-title {
+    font-size: var(--text-lg);
+  }
+
+  .files-toolbar {
+    align-items: stretch;
+  }
+
+  .files-filter {
+    flex-basis: 100%;
+  }
+
+  .files-toolbar-actions {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
+
+  /* Thumb-sized rows: a tap should never land on two files at once. */
+  .file-tree-row,
+  .files-result-row button {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .panel-empty {
+    padding: var(--space-8) var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-tree-twisty {
+    transition: none;
+  }
+
+  .panel-error {
+    animation: none;
+  }
+}
+
+
+

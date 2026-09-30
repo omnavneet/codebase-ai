@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import apiClient from '../services/apiClient';
 import {
   renderAnswerWithCitations,
   type AgentInvestigation,
 } from './citationUtils';
-import { type Finding, sortFindings } from './findings';
+import { type Finding } from './findings';
 import { getApiErrorMessage } from '../utils/apiError';
-import './Agent.css';
-import './Modal.css';
+import { CopyButton, FindingsList, PanelEmpty, PanelError, PanelRun } from './PanelKit';
 
 interface StackFrame {
   file?: string | null;
@@ -32,6 +31,18 @@ interface DebugPanelProps {
   onCitationClick: (filePath: string, startLine?: number, endLine?: number) => void;
 }
 
+const debugIcon = (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+  </svg>
+);
+
+/**
+ * Debug: describe the failure, optionally paste the trace, let the agent walk
+ * the code. The stack trace is the most useful thing a user can hand over, so
+ * it gets a monospaced field with room to paste — but it stays optional, so
+ * the mode still works from a description alone.
+ */
 const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) => {
   const [description, setDescription] = useState('');
   const [stackTrace, setStackTrace] = useState('');
@@ -40,7 +51,7 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleDebug = async () => {
+  const runDebug = useCallback(async () => {
     if (!description.trim() || loading) return;
 
     setLoading(true);
@@ -55,136 +66,159 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
       });
       setResult(response.data);
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Debugging failed'));
+      setError(getApiErrorMessage(err, 'The issue could not be investigated.'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [description, filePath, loading, projectId, stackTrace]);
 
   return (
-    <div className="debug-panel">
-      <div className="debug-controls">
-        <div className="form-group">
-          <label className="form-label">Issue Description</label>
+    <div className="tool-panel">
+      <form
+        className="panel-toolbar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void runDebug();
+        }}
+      >
+        <div className="panel-field panel-field-grow">
+          <label className="panel-field-label" htmlFor="debug-description">
+            What is going wrong?
+          </label>
           <textarea
-            className="debug-textarea"
+            id="debug-description"
+            className="ui-textarea panel-textarea"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the issue... e.g., 'Login fails with 500 error when using special characters in password'"
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Describe the failure — what you expected, and what happened instead."
             rows={3}
           />
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Stack Trace (optional)</label>
+        <div className="panel-field panel-field-grow">
+          <label className="panel-field-label" htmlFor="debug-trace">
+            Stack trace (optional)
+          </label>
           <textarea
-            className="debug-textarea"
+            id="debug-trace"
+            className="ui-textarea panel-textarea panel-textarea-mono"
             value={stackTrace}
-            onChange={(e) => setStackTrace(e.target.value)}
-            placeholder="Paste any error/stack trace..."
-            rows={5}
+            onChange={(event) => setStackTrace(event.target.value)}
+            placeholder="Paste the error output here…"
+            rows={4}
+            spellCheck={false}
           />
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Suspected File (optional)</label>
+        <div className="panel-field panel-field-fixed">
+          <label className="panel-field-label" htmlFor="debug-file">
+            Suspected file (optional)
+          </label>
           <input
-            className="debug-input"
+            id="debug-file"
+            className="ui-input"
             type="text"
             value={filePath}
-            onChange={(e) => setFilePath(e.target.value)}
-            placeholder="e.g., src/auth/AuthService.java"
+            onChange={(event) => setFilePath(event.target.value)}
+            placeholder="src/auth/AuthService.java"
+            spellCheck={false}
           />
         </div>
 
         <button
-          className="debug-button"
-          onClick={handleDebug}
+          type="submit"
+          className="ui-btn ui-btn-primary"
           disabled={!description.trim() || loading}
         >
-          {loading ? 'Debugging...' : 'Debug Issue'}
+          {loading ? (
+            <>
+              <span className="spinner spinner-xs" aria-hidden="true" />
+              Debugging…
+            </>
+          ) : (
+            'Debug issue'
+          )}
         </button>
-      </div>
+      </form>
 
-      {error && <div className="error-message">{error}</div>}
+      {error && <PanelError message={error} onRetry={() => void runDebug()} />}
 
       {loading && (
-        <div className="agent-loading">
-          <div className="loading-spinner" />
-          <span>Investigating issue... this can take a minute</span>
-        </div>
+        <PanelRun
+          label="Working through the failure"
+          hint="Parsing the trace, then reading the code paths it points at."
+        />
+      )}
+
+      {!loading && !error && !result && (
+        <PanelEmpty
+          icon={debugIcon}
+          title="Describe a failure to get a root cause"
+          hint="A description alone is enough. Adding the stack trace, or the file you suspect, makes the answer sharper."
+        />
       )}
 
       {result && (
-        <div className="debug-result">
+        <div className="panel-result">
           {result.frames && result.frames.length > 0 && (
-            <div className="agent-trace">
-              <h4>Parsed Stack Trace{result.stack_trace_language ? ` (${result.stack_trace_language})` : ''}</h4>
-              {result.frames.slice(0, 6).map((frame, index) => {
-                const inProject = result.project_frames?.some(
-                  (candidate) => candidate.raw === frame.raw,
-                );
-                return (
-                  <div key={index} className="trace-step">
-                    {inProject ? '★' : '·'} {frame.symbol || '(unknown)'} — {frame.file}
-                    {frame.line ? `:${frame.line}` : ''}
-                    {inProject ? ' (in project)' : ''}
-                  </div>
-                );
-              })}
+            <section className="panel-card" aria-label="Parsed stack trace">
+              <div className="panel-card-header">
+                <h3 className="panel-section-title">Parsed stack trace</h3>
+                {result.stack_trace_language && (
+                  <span className="panel-meta">{result.stack_trace_language}</span>
+                )}
+              </div>
+              <ol className="panel-trace">
+                {result.frames.slice(0, 6).map((frame, index) => {
+                  const inProject = result.project_frames?.some(
+                    (candidate) => candidate.raw === frame.raw,
+                  );
+                  return (
+                    <li key={index} className="panel-trace-step">
+                      {frame.symbol || '(unknown)'} — {frame.file}
+                      {frame.line ? `:${frame.line}` : ''}
+                      {inProject ? ' · in project' : ''}
+                    </li>
+                  );
+                })}
+              </ol>
               {result.stack_trace_notes?.map((note, index) => (
-                <div key={`note-${index}`} className="trace-step">ℹ {note}</div>
+                <p className="panel-meta" key={`note-${index}`}>
+                  {note}
+                </p>
               ))}
-            </div>
+            </section>
           )}
 
-          <div className="agent-trace">
-            <h4>Debug Trace</h4>
-            {result.trace.map((step, index) => (
-              <div key={index} className="trace-step">✓ {step}</div>
-            ))}
-          </div>
+          <section className="panel-card" aria-label="Debug trace">
+            <h3 className="panel-section-title">Debug trace</h3>
+            <ol className="panel-trace">
+              {result.trace.map((step, index) => (
+                <li key={index} className="panel-trace-step">
+                  {step}
+                </li>
+              ))}
+            </ol>
+          </section>
 
           {result.findings && result.findings.length > 0 && (
-            <div className="agent-result">
-              <h4>Findings &amp; Suggested Fix</h4>
-              {sortFindings(result.findings).map((finding, index) => (
-                <div key={index} className="finding-card">
-                  <div className="finding-header">
-                    <span className={`finding-badge ${finding.severity}`}>{finding.severity}</span>
-                    <span className="finding-badge category">{finding.category}</span>
-                    <span className="finding-title">{finding.title}</span>
-                    <span className="finding-lines">L{finding.lines}</span>
-                  </div>
-                  {finding.description && (
-                    <div className="finding-text">{finding.description}</div>
-                  )}
-                  {finding.suggestion && (
-                    <div className="finding-text suggestion">{finding.suggestion}</div>
-                  )}
-                  {finding.code_before && (
-                    <div className="diff-block diff-before">
-                      <div className="diff-label">Current</div>
-                      <pre>{finding.code_before}</pre>
-                    </div>
-                  )}
-                  {finding.code_after && (
-                    <div className="diff-block diff-after">
-                      <div className="diff-label">Suggested</div>
-                      <pre>{finding.code_after}</pre>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+            <section aria-label="Findings">
+              <div className="panel-card-header">
+                <h3 className="panel-section-title">Findings &amp; suggested fix</h3>
+              </div>
+              <FindingsList findings={result.findings} />
+            </section>
           )}
 
-          <div className="debug-answer">
-            <h4>Root Cause &amp; Fix</h4>
-            <div className="answer-content">
+          <section className="panel-card" aria-label="Root cause">
+            <div className="panel-card-header">
+              <h3 className="panel-section-title">Root cause &amp; fix</h3>
+              <CopyButton text={result.answer} label="Copy" />
+            </div>
+            <div className="panel-answer">
               {renderAnswerWithCitations(result.answer, onCitationClick)}
             </div>
-          </div>
+          </section>
         </div>
       )}
     </div>

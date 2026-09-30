@@ -15,6 +15,8 @@ const SettingsPage: React.FC = () => {
   
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  // Blocks double submission and drives the button's loading state.
+  const [savingPassword, setSavingPassword] = useState(false);
   
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -34,6 +36,8 @@ const SettingsPage: React.FC = () => {
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingPassword) return;
+
     setPasswordSuccess('');
     setPasswordError('');
 
@@ -42,6 +46,7 @@ const SettingsPage: React.FC = () => {
       return;
     }
 
+    setSavingPassword(true);
     try {
       await apiClient.put('/user/password', { currentPassword, newPassword });
       setPasswordSuccess('Password updated successfully');
@@ -50,6 +55,8 @@ const SettingsPage: React.FC = () => {
       setConfirmPassword('');
     } catch (err) {
       setPasswordError(getApiErrorMessage(err, 'Failed to update password'));
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -74,21 +81,28 @@ const SettingsPage: React.FC = () => {
           >
             {userInitial}
           </button>
-          <div className={`settings-user-dropdown ${menuOpen ? 'open' : ''}`}>
-            <div className="settings-user-email">{user?.email}</div>
-            <button type="button" onClick={() => navigate('/dashboard')}>Dashboard</button>
-            <button type="button" onClick={logout}>Sign out</button>
-          </div>
+          {menuOpen && (
+            <div className="settings-user-dropdown open" role="menu">
+              <div className="settings-user-email">{user?.email}</div>
+              <button type="button" role="menuitem" onClick={() => navigate('/dashboard')}>
+                Dashboard
+              </button>
+              <button type="button" role="menuitem" onClick={logout}>
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
       <main className="settings-main">
-        <div 
-          className="back-link" 
-          onClick={() => navigate('/dashboard')}
-        >
-          &larr; Back to Dashboard
-        </div>
+        <button type="button" className="back-link" onClick={() => navigate('/dashboard')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+          Back to projects
+        </button>
         
         <h1 className="settings-title">Settings</h1>
 
@@ -109,7 +123,7 @@ const SettingsPage: React.FC = () => {
           
           <div className="settings-divider"></div>
           
-          <form onSubmit={handleUpdatePassword}>
+          <form className="settings-form" onSubmit={handleUpdatePassword}>
             <div className="settings-label" style={{ marginBottom: '16px' }}>Change Password</div>
             
             <div className="form-field">
@@ -151,7 +165,16 @@ const SettingsPage: React.FC = () => {
             {passwordSuccess && <div className="success-message">{passwordSuccess}</div>}
             {passwordError && <div className="error-msg">{passwordError}</div>}
             
-            <button type="submit" className="btn-primary">Update Password</button>
+            <button type="submit" className="ui-btn ui-btn-primary" disabled={savingPassword}>
+              {savingPassword ? (
+                <>
+                  <span className="spinner spinner-xs" aria-hidden="true" />
+                  Updating…
+                </>
+              ) : (
+                'Update password'
+              )}
+            </button>
           </form>
         </section>
 

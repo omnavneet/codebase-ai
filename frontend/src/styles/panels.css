@@ -1,0 +1,531 @@
+/* ============================================================
+   TOOL PANELS
+   The six tool modes (Search, Agent, Docs, Explain, Debug,
+   Review). They differ in the form they ask for and the shape of
+   the answer, but they share one skeleton: a toolbar, a run
+   state, a failure state and a result made of cards.
+
+   Every value here comes from the tokens in index.css, and every
+   control is a `ui-*` primitive — nothing in this file invents a
+   button, an input or a colour of its own.
+   ============================================================ */
+
+/* ============================================================
+   1. Skeleton shared by all modes
+   ============================================================ */
+.tool-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ---------- Toolbar ----------
+   Inputs first, action last: the eye reads left to right and ends
+   on the button that commits. */
+.panel-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.panel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Fields grow to share the row; a lone field takes the whole line. */
+.panel-field-grow {
+  flex: 1 1 260px;
+}
+
+.panel-field-fixed {
+  flex: 0 1 200px;
+}
+
+.panel-field-label {
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-tight);
+  color: var(--m3-on-surface-variant);
+}
+
+.panel-toolbar .ui-btn {
+  flex-shrink: 0;
+}
+
+/* A textarea that behaves like an input: sized by content, roomy enough
+   for a pasted stack trace, never taller than a third of the view. */
+.panel-textarea {
+  min-height: 84px;
+  max-height: 34vh;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.panel-textarea-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+/* ---------- Result column ---------- */
+.panel-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: fadeSlideUp var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
+/* ---------- Card ---------- */
+.panel-card {
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface);
+  padding: var(--space-4);
+}
+
+.panel-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.panel-section-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--m3-on-surface);
+}
+
+.panel-meta {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Trace ----------
+   A numbered list of what the agent actually did. Numbers, not tick
+   marks: order is the information. */
+.panel-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: trace;
+}
+
+.panel-trace-step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--m3-on-surface-variant);
+}
+
+.panel-trace-step::before {
+  counter-increment: trace;
+  content: counter(trace);
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-variant);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* ---------- Answer ---------- */
+.panel-answer {
+  font-size: var(--text-base);
+  line-height: 1.68;
+  color: var(--m3-on-surface);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.panel-answer + .panel-meta {
+  margin-top: var(--space-3);
+}
+
+/* ---------- Code ---------- */
+.panel-code {
+  margin: 0;
+  padding: var(--space-4);
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface-container-low);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+  color: var(--m3-on-surface);
+  tab-size: 2;
+  white-space: pre;
+}
+
+/* ---------- Notices ---------- */
+.panel-warning,
+.panel-success {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--m3-shape-sm);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.panel-warning {
+  border: 1px solid color-mix(in srgb, var(--m3-warning) 32%, transparent);
+  background: var(--m3-warning-container);
+  color: #6b3b00;
+}
+
+.panel-success {
+  border: 1px solid color-mix(in srgb, var(--m3-success) 30%, transparent);
+  background: var(--m3-success-container);
+  color: #10612b;
+}
+
+/* Citation chip inside an answer: opens the file at that line. */
+.inline-citation {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 2px;
+  padding: 1px 7px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-xs);
+  background: var(--m3-surface-container-low);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--m3-primary);
+  cursor: pointer;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
+              border-color var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.inline-citation:hover {
+  background: var(--m3-primary-soft);
+  border-color: var(--m3-primary);
+}
+
+.inline-citation:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* ============================================================
+   2. Semantic search results
+   ============================================================ */
+.search-result-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--m3-duration-short) var(--m3-ease-out),
+              box-shadow var(--m3-duration-short) var(--m3-ease-out),
+              transform var(--m3-duration-short) var(--m3-ease-out);
+}
+
+.search-result-card:hover {
+  border-color: var(--m3-border-strong);
+  box-shadow: var(--shadow-xs);
+  transform: translateY(-1px);
+}
+
+.search-result-card:active {
+  transform: translateY(0);
+}
+
+.search-result-card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.search-result-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.search-result-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.search-result-lines {
+  flex-shrink: 0;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--m3-on-surface-subtle);
+}
+
+.search-result-snippet {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--m3-on-surface-variant);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Score is supporting information, so it sits quietly at the end. */
+.search-result-score {
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--m3-on-surface-subtle);
+}
+
+.search-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.search-skeleton span {
+  display: block;
+  height: 74px;
+  border-radius: var(--m3-shape-md);
+  background: linear-gradient(
+    90deg,
+    var(--m3-surface-container) 25%,
+    var(--m3-surface-container-high) 50%,
+    var(--m3-surface-container) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+}
+
+/* ============================================================
+   3. Review findings (Debug + Code review)
+   Severity is carried by three restrained tones and a dot, not by
+   saturation — a list of warnings should not look like an error.
+   ============================================================ */
+.finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.finding-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface);
+}
+
+.finding-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.finding-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--m3-shape-full);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-variant);
+}
+
+.finding-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.finding-badge.high {
+  background: var(--m3-error-container);
+  color: var(--m3-error);
+}
+
+.finding-badge.medium {
+  background: var(--m3-warning-container);
+  color: #8a4700;
+}
+
+.finding-badge.low {
+  background: var(--m3-primary-soft);
+  color: var(--m3-primary-active);
+}
+
+/* The category badge is a label, not a signal — no severity dot. */
+.finding-badge.category::before {
+  display: none;
+}
+
+.finding-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--m3-on-surface);
+}
+
+.finding-lines {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--m3-on-surface-subtle);
+}
+
+.finding-text {
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--m3-on-surface-variant);
+}
+
+.finding-text.suggestion {
+  color: var(--m3-on-surface);
+}
+
+.diff-block {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--m3-shape-sm);
+  background: var(--m3-surface-container-low);
+  border-left: 2px solid var(--m3-outline-variant);
+}
+
+.diff-block.diff-before {
+  border-left-color: var(--m3-error);
+}
+
+.diff-block.diff-after {
+  border-left-color: var(--m3-success);
+}
+
+.diff-label {
+  margin-bottom: 6px;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--m3-on-surface-subtle);
+}
+
+.diff-block pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--m3-on-surface);
+}
+
+/* ============================================================
+   4. Generated files (Documentation mode)
+   ============================================================ */
+.generated-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0;
+}
+
+.generated-file-row .ui-btn {
+  justify-content: flex-start;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.docs-note {
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  color: var(--m3-on-surface-subtle);
+}
+
+.docs-note code {
+  padding: 1px 5px;
+  border-radius: var(--m3-shape-xs);
+  background: var(--m3-surface-container);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--m3-on-surface-variant);
+}
+
+/* Action row under a generated document, and the preview block for a
+   document reopened from the saved list. */
+.docs-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+.docs-generated-preview {
+  margin-top: var(--space-4);
+}
+
+/* ============================================================
+   5. Adaptations
+   ============================================================ */
+@media (max-width: 720px) {
+  .panel-toolbar {
+    align-items: stretch;
+  }
+
+  .panel-field-grow,
+  .panel-field-fixed {
+    flex-basis: 100%;
+  }
+
+  .panel-code {
+    max-height: 38vh;
+  }
+
+  .finding-lines {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+
+

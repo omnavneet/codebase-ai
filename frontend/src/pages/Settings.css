@@ -4,7 +4,7 @@
 }
 
 .settings-header {
-  height: 64px;
+  height: var(--header-height);
   position: sticky;
   top: 0;
   background: var(--m3-surface);
@@ -12,8 +12,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 24px;
-  z-index: 100;
+  padding: 0 var(--space-5);
+  z-index: var(--z-sticky);
 }
 
 .settings-logo {
@@ -56,26 +56,21 @@
   font-family: inherit;
 }
 
+/* The dropdown is mounted only while it is open, so it animates in through
+   `menuIn` rather than through a class toggle. Mounting also keeps its items
+   out of the tab order while closed. */
 .settings-user-dropdown {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
   min-width: 210px;
-  padding: 8px 0;
+  padding: 6px 0;
   background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
   border-radius: var(--m3-shape-md);
-  box-shadow: var(--m3-elevation-3);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity var(--m3-duration-short) var(--m3-easing-standard),
-    transform var(--m3-duration-short) var(--m3-easing-standard);
-}
-
-.settings-user-dropdown.open {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
+  box-shadow: var(--shadow-md);
+  transform-origin: top right;
+  animation: menuIn var(--m3-duration-short) var(--m3-ease-out) both;
 }
 
 .settings-user-email {
@@ -108,16 +103,27 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  padding: 4px 8px 4px 4px;
+  margin-left: -4px;
+  margin-bottom: var(--space-5);
+  border: 0;
+  border-radius: var(--m3-shape-sm);
+  background: transparent;
+  font-size: var(--text-sm);
   color: var(--m3-on-surface-variant);
-  margin-bottom: 24px;
   cursor: pointer;
-  text-decoration: none;
-  transition: color var(--m3-duration-short) var(--m3-easing-standard);
+  transition: color var(--m3-duration-short) var(--m3-ease-out),
+              background-color var(--m3-duration-short) var(--m3-ease-out);
 }
 
 .back-link:hover {
+  background: var(--m3-surface-container);
   color: var(--m3-on-surface);
+}
+
+.back-link:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 
 .settings-title {
@@ -241,37 +247,10 @@
   color: var(--m3-on-surface-variant);
 }
 
-.btn-primary {
-  background: var(--m3-primary);
-  color: var(--m3-on-primary);
-  border: none;
-  border-radius: var(--m3-shape-lg);
-  padding: 10px 24px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: transform var(--m3-duration-short) var(--m3-easing-standard), background var(--m3-duration-short) var(--m3-easing-standard);
-  margin-top: 16px;
-}
-
-.btn-primary:active {
-  transform: scale(0.98);
-}
-
-.btn-outlined {
-  background: transparent;
-  color: var(--m3-primary);
-  border: 1px solid var(--m3-outline);
-  border-radius: var(--m3-shape-lg);
-  padding: 10px 24px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--m3-duration-short) var(--m3-easing-standard);
-}
-
-.btn-outlined:hover {
-  background: var(--m3-surface-variant);
+/* Primary action on the settings form. Matches the workspace button. */
+.settings-form .ui-btn {
+  margin-top: var(--space-4);
+  align-self: flex-start;
 }
 
 .toggle-switch {
@@ -315,29 +294,36 @@
 }
 
 .success-message {
-  padding: 12px 16px;
-  background: var(--m3-success-container, #d1f7d6);
-  color: var(--m3-on-success-container, #003a0a);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 14px;
+  background: var(--m3-success-container);
+  color: var(--m3-on-success-container);
   border-radius: var(--m3-shape-sm);
-  font-size: 13px;
-  animation: slideDown 200ms var(--m3-easing-standard) both;
-  margin-top: 16px;
+  font-size: var(--text-sm);
+  animation: menuIn var(--m3-duration-medium) var(--m3-ease-out) both;
+  margin-top: var(--space-4);
 }
 
 .error-msg {
-  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 14px;
   background: var(--m3-error-container);
   color: var(--m3-on-error-container);
   border-radius: var(--m3-shape-sm);
-  font-size: 13px;
-  animation: slideDown 200ms var(--m3-easing-standard) both;
-  margin-top: 16px;
+  font-size: var(--text-sm);
+  animation: menuIn var(--m3-duration-medium) var(--m3-ease-out) both;
+  margin-top: var(--space-4);
 }
 
-@keyframes fadeSlideUp {
+/* The section fades in once, when the page mounts. */
+@keyframes settingsEnter {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
