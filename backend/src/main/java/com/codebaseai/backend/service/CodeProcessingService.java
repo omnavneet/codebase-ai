@@ -1,9 +1,6 @@
 package com.codebaseai.backend.service;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +16,7 @@ import com.codebaseai.backend.repository.CodeReferenceRepository;
 import com.codebaseai.backend.repository.CodeSymbolRepository;
 import com.codebaseai.backend.repository.ProjectFileRepository;
 import com.codebaseai.backend.service.chunking.ParsedFile;
+import com.codebaseai.backend.storage.StorageService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +38,7 @@ public class CodeProcessingService {
     private final CodeReferenceRepository codeReferenceRepository;
     private final CodeChunkingService chunkingService;
     private final AiServiceClient aiServiceClient;
-    private final FileStorageService fileStorageService;
+    private final StorageService storageService;
 
     /**
      * NOT @Transactional: the embedding calls are remote and can take minutes, so
@@ -58,9 +56,9 @@ public class CodeProcessingService {
 
         for (ProjectFile file : files) {
             try {
-                Path filePath = fileStorageService.getProjectDirectory(projectId)
-                        .resolve(file.getPath());
-                String content = Files.readString(filePath, StandardCharsets.UTF_8);
+                // Same project-relative path the file was indexed under, so the
+                // local backend and S3 resolve it identically.
+                String content = storageService.readText(projectId, file.getPath());
 
                 CodeChunkingService.IndexedFile indexed;
                 try {

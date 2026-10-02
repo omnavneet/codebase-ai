@@ -1,32 +1,90 @@
 # codebase-ai
 
-Chat with your codebase: upload a ZIP, the service extracts it, chunks and embeds
-the code, and answers questions about it (RAG) with file/line citations. It also
-exposes agentic tools (investigate, explain, debug, generate docs/README, review).
+> **Ask questions of a codebase, then show your work.**
+
+Upload a repository as a ZIP, search it semantically, inspect real files and symbols,
+and chat with answers grounded in file and line citations. The project combines a
+React client, a Spring Boot API, PostgreSQL with pgvector, and a private FastAPI AI
+service with investigation and code-review tools.
+
+[![CI](https://github.com/omnavneet/codebase-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/omnavneet/codebase-ai/actions/workflows/ci.yml)
+![Java 17](https://img.shields.io/badge/Java-17-ED8B00?logo=openjdk&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
+![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+
+## Why this project
+
+Most code chat demos stop at a prompt and a response. This one keeps the path
+inspectable: files are indexed, retrieval returns source locations, agent tools are
+scoped to a project, and the backend owns authentication, authorization, and chat
+persistence.
+
+## What it can do
+
+| Area | Capability |
+| --- | --- |
+| **Understand** | ZIP ingestion, language-aware chunking, embeddings, pgvector search |
+| **Answer** | Streaming chat with citations and conversation history |
+| **Investigate** | Semantic search, file reading, dependency inspection, symbol and call-graph analysis |
+| **Review** | Deterministic code review plus LLM-assisted explanations |
+| **Generate** | Documentation and README artefacts stored separately from source files |
+| **Protect** | JWT sessions, rotating refresh cookies, email verification, ownership checks, path-traversal guards |
 
 ## Architecture
 
-```
-React SPA (5173)  ->  Spring Boot API (8080)  ->  FastAPI AI service (8000)
-                        |                            |
-                        +--> PostgreSQL 16 + pgvector (5432)
-                             (users, projects, files, chunks, chat history)
+```mermaid
+flowchart LR
+    Browser[React SPA] -->|HTTP / SSE| API[Spring Boot API]
+    API --> DB[(PostgreSQL + pgvector)]
+    API --> Store[(Local storage or private S3)]
+    API -->|Internal HTTP| AI[FastAPI AI service]
+    AI --> DB
+    AI --> Store
+    AI --> LLM[Groq LLM]
 ```
 
-* `frontend/` – React 19 + TypeScript + Vite SPA. Talks only to the backend; the
-  dev server proxies `/api` to `http://localhost:8080` (see `vite.config.ts`).
-* `backend/` – Spring Boot 3.4 (Java 17). Owns authentication (JWT access token +
-  rotating refresh token in an httpOnly cookie, plus email verification: no token is
-  ever issued for an unverified account), project/file ownership checks, ZIP ingest,
-  chunking, embedding calls, vector search and chat persistence.
-* `ai-service/` – FastAPI. Owns the embedding model (`sentence-transformers`),
-  LLM calls (Groq), the SSE chat stream, the tool-calling investigation agent and
-  the deterministic code-review pipeline. Called server-to-server only.
+### Request flow
 
-Data flow for a question: `POST /api/sessions/{id}/messages/stream` → auth +
-ownership + RAG context retrieval in the backend → `POST /chat/stream` on the AI
-service → SSE events (`meta`, `token`, `done`/`error`) relayed to the browser →
-answer + citations persisted in `chat_messages`.
+```mermaid
+sequenceDiagram
+    participant User
+    participant Web as React
+    participant API as Spring Boot
+    participant DB as pgvector
+    participant AI as FastAPI
+
+    User->>Web: Ask a question
+    Web->>API: POST /api/sessions/{id}/messages/stream
+    API->>API: Authenticate and verify project ownership
+    API->>DB: Retrieve relevant code chunks
+    API->>AI: POST /chat/stream with grounded context
+    AI-->>API: SSE meta/token/done events
+    API-->>Web: Relay the stream
+    API->>DB: Persist answer and citations
+```
+
+### Service boundaries
+
+| Service | Owns | Local entry point |
+| --- | --- | --- |
+| `frontend/` | React 19, TypeScript, Vite, browser UX | `http://localhost:5173` |
+| `backend/` | Auth, project ownership, uploads, indexing, retrieval, chat | `http://localhost:8080` |
+| `ai-service/` | Embeddings, LLM calls, SSE responses, agent tools, code review | `http://localhost:8000` |
+| PostgreSQL | Users, projects, files, chunks, symbols, references, chat history | `localhost:5432` |
+
+The browser talks only to the backend. The AI service is server-to-server and is
+protected by an internal token.
+
+## Health check
+
+`GET /api/health` is unauthenticated and is what container orchestrators and load
+balancers poll (ECS/ALB target-group health checks, `docker compose ... --wait`).
+It runs a trivial `SELECT 1` and answers `200 {"status":"UP","database":"UP"}`, or
+`503 {"status":"DOWN","database":"DOWN"}` when the database is unreachable — a
+process that is up but cannot serve requests must not be reported healthy. It is
+reachable both directly (`http://backend:8080/api/health`) and through the
+frontend's nginx `/api` proxy (`http://<host>/api/health`).
 
 ## Prerequisites
 
@@ -75,6 +133,10 @@ corresponding property (e.g. `SPRING_DATASOURCE_URL`).
 | `app.jwt.access-token-validity-ms` | `900000` (15 min) | |
 | `app.jwt.refresh-token-validity-ms` | `604800000` (7 days) | also drives the refresh cookie lifetime |
 | `app.upload.directory` | `./uploads` | must be writable; the AI service needs to read it |
+| `app.storage.provider` | `local` | `local` keeps each project under `<app.upload.directory>/<projectId>/`; `s3` keeps nothing on the local filesystem (everything under `s3://<bucket>/<prefix>/<projectId>/`), so the ai-service file tools need bucket access instead of `UPLOAD_DIR` |
+| `app.s3.bucket` | empty | required when `app.storage.provider=s3`; startup fails without it |
+| `app.s3.prefix` | `projects` | key prefix inside the bucket, so one bucket can host other data; also the natural scope of the IAM policy |
+| `app.s3.region` | empty | blank falls back to the AWS default region chain (`AWS_REGION`); credentials always come from the default provider chain (the ECS task role in production), so no access keys live in config |
 | `app.ai-service.url` | `http://localhost:8000` | |
 | `spring.servlet.multipart.max-file-size` / `.max-request-size` | `50MB` | keep in sync with the frontend upload check |
 | `app.cookie.secure` | `false` | **set `true`** whenever the app is served over HTTPS |
@@ -119,11 +181,19 @@ so mail scanners that prefetch links cannot consume the token.
 
 ## Tests
 
-`backend/src/test/java/.../BackendApplicationTests.java` is a smoke test that the
-application class is present. The unit tests — `AuthServiceTest`,
-`EmailVerificationServiceTest`, `MailServiceTest` and `VerifiedUserFilterTest` — cover
-the registration/verification rules and need neither a database nor an SMTP server:
-`cd backend && ./mvnw test`. There are no frontend or AI-service test suites;
-`npm run lint` and `npm run build` (`tsc -b`) are the frontend checks, and
-`ai-service` files are checked with `python -m py_compile`.
+`cd backend && ./mvnw test` runs the backend suite: `AuthServiceTest`,
+`EmailVerificationServiceTest`, `MailServiceTest`, `VerifiedUserFilterTest`,
+`HealthControllerTest`, `ZipExtractionServiceTest`, `SecretValidationConfigTest` and the
+storage tests (`StoragePathsTest`, `LocalStorageServiceTest`, `S3StorageServiceTest`).
+None of them need a database, an SMTP server or AWS credentials — the S3 client is a
+hand-written proxy. `cd ai-service && python -m unittest discover -s . -p 'test_*.py'`
+runs the AI-service unit tests (`test_core_safety.py` and `test_storage.py`), which
+likewise use an injected in-memory S3 client, and `cd frontend && npm run build`
+(`tsc -b` + Vite) is the frontend type-check/build.
+
+CI (`.github/workflows/ci.yml`) runs those three suites and then a **compose smoke
+test**: it writes a throwaway `.env`, brings up the full `docker-compose.prod.yml`
+stack with `--wait`, and asserts the frontend serves the SPA shell, `/api/health`
+reports `UP` through the nginx proxy, the AI service `/health` responds, and the
+backend applied the Flyway migrations to a fresh database volume.
  

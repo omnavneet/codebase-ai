@@ -61,6 +61,8 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                // Infrastructure probe (ALB/ECS): must answer without credentials.
+                .requestMatchers("/api/health").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exceptions -> exceptions

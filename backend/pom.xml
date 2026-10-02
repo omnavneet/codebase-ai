@@ -18,7 +18,22 @@
     
     <properties>
         <java.version>17</java.version>
+        <aws-sdk-v2.version>2.55.10</aws-sdk-v2.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- AWS SDK v2 (S3 storage backend). The BOM keeps every awssdk
+                 artifact on one version; see backend/README or the AWS SDK v2 BOM. -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk-v2.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
     
     <dependencies>
         <!-- Web -->
@@ -113,6 +128,13 @@
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-webflux</artifactId>
 </dependency>
+
+        <!-- S3 storage backend (app.storage.provider=s3). Credentials come from
+             the AWS default provider chain (the ECS task role in production). -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

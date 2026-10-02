@@ -23,6 +23,8 @@ public class AppProperties {
     private Chat chat = new Chat();
     private Mail mail = new Mail();
     private Verification verification = new Verification();
+    private Storage storage = new Storage();
+    private S3 s3 = new S3();
 
     /**
      * Public URL of the SPA (what a user types in the browser), used to build links
@@ -86,5 +88,26 @@ public class AppProperties {
         private int tokenTtlHours = 24;
         /** Minimum seconds between two verification emails for the same address. */
         private int resendCooldownSeconds = 60;
+    }
+
+    @Data
+    public static class Storage {
+        /**
+         * Where a project's source tree and generated artefacts live:
+         * {@code local} (filesystem under {@link Upload#getDirectory()}) or
+         * {@code s3}. Local is the default so a fresh clone and the compose
+         * stack need no cloud configuration.
+         */
+        private String provider = "local";
+    }
+
+    @Data
+    public static class S3 {
+        /** Bucket holding every project's source tree and generated artefacts. */
+        private String bucket = "";
+        /** Region; when blank the AWS default region provider chain is used. */
+        private String region = "";
+        /** Key prefix inside the bucket, so it can host other data too. */
+        private String prefix = "projects";
     }
 }

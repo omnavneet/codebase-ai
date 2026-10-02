@@ -55,6 +55,17 @@ app.jwt.refresh-token-validity-ms=604800000
 
 app.upload.directory=${APP_UPLOAD_DIRECTORY:./uploads}
 
+# --- Project storage backend ------------------------------------------------
+# local: files under app.upload.directory/<projectId>/ (default; what Compose uses)
+# s3:    objects under s3://<bucket>/<prefix>/<projectId>/ (production)
+# Credentials always come from the AWS default provider chain - the ECS task role
+# in production - so no key ever appears in configuration.
+app.storage.provider=${APP_STORAGE_PROVIDER:local}
+app.s3.bucket=${APP_S3_BUCKET:}
+app.s3.prefix=${APP_S3_PREFIX:projects}
+# Leave blank to fall back to the default region provider chain (AWS_REGION).
+app.s3.region=${APP_S3_REGION:}
+
 spring.servlet.multipart.max-file-size=50MB
 spring.servlet.multipart.max-request-size=50MB
 

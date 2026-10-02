@@ -9,10 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.nio.charset.StandardCharsets;
-import java.util.Comparator;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,6 +31,8 @@ import com.codebaseai.backend.repository.ProjectFileRepository;
 import com.codebaseai.backend.repository.ProjectRepository;
 import com.codebaseai.backend.service.chunking.Language;
 import com.codebaseai.backend.config.AppProperties;
+import com.codebaseai.backend.storage.StoragePaths;
+import com.codebaseai.backend.storage.StorageService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,7 +48,7 @@ public class ProjectService {
     private final CodeSymbolRepository codeSymbolRepository;
     private final CodeReferenceRepository codeReferenceRepository;
     private final AiServiceClient aiServiceClient;
-    private final FileStorageService fileStorageService;
+    private final StorageService storageService;
     private final ZipExtractionService zipExtractionService;
     private final CodeProcessingService codeProcessingService;
     private final AppProperties properties;
@@ -101,7 +100,7 @@ public class ProjectService {
         projectRepository.delete(project);
 
         try {
-            fileStorageService.deleteProjectDirectory(projectId);
+            storageService.deleteProject(projectId);
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to delete project files", e);
         }
@@ -132,19 +131,21 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only ZIP files are allowed");
         }
 
+        Path stagedZip = null;
         try {
             project.setStatus("processing");
             projectRepository.save(project);
 
             // A re-upload replaces the previous index instead of adding to it:
-            // otherwise rows would duplicate and stale files would stay on disk
-            // where the AI service could still read them.
+            // otherwise rows would duplicate and stale files would linger in the
+            // store where the AI service could still read them.
             purgeExistingIndex(projectId);
-            fileStorageService.deleteProjectDirectory(projectId);
+            storageService.deleteProject(projectId);
 
-            Path zipPath = fileStorageService.storeZipFile(file, projectId);
-            Path projectDir = fileStorageService.getProjectDirectory(projectId);
-            List<ZipExtractionService.ExtractedFile> extractedFiles = zipExtractionService.extractZip(zipPath, projectDir);
+            stagedZip = storageService.storeZip(file, projectId);
+            Path extractionDirectory = storageService.extractionDirectory(projectId);
+            List<ZipExtractionService.ExtractedFile> extractedFiles =
+                    zipExtractionService.extractZip(stagedZip, extractionDirectory);
 
             int totalSize = 0;
             for (ZipExtractionService.ExtractedFile extractedFile : extractedFiles) {
@@ -154,6 +155,8 @@ public class ProjectService {
                 projectFile.setSizeBytes((int) extractedFile.getSize());
                 projectFile.setLanguage(Language.fromPath(extractedFile.getPath()).getId());
 
+                // Hash the staged file: on S3 the object is only uploaded after
+                // this loop (persistExtractedFiles), so the tree is still local.
                 byte[] content = Files.readAllBytes(extractedFile.getFilePath());
                 String hash = DigestUtils.md5DigestAsHex(content);
                 projectFile.setContentHash(hash);
@@ -162,7 +165,10 @@ public class ProjectService {
                 totalSize += extractedFile.getSize();
             }
 
-            Files.deleteIfExists(zipPath);
+            // Commit the extracted tree to the store: a no-op for local storage
+            // (extraction already wrote the files in place), an upload to S3,
+            // which also removes its own staging directory.
+            storageService.persistExtractedFiles(projectId, extractionDirectory, extractedFiles);
 
             try {
                 CodeProcessingService.ProcessingResult processingResult =
@@ -205,6 +211,9 @@ public class ProjectService {
             project.setErrorMessage("Failed to process upload: " + e.getMessage());
             projectRepository.save(project);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to process upload", e);
+        } finally {
+            // Always drop the staged archive, on success and on every failure path.
+            storageService.discardStagingFile(stagedZip);
         }
     }
 
@@ -277,9 +286,7 @@ public class ProjectService {
         }
 
         try {
-            Path filePath = fileStorageService.getProjectDirectory(projectId)
-                    .resolve(file.getPath());
-            String content = Files.readString(filePath);
+            String content = storageService.readText(projectId, file.getPath());
 
             return Map.of(
                     "path", file.getPath(),
@@ -359,25 +366,22 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
         }
 
-        // Security: normalize both sides and ensure the resolved path stays
-        // inside the project directory (blocks ../ traversal).
-        Path projectDir = fileStorageService.getProjectDirectory(projectId).normalize();
-        Path filePath = projectDir.resolve(path).normalize();
-
-        if (!filePath.startsWith(projectDir)) {
+        // The storage backend owns the traversal guard, but surface a 400 here
+        // (rather than a 500) so a malformed path reads as a client error.
+        try {
+            StoragePaths.requireRelative(path);
+        } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid path");
         }
 
-        if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+        if (!storageService.exists(projectId, path)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found: " + path);
         }
 
         try {
-            String content = Files.readString(filePath);
-
             return Map.of(
                     "path", path,
-                    "content", content
+                    "content", storageService.readText(projectId, path)
             );
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read file", e);
@@ -394,12 +398,11 @@ public class ProjectService {
             UUID projectId, UUID userId, String sourcePath, String symbol, String content) {
         requireOwnedProject(projectId, userId);
 
-        Path directory = fileStorageService.getGeneratedDirectory(projectId);
+        String fileName = uniqueGeneratedName(projectId, generatedFileName(sourcePath, symbol));
+        String relativePath = StorageService.GENERATED_DIRECTORY + "/" + fileName;
         try {
-            Files.createDirectories(directory);
-            Path target = uniqueGeneratedTarget(directory, generatedFileName(sourcePath, symbol));
-            Files.writeString(target, content, StandardCharsets.UTF_8);
-            return Map.of("path", "__generated__/" + target.getFileName().toString());
+            storageService.writeText(projectId, relativePath, content);
+            return Map.of("path", relativePath);
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to save generated document", e);
         }
@@ -408,22 +411,11 @@ public class ProjectService {
     public List<Map<String, Object>> getGeneratedFiles(UUID projectId, UUID userId) {
         requireOwnedProject(projectId, userId);
 
-        Path directory = fileStorageService.getGeneratedDirectory(projectId);
-        if (!Files.exists(directory)) {
-            return List.of();
-        }
-        try (Stream<Path> files = Files.list(directory)) {
-            return files.filter(Files::isRegularFile)
-                    .map(path -> {
-                        try {
-                            return Map.<String, Object>of(
-                                    "name", path.getFileName().toString(),
-                                    "sizeBytes", Files.size(path));
-                        } catch (IOException e) {
-                            return Map.<String, Object>of("name", path.getFileName().toString(), "sizeBytes", 0L);
-                        }
-                    })
-                    .sorted(Comparator.comparing(entry -> (String) entry.get("name")))
+        try {
+            return storageService.listGeneratedFiles(projectId).stream()
+                    .map(file -> Map.<String, Object>of(
+                            "name", file.name(),
+                            "sizeBytes", file.sizeBytes()))
                     .toList();
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to list generated files", e);
@@ -433,13 +425,18 @@ public class ProjectService {
     public Map<String, String> getGeneratedFile(UUID projectId, String name, UUID userId) {
         requireOwnedProject(projectId, userId);
 
-        Path directory = fileStorageService.getGeneratedDirectory(projectId);
-        Path target = directory.resolve(name).normalize();
-        if (!target.startsWith(directory) || !Files.isRegularFile(target)) {
+        String relativePath;
+        try {
+            relativePath = StorageService.GENERATED_DIRECTORY + "/" + StoragePaths.requireRelative(name);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Generated file not found: " + name);
+        }
+
+        if (!storageService.exists(projectId, relativePath)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Generated file not found: " + name);
         }
         try {
-            return Map.of("path", "__generated__/" + name, "content", Files.readString(target, StandardCharsets.UTF_8));
+            return Map.of("path", relativePath, "content", storageService.readText(projectId, relativePath));
         } catch (IOException e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read generated file", e);
         }
@@ -468,17 +465,17 @@ public class ProjectService {
         return base + ".docs.md";
     }
 
-    private Path uniqueGeneratedTarget(Path directory, String fileName) {
-        Path target = directory.resolve(fileName);
-        if (!Files.exists(target)) {
-            return target;
+    private String uniqueGeneratedName(UUID projectId, String fileName) {
+        String prefix = StorageService.GENERATED_DIRECTORY + "/";
+        if (!storageService.exists(projectId, prefix + fileName)) {
+            return fileName;
         }
         int dot = fileName.lastIndexOf('.');
         String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
         String extension = dot > 0 ? fileName.substring(dot) : "";
         for (int attempt = 1; attempt < 1000; attempt++) {
-            Path candidate = directory.resolve(stem + "-" + attempt + extension);
-            if (!Files.exists(candidate)) {
+            String candidate = stem + "-" + attempt + extension;
+            if (!storageService.exists(projectId, prefix + candidate)) {
                 return candidate;
             }
         }
