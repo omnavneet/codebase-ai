@@ -1,38 +1,53 @@
 import os
 import posixpath
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from storage import LocalStorage, create_storage, normalize_relative_path
+
+
+def _split_lines(content: str) -> List[str]:
+    """Split content the way file.readlines() does, keeping line endings."""
+    parts = content.split("\n")
+    lines = [part + "\n" for part in parts[:-1]]
+    if parts[-1]:
+        lines.append(parts[-1])
+    return lines
+
 
 class AgentTools:
     """Tools used by the CodebaseAgent to investigate a project.
 
-    All tools are scoped to a single project_id and never trust raw
-    filesystem paths from the LLM (path traversal is blocked).
+    All tools are scoped to a single project_id and never trust raw paths from
+    the LLM (path traversal is blocked). Project files are read through the
+    configured storage provider, so the file tools behave the same whether the
+    backend wrote them to the local upload directory or to S3.
     """
 
-    def __init__(self, db_config: Dict[str, str], embedding_service, upload_dir: str):
+    # Bounds for grep, so a large project cannot turn into thousands of reads.
+    MAX_GREP_FILES = 300
+    MAX_GREP_MATCHES = 50
+
+    def __init__(self, db_config: Dict[str, str], embedding_service, upload_dir: str, storage=None):
         self.db_config = db_config
         self.embedding_service = embedding_service
         self.upload_dir = upload_dir
+        self.storage = storage if storage is not None else create_storage(upload_dir)
 
     def _get_db_connection(self):
         return psycopg2.connect(**self.db_config)
 
     def _safe_project_path(self, project_id: str, file_path: str = "") -> Path:
-        """Resolve file_path inside the project directory, blocking traversal."""
-        project_root = (Path(self.upload_dir) / project_id).resolve()
-        resolved = (project_root / file_path).resolve()
+        """Resolve file_path inside the project directory, blocking traversal.
 
-        # Note: must compare path components, not string prefixes,
-        # otherwise allowing "project-1" would also allow "../project-10".
-        if resolved != project_root and project_root not in resolved.parents:
-            raise ValueError("Path traversal attempt blocked")
-
-        return resolved
+        Kept for local (filesystem) callers; ``self.storage`` applies the same
+        validation for whichever provider the service is configured with.
+        """
+        return LocalStorage(self.upload_dir).resolve(project_id, file_path)
 
     def semantic_search(self, query: str, project_id: str, limit: Optional[int] = None) -> List[Dict]:
         """Search code chunks by semantic similarity to the query."""
@@ -85,44 +100,43 @@ class AgentTools:
                   end_line: Optional[int] = None) -> Dict[str, Any]:
         """Read file content, optionally a specific line range."""
         try:
-            safe_path = self._safe_project_path(project_id, file_path)
-
-            if not safe_path.exists():
-                return {"error": f"File not found: {file_path}"}
-
-            if not safe_path.is_file():
-                return {"error": f"Not a file: {file_path}"}
-
-            with open(safe_path, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-
-            if start_line is not None and end_line is not None:
-                selected_lines = lines[start_line - 1:end_line]
-                content = "".join(selected_lines)
-                return {
-                    "file_path": file_path,
-                    "content": content,
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "total_lines": len(lines),
-                    "partial": True,
-                }
-
-            content = "".join(lines)
-            return {
-                "file_path": file_path,
-                "content": content,
-                "total_lines": len(lines),
-                "partial": False,
-            }
-
+            content_text = self.storage.read_text(project_id, file_path)
+        except FileNotFoundError:
+            return {"error": f"File not found: {file_path}"}
         except ValueError as e:
             return {"error": str(e)}
         except Exception as e:
             return {"error": f"Failed to read file: {e}"}
 
+        lines = _split_lines(content_text)
+
+        if start_line is not None and end_line is not None:
+            selected_lines = lines[start_line - 1:end_line]
+            content = "".join(selected_lines)
+            return {
+                "file_path": file_path,
+                "content": content,
+                "start_line": start_line,
+                "end_line": end_line,
+                "total_lines": len(lines),
+                "partial": True,
+            }
+
+        return {
+            "file_path": file_path,
+            "content": content_text,
+            "total_lines": len(lines),
+            "partial": False,
+        }
+
     def list_files(self, project_id: str) -> List[str]:
-        """List all indexed files in the project."""
+        """List the project's files, as paths relative to the project root.
+
+        The index in Postgres is the primary source because every other tool
+        (semantic_search, find_dependencies, analyze_symbol) is built on it. If
+        nothing is indexed yet, the storage provider is asked instead, so a
+        project whose files exist only in S3 is still listable.
+        """
         conn = self._get_db_connection()
         try:
             cur = conn.cursor()
@@ -135,7 +149,87 @@ class AgentTools:
         finally:
             conn.close()
 
-        return files
+        if files:
+            return files
+        try:
+            return self.storage.list_paths(project_id)
+        except ValueError:
+            return []
+
+    def grep(self, pattern: str, project_id: str, file_path: str = "",
+             max_matches: Optional[int] = None) -> Dict[str, Any]:
+        """Search file contents for a regular expression (Python `re` syntax).
+
+        Scans the whole project, or a single file when file_path is given. Just
+        like read_file, the path is validated before the storage provider is
+        touched, so grep cannot be used to read outside the project.
+        """
+        pattern = pattern or ""
+        if not pattern:
+            return {"error": "pattern is required"}
+        try:
+            regex = re.compile(pattern)
+        except re.error as e:
+            return {"error": f"Invalid regular expression: {e}"}
+
+        limit = max_matches if isinstance(max_matches, int) and max_matches > 0 else self.MAX_GREP_MATCHES
+
+        try:
+            if file_path:
+                candidates = [normalize_relative_path(file_path)]
+                skipped = 0
+            else:
+                all_paths = self.storage.list_paths(project_id)
+                candidates = all_paths[: self.MAX_GREP_FILES]
+                skipped = len(all_paths) - len(candidates)
+        except ValueError as e:
+            return {"error": str(e)}
+        except Exception as e:
+            return {"error": f"Failed to list files: {e}"}
+
+        matches: List[Dict[str, Any]] = []
+        files_scanned = 0
+        capped = False
+
+        for path in candidates:
+            try:
+                content = self.storage.read_text(project_id, path)
+            except FileNotFoundError:
+                continue  # deleted between listing and reading
+            except ValueError:
+                continue  # never trust a listed path more than read_file does
+            except Exception as e:
+                return {"error": f"Failed to read file: {e}"}
+
+            files_scanned += 1
+            for number, line in enumerate(content.splitlines(), start=1):
+                if regex.search(line):
+                    matches.append({
+                        "file_path": path,
+                        "line": number,
+                        "text": line.strip()[:400],
+                    })
+                    if len(matches) >= limit:
+                        capped = True
+                        break
+            if capped:
+                break
+
+        result: Dict[str, Any] = {
+            "pattern": pattern,
+            "matches": matches,
+            "files_scanned": files_scanned,
+        }
+        if file_path:
+            result["file_path"] = candidates[0]
+        notes = []
+        if capped:
+            notes.append("Showing the first {} matches; narrow the pattern to see more".format(limit))
+        if skipped:
+            notes.append("Only the first {} files were scanned".format(self.MAX_GREP_FILES))
+        if notes:
+            result["notes"] = notes
+        return result
 
     def find_dependencies(self, file_path: str, project_id: str) -> Dict[str, Any]:
         """Real import and call edges for a file, taken from the symbol index.
@@ -144,9 +238,7 @@ class AgentTools:
         unresolvable targets are reported as such instead of being guessed.
         """
         try:
-            safe_path = self._safe_project_path(project_id, file_path)
-
-            if not safe_path.exists():
+            if not self.storage.is_file(project_id, file_path):
                 return {"error": f"File not found: {file_path}"}
 
             files = self._query_rows(

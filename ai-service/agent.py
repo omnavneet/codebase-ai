@@ -80,6 +80,28 @@ class CodebaseAgent:
             {
                 "type": "function",
                 "function": {
+                    "name": "grep",
+                    "description": "Search file contents for an exact string or regular expression. "
+                                   "Use it for literal identifiers; use semantic_search for concepts.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {
+                                "type": "string",
+                                "description": "Python regular expression to search for",
+                            },
+                            "file_path": {
+                                "type": "string",
+                                "description": "Optional single file to search; the whole project is searched otherwise",
+                            },
+                        },
+                        "required": ["pattern"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "find_dependencies",
                     "description": "Find imports and dependencies for a specific file",
                     "parameters": {
@@ -198,6 +220,16 @@ Rules:
                                 files_read.add(file_key)
                                 trace.append(f"Read: {file_key}")
 
+                        elif tool_name == "grep":
+                            search_key = "grep:{}:{}".format(
+                                tool_args.get("pattern", ""), tool_args.get("file_path", "")
+                            )
+                            if search_key in searches_done:
+                                result = {"note": "Already ran this search", "matches": []}
+                            else:
+                                searches_done.add(search_key)
+                                trace.append(f"Grepped: {tool_args.get('pattern', '')}")
+
                         if result is None:
                             result = self._execute_tool(tool_name, tool_args, project_id)
 
@@ -250,6 +282,13 @@ Rules:
 
             if tool_name == "list_files":
                 return self.tools.list_files(project_id)
+
+            if tool_name == "grep":
+                return self.tools.grep(
+                    pattern=args.get("pattern", ""),
+                    project_id=project_id,
+                    file_path=args.get("file_path", ""),
+                )
 
             if tool_name == "find_dependencies":
                 return self.tools.find_dependencies(

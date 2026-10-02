@@ -14,6 +14,7 @@ from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import AgentTools
 from debug_service import DebugService
+from storage import create_storage
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,14 @@ async def require_internal_token(request: Request, call_next):
 embedding_service = EmbeddingService()
 chat_service = ChatService()
 
+# Project files live wherever the backend put them, so the file tools read them
+# through the provider named by APP_STORAGE_PROVIDER (local, the default, or
+# s3). Building it once at startup fails fast on a misconfiguration instead of
+# on the first agent tool call.
+upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
+project_storage = create_storage(upload_dir)
+logger.info("Project storage provider: %s", project_storage.provider)
+
 # Initialize agent (reuses the shared embedding model and Groq client)
 agent_tools = AgentTools(
     db_config={
@@ -55,7 +64,8 @@ agent_tools = AgentTools(
         "password": os.getenv("DB_PASSWORD", ""),
     },
     embedding_service=embedding_service,
-    upload_dir=os.getenv("UPLOAD_DIR", "./uploads"),
+    upload_dir=upload_dir,
+    storage=project_storage,
 )
 agent = CodebaseAgent(agent_tools, chat_service.client)
 review_service = ReviewService(agent_tools, chat_service.client)
