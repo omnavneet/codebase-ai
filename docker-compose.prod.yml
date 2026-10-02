@@ -69,7 +69,9 @@ services:
     expose:
       - "8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      # Explicit loopback (see the frontend healthcheck) so the probe does not
+      # depend on how the image resolves "localhost".
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -137,8 +139,10 @@ services:
     healthcheck:
       # wget is a busybox applet in the JRE-alpine image (same pattern the
       # frontend uses). Non-2xx makes wget exit non-zero, so a 503 from
-      # /api/health correctly reports the backend unhealthy.
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8080/api/health"]
+      # /api/health correctly reports the backend unhealthy. The explicit
+      # loopback address avoids the localhost -> ::1 resolution explained on the
+      # frontend healthcheck.
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:8080/api/health"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -160,7 +164,12 @@ services:
     ports:
       - "${FRONTEND_PORT:-80}:80"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/"]
+      # 127.0.0.1, NOT localhost. Inside Alpine, getent resolves localhost to
+      # ::1 first, busybox wget tries only that address (it does not fall back
+      # to the next one) and nginx here listens on IPv4 only - so a "localhost"
+      # URL always reports the container unhealthy. The backend and ai-service
+      # checks above use the explicit loopback address for the same reason.
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/"]
       interval: 15s
       timeout: 5s
       retries: 3

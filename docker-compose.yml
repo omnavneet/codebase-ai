@@ -67,7 +67,9 @@ services:
     expose:
       - "8000"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      # Explicit loopback (see the frontend healthcheck) so the probe does not
+      # depend on how the image resolves "localhost".
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -121,7 +123,11 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:80"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost/"]
+      # 127.0.0.1, NOT localhost. Inside Alpine, getent resolves localhost to
+      # ::1 first, busybox wget tries only that address (it does not fall back
+      # to the next one) and nginx here listens on IPv4 only - so a "localhost"
+      # URL always reports the container unhealthy.
+      test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1/"]
       interval: 15s
       timeout: 5s
       retries: 3

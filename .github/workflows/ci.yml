@@ -128,7 +128,7 @@ jobs:
       - name: AI service /health responds
         run: |
           docker compose -f docker-compose.prod.yml exec -T ai-service \
-            python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status == 200 else 1)"
+            python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status == 200 else 1)"
 
       # On a fresh volume the backend applies the whole Flyway migration set at
       # startup; assert the history actually recorded successful migrations.
