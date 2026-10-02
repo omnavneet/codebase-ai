@@ -1,4 +1,4 @@
-# ---- Secrets / environment config (never commit) ----
+# ---- Secrets / environment config ----
 backend/src/main/resources/application.properties
 .env
 .env.*
