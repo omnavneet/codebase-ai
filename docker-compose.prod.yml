@@ -43,6 +43,21 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       UPLOAD_DIR: /app/uploads
+      # --- Project storage ---------------------------------------------------
+      # Must match the backend's provider, because the agent's file tools
+      # (list_files / read_file / grep) read whatever the backend wrote. With
+      # provider=s3 nothing lands in the mount above, so these three variables
+      # are what point the tools at the bucket instead.
+      APP_STORAGE_PROVIDER: ${APP_STORAGE_PROVIDER:?APP_STORAGE_PROVIDER}
+      # Blank with provider=s3 fails fast at startup; blank with local is fine.
+      APP_S3_BUCKET: ${APP_S3_BUCKET:-}
+      APP_S3_PREFIX: ${APP_S3_PREFIX:-projects}
+      # Blank falls back to the AWS default region chain.
+      APP_S3_REGION: ${APP_S3_REGION:-}
+      # Credentials follow the same rule as the backend: boto3's default chain
+      # (task role on ECS/EC2, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in
+      # the platform's environment settings for a plain VM or PaaS), so no key
+      # is ever listed here.
     volumes:
       - project-uploads:/app/uploads
     networks:
@@ -68,6 +83,24 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       APP_UPLOAD_DIRECTORY: /app/uploads
+      # --- Project storage ---------------------------------------------------
+      # Required (no default) on purpose: a production deploy must state where
+      # project files live, so it cannot silently keep them on the container
+      # volume. "local" keeps the shared volume; "s3" keeps nothing on disk.
+      APP_STORAGE_PROVIDER: ${APP_STORAGE_PROVIDER:?APP_STORAGE_PROVIDER}
+      # Leaving this blank with provider=s3 fails fast at startup, so no default.
+      APP_S3_BUCKET: ${APP_S3_BUCKET:-}
+      APP_S3_PREFIX: ${APP_S3_PREFIX:-projects}
+      # Blank falls back to the AWS default region chain.
+      APP_S3_REGION: ${APP_S3_REGION:-}
+      # Credentials are deliberately NOT listed: the AWS SDK reads the default
+      # provider chain, so on ECS/EC2 the task role or instance profile supplies
+      # them and no key ever appears in configuration. On a plain VM or PaaS set
+      # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY directly in the platform's
+      # environment settings (PaaS dashboard or host export); pass them through
+      # Compose only if you have no other option:
+      #   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID}
+      #   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY}
       APP_AI_SERVICE_URL: http://ai-service:8000
       APP_AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
       APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET}
@@ -101,6 +134,16 @@ services:
         condition: service_healthy
     expose:
       - "8080"
+    healthcheck:
+      # wget is a busybox applet in the JRE-alpine image (same pattern the
+      # frontend uses). Non-2xx makes wget exit non-zero, so a 503 from
+      # /api/health correctly reports the backend unhealthy.
+      test: ["CMD", "wget", "--spider", "--quiet", "http://localhost:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # Cover JVM boot plus the initial Flyway migration on a cold database.
+      start_period: 60s
 
   frontend:
     build:

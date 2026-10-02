@@ -51,6 +51,12 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       UPLOAD_DIR: /app/uploads
+      # Must match APP_STORAGE_PROVIDER on the backend, because the agent's file
+      # tools (list_files / read_file / grep) read whatever the backend wrote.
+      APP_STORAGE_PROVIDER: ${APP_STORAGE_PROVIDER:-local}
+      APP_S3_BUCKET: ${APP_S3_BUCKET:-}
+      APP_S3_PREFIX: ${APP_S3_PREFIX:-projects}
+      APP_S3_REGION: ${APP_S3_REGION:-}
     volumes:
       - project-uploads:/app/uploads
     networks:
