@@ -12,9 +12,9 @@ from embedding_service import EmbeddingService
 from review_service import ReviewService
 from chat_service import ChatService
 from agent import CodebaseAgent
-from agent_tools import AgentTools
+from agent_tools import create_agent_tools_from_env
 from debug_service import DebugService
-from storage import create_storage
+from mcp_client import McpToolClient
 
 logger = logging.getLogger(__name__)
 
@@ -49,25 +49,15 @@ chat_service = ChatService()
 # Project files live wherever the backend put them, so the file tools read them
 # through the provider named by APP_STORAGE_PROVIDER (local, the default, or
 # s3). Building it once at startup fails fast on a misconfiguration instead of
-# on the first agent tool call.
-upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
-project_storage = create_storage(upload_dir)
-logger.info("Project storage provider: %s", project_storage.provider)
+# on the first agent tool call. The MCP server builds its own copy from the
+# same environment (agent_tools.create_agent_tools_from_env), so both
+# processes always see identical configuration.
+agent_tools = create_agent_tools_from_env(embedding_service)
 
-# Initialize agent (reuses the shared embedding model and Groq client)
-agent_tools = AgentTools(
-    db_config={
-        "host": os.getenv("DB_HOST", "localhost"),
-        "port": os.getenv("DB_PORT", "5432"),
-        "dbname": os.getenv("DB_NAME", "codebase_ai"),
-        "user": os.getenv("DB_USER", "admin"),
-        "password": os.getenv("DB_PASSWORD", ""),
-    },
-    embedding_service=embedding_service,
-    upload_dir=upload_dir,
-    storage=project_storage,
-)
-agent = CodebaseAgent(agent_tools, chat_service.client)
+# The investigation agent no longer holds a tool list of its own: it discovers
+# the read-only tools from the MCP tool server on first use and executes every
+# call through it, always scoped to the project it was asked about.
+agent = CodebaseAgent(chat_service.client, McpToolClient())
 review_service = ReviewService(agent_tools, chat_service.client)
 debug_service = DebugService(agent, agent_tools, chat_service.client)
 

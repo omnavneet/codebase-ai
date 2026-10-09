@@ -1,10 +1,10 @@
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from groq import Groq
 
-from agent_tools import AgentTools
+from tool_registry import groq_function_from_mcp
 
 
 class CodebaseAgent:
@@ -12,136 +12,39 @@ class CodebaseAgent:
 
     The model decides which tools to call; each result is fed back until the
     model produces a final answer or the bounded iteration limit is reached.
+
+    The tool list is not hardcoded: it is discovered from the MCP tool server
+    (``list_tools``) on first use, and every call is executed through the same
+    MCP client with the investigation's project_id injected server-side, so
+    the model can never choose which project it reads.
     """
 
-    def __init__(self, tools: AgentTools, groq_client: Groq):
-        self.tools = tools
+    def __init__(self, groq_client: Groq, mcp_client):
         self.client = groq_client
+        self.mcp = mcp_client
         self.model = os.getenv("LLM_MODEL")
         self.max_iterations = 10
         self.max_tool_calls = 10
+        # Discovered lazily from the MCP server so the service can start even
+        # if the MCP server is still booting; cached for the process lifetime.
+        self.tool_definitions: Optional[List[Dict]] = None
 
-        # Define tools for Groq
-        self.tool_definitions = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "semantic_search",
-                    "description": "Search the codebase by semantic meaning. Use this to find relevant code.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "Search query describing what you're looking for",
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "Number of results to return (default 5)",
-                            },
-                        },
-                        "required": ["query"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_file",
-                    "description": "Read a file's content. Optionally specify line range for large files.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "file_path": {
-                                "type": "string",
-                                "description": "Path to the file",
-                            },
-                            "start_line": {
-                                "type": "integer",
-                                "description": "Starting line (optional)",
-                            },
-                            "end_line": {
-                                "type": "integer",
-                                "description": "Ending line (optional)",
-                            },
-                        },
-                        "required": ["file_path"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "list_files",
-                    "description": "List all files in the project repository",
-                    "parameters": {"type": "object", "properties": {}, "required": []},
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "grep",
-                    "description": "Search file contents for an exact string or regular expression. "
-                                   "Use it for literal identifiers; use semantic_search for concepts.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "pattern": {
-                                "type": "string",
-                                "description": "Python regular expression to search for",
-                            },
-                            "file_path": {
-                                "type": "string",
-                                "description": "Optional single file to search; the whole project is searched otherwise",
-                            },
-                        },
-                        "required": ["pattern"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "find_dependencies",
-                    "description": "Find imports and dependencies for a specific file",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "file_path": {
-                                "type": "string",
-                                "description": "Path to the file to analyze",
-                            }
-                        },
-                        "required": ["file_path"],
-                    },
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "analyze_function",
-                    "description": "Deep-dive one declared symbol: its source, who calls it, and what it calls. "
-                                   "Use it to trace dependencies accurately instead of guessing.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "name": {
-                                "type": "string",
-                                "description": "Function/class/method name to analyze",
-                            },
-                            "file_path": {
-                                "type": "string",
-                                "description": "Optional file path, to disambiguate same-named symbols",
-                            },
-                        },
-                        "required": ["name"],
-                    },
-                },
-            },
+    def discover_tools(self) -> List[Dict]:
+        """Fetch the MCP server's read-only tools as Groq function schemas."""
+        discovered = self.mcp.list_tools()
+        definitions = [
+            groq_function_from_mcp(tool["name"], tool["description"], tool["input_schema"])
+            for tool in discovered
+            if tool.get("read_only")
         ]
+        if not definitions:
+            raise RuntimeError("The MCP server exposed no read-only tools")
+        return definitions
 
     def investigate(self, question: str, project_id: str) -> Dict[str, Any]:
         """Main agent investigation loop."""
+        if self.tool_definitions is None:
+            self.tool_definitions = self.discover_tools()
 
         messages = [
             {
@@ -158,7 +61,7 @@ Rules:
 - Don't read the same file twice
 - Cite specific files and line numbers
 - If you can't find something, say so explicitly
-- analyze_function returns real call data; when it reports unresolved, ambiguous
+- analyze_symbol returns real call data; when it reports unresolved, ambiguous
   or dynamic references, say so instead of presenting an uncertain edge as fact
 - You have a maximum of 10 tool calls""",
             },
@@ -204,7 +107,7 @@ Rules:
                         result = None
 
                         # Track what we've done and avoid repeating expensive work.
-                        if tool_name == "semantic_search":
+                        if tool_name == "search_code":
                             search_key = tool_args.get("query", "")
                             if search_key in searches_done:
                                 result = {"note": "Already searched this query", "results": []}
@@ -263,47 +166,20 @@ Rules:
         }
 
     def _execute_tool(self, tool_name: str, args: Dict, project_id: str) -> Any:
-        """Execute a tool call safely."""
+        """Execute a tool call through the MCP server, scoped to the project."""
         try:
-            if tool_name == "semantic_search":
-                return self.tools.semantic_search(
-                    query=args.get("query", ""),
-                    project_id=project_id,
-                    limit=args.get("limit", 5),
-                )
+            known = {
+                definition["function"]["name"]
+                for definition in (self.tool_definitions or [])
+            }
+            if tool_name not in known:
+                return {"error": f"Unknown tool: {tool_name}"}
 
-            if tool_name == "read_file":
-                return self.tools.read_file(
-                    file_path=args.get("file_path", ""),
-                    project_id=project_id,
-                    start_line=args.get("start_line"),
-                    end_line=args.get("end_line"),
-                )
-
-            if tool_name == "list_files":
-                return self.tools.list_files(project_id)
-
-            if tool_name == "grep":
-                return self.tools.grep(
-                    pattern=args.get("pattern", ""),
-                    project_id=project_id,
-                    file_path=args.get("file_path", ""),
-                )
-
-            if tool_name == "find_dependencies":
-                return self.tools.find_dependencies(
-                    file_path=args.get("file_path", ""),
-                    project_id=project_id,
-                )
-
-            if tool_name == "analyze_function":
-                return self.tools.analyze_symbol(
-                    name=args.get("name", ""),
-                    project_id=project_id,
-                    file_path=args.get("file_path"),
-                )
-
-            return {"error": f"Unknown tool: {tool_name}"}
+            arguments = dict(args or {})
+            # The scope comes from the investigation, never from the model:
+            # whatever it sent for project_id is overwritten here.
+            arguments["project_id"] = project_id
+            return self.mcp.call_tool(tool_name, arguments)
 
         except Exception as e:
             return {"error": f"Tool execution failed: {e}"}

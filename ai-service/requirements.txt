@@ -1,9 +1,12 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi==0.142.4
+uvicorn[standard]==0.54.0
 groq==0.20.0
 python-dotenv==1.0.0
 sentence-transformers==4.1.0
-pydantic==2.5.0
+pydantic==2.13.5
 psycopg2-binary==2.9.9
 boto3==1.43.107
-
+# Official MCP SDK: the tool server (mcp_server.py) and the agent's client
+# (mcp_client.py). Installing it pulls the newer starlette/anyio/uvicorn that
+# the pins above already reflect.
+mcp==2.3.0

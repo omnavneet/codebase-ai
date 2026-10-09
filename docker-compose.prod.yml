@@ -29,6 +29,61 @@ services:
       timeout: 5s
       retries: 5
 
+  # MCP tool server: hosts the registry's read-only tools (search_code,
+  # read_file, list_files, grep, find_dependencies, analyze_symbol) over
+  # Streamable HTTP at /mcp. The agent discovers them from here and executes
+  # every call through it. Requests must carry
+  # Authorization: Bearer <AI_SERVICE_INTERNAL_TOKEN>; GET /health is exempt
+  # for the container probe. No GROQ key: this service never calls an LLM.
+  # Internal only: no ports are published, the ai-service reaches it as
+  # http://mcp:8001/mcp over the compose network.
+  mcp:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    command:
+      - uvicorn
+      - mcp_server:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8001"
+    environment:
+      AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN:?AI_SERVICE_INTERNAL_TOKEN}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      UPLOAD_DIR: /app/uploads
+      # --- Project storage ---------------------------------------------------
+      # Must match the backend's provider, because the tools read whatever the
+      # backend wrote (same rule as the ai-service below).
+      APP_STORAGE_PROVIDER: ${APP_STORAGE_PROVIDER:?APP_STORAGE_PROVIDER}
+      APP_S3_BUCKET: ${APP_S3_BUCKET:-}
+      APP_S3_PREFIX: ${APP_S3_PREFIX:-projects}
+      APP_S3_REGION: ${APP_S3_REGION:-}
+    volumes:
+      - project-uploads:/app/uploads
+    networks:
+      - codebase-network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8001"
+    healthcheck:
+      # Explicit loopback (see the frontend healthcheck) so the probe does not
+      # depend on how the image resolves "localhost".
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      # The embedding model loads at startup; give it room before failing.
+      start_period: 30s
+
   ai-service:
     build:
       context: ./ai-service
@@ -58,6 +113,10 @@ services:
       # (task role on ECS/EC2, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in
       # the platform's environment settings for a plain VM or PaaS), so no key
       # is ever listed here.
+      # The investigation agent discovers and calls its tools through the MCP
+      # server above (bearer token: AI_SERVICE_INTERNAL_TOKEN, already set
+      # here), exactly like the development stack.
+      MCP_SERVER_URL: http://mcp:8001/mcp
     volumes:
       - project-uploads:/app/uploads
     networks:
@@ -65,6 +124,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      mcp:
         condition: service_healthy
     expose:
       - "8000"

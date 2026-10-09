@@ -47,6 +47,9 @@ flowchart LR
     API -->|Internal HTTP| AI[FastAPI AI service]
     AI --> DB
     AI --> Store
+    AI -->|Internal HTTP + Bearer| MCP[MCP tool server]
+    MCP --> DB
+    MCP --> Store
     AI --> LLM[Groq LLM]
 ```
 
@@ -54,11 +57,15 @@ flowchart LR
 | --- | --- | --- |
 | `frontend/` | React 19, TypeScript, Vite, browser UX | `http://localhost:5173` |
 | `backend/` | Auth, project ownership, uploads, indexing, retrieval, chat | `http://localhost:8080` |
-| `ai-service/` | Embeddings, LLM calls, SSE responses, agent tools, code review | `http://localhost:8000` |
+| `ai-service/` | Embeddings, LLM calls, SSE responses, agent orchestration, code review | `http://localhost:8000` |
+| `ai-service/` MCP tool server | Read-only agent tools (`search_code`, `read_file`, `list_files`, `grep`, `find_dependencies`, `analyze_symbol`) over Streamable HTTP | `http://localhost:8001` |
 | PostgreSQL | Users, projects, files, chunks, symbols, references, chat history | `localhost:5432` |
 
 The browser talks **only** to the backend. The AI service is server-to-server and is
-protected by an internal token.
+protected by an internal token. The investigation agent holds no tools of its own:
+it discovers the MCP tool server's read-only tools on first use and executes every
+call through it, with the investigation's `project_id` injected server-side so the
+model can never choose which project it reads.
 
 <details>
 <summary><b>How a question is answered</b></summary>
@@ -170,7 +177,9 @@ app.ai-service.url=http://localhost:8000
 | --- | :---: | --- |
 | `GROQ_API_KEY` | ✅ | Your Groq API key |
 | `LLM_MODEL` | ✅ | For example `openai/gpt-oss-20b` |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | ✅ | The agent reads chunks directly from pgvector |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | ✅ | The MCP tool server reads chunks directly from pgvector |
+| `AI_SERVICE_INTERNAL_TOKEN` | ✅ | Shared service-to-service bearer token: the agent's MCP client sends it to the tool server, and the backend sends it as `X-Internal-Token` to the AI service |
+| `MCP_SERVER_URL` | | Where the agent reaches the tool server: `http://mcp:8001/mcp` in Compose, `http://127.0.0.1:8001/mcp` for host-run dev (this default) |
 | `UPLOAD_DIR` | ✅ (local storage) | Absolute path to the backend upload directory (`backend/uploads`), used by the file tools |
 | `EMBEDDING_MODEL` | | Defaults to `all-MiniLM-L6-v2`. Must stay 384-dimensional to match `chunks.embedding vector(384)` |
 
@@ -218,7 +227,7 @@ nginx proxy (`http://<host>/api/health`).
 | Suite | Command |
 | --- | --- |
 | Backend | `cd backend && ./mvnw test` |
-| AI service | `cd ai-service && python -m unittest discover -s . -p 'test_*.py'` |
+| AI service | `cd ai-service && python -m pytest` (needs `requirements-dev.txt` alongside `requirements.txt`) |
 | Frontend | `cd frontend && npm run build` (type-check + Vite build) |
 
 The backend suite needs no database, SMTP server, or AWS credentials, and the S3 tests
@@ -230,5 +239,6 @@ that:
 
 - the frontend serves the SPA shell,
 - `/api/health` reports `UP` through the nginx proxy,
-- the AI service `/health` responds, and
+- the AI service `/health` responds,
+- the MCP tool server `/health` responds, and
 - Flyway migrations applied cleanly to a fresh database volume.

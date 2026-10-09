@@ -1,0 +1,2 @@
+# Test-only dependencies (CI installs these alongside requirements.txt).
+pytest==9.1.1

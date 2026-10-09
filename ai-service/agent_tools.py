@@ -1,3 +1,4 @@
+import logging
 import os
 import posixpath
 import re
@@ -8,6 +9,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from storage import LocalStorage, create_storage, normalize_relative_path
+
+logger = logging.getLogger(__name__)
+
 
 
 def _split_lines(content: str) -> List[str]:
@@ -532,3 +536,33 @@ def is_external_import(target: str, language) -> bool:
     if language in ("javascript", "typescript", "tsx"):
         return not target.startswith(".")
     return False
+
+
+def create_agent_tools_from_env(embedding_service=None) -> AgentTools:
+    """Build AgentTools from the service environment (DB, storage, embeddings).
+
+    Shared by main.py and mcp_server.py so the in-process tools and the MCP
+    server always read the same configuration. ``embedding_service`` may be
+    passed to reuse an already-loaded model instead of loading a second copy.
+    """
+    if embedding_service is None:
+        from embedding_service import EmbeddingService
+
+        embedding_service = EmbeddingService()
+
+    upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
+    storage = create_storage(upload_dir)
+    logger.info("Project storage provider: %s", storage.provider)
+    return AgentTools(
+        db_config={
+            "host": os.getenv("DB_HOST", "localhost"),
+            "port": os.getenv("DB_PORT", "5432"),
+            "dbname": os.getenv("DB_NAME", "codebase_ai"),
+            "user": os.getenv("DB_USER", "admin"),
+            "password": os.getenv("DB_PASSWORD", ""),
+        },
+        embedding_service=embedding_service,
+        upload_dir=upload_dir,
+        storage=storage,
+    )
+
