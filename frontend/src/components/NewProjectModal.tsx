@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/apiClient';
 import { getApiErrorMessage } from '../utils/apiError';
@@ -7,6 +7,15 @@ import './Modal.css';
 
 interface NewProjectModalProps {
   onClose: () => void;
+}
+
+interface JobStatus {
+  id: string;
+  projectId: string;
+  status: 'queued' | 'processing' | 'ready' | 'error' | 'cancelled';
+  progressPercent: number;
+  attempts: number;
+  errorMessage: string | null;
 }
 
 const MAX_ZIP_BYTES = 50 * 1024 * 1024;
@@ -32,7 +41,10 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState('');
+  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -76,24 +88,110 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
       // Create project
       setUploadProgress('Creating project…');
       const createResponse = await apiClient.post('/projects', { name });
-      const projectId = createResponse.data.id;
+      const pid = createResponse.data.id;
+      setProjectId(pid);
 
-      // Upload ZIP
+      // Upload ZIP — backend now returns 202 Accepted with job info
       setUploadProgress('Uploading archive…');
       const formData = new FormData();
       formData.append('file', file);
 
-      await apiClient.post(`/projects/${projectId}/upload`, formData, {
+      const uploadResponse = await apiClient.post(`/projects/${pid}/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      navigate(`/projects/${projectId}`);
+      // Start polling job status
+      const job: JobStatus = uploadResponse.data;
+      setJobStatus(job);
+      setUploadProgress(`Queued (${job.status})`);
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to create project'));
       setUploadProgress('');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCancel = async () => {
+    if (!jobStatus || !projectId) return;
+    setCancelRequested(true);
+    try {
+      await apiClient.post(`/projects/${projectId}/jobs/${jobStatus.id}/cancel`);
+      setUploadProgress('Cancelling…');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Failed to cancel indexing job'));
+      setCancelRequested(false);
+    }
+  };
+
+  // Poll job status while job is active
+  useEffect(() => {
+    if (!jobStatus || !jobStatus.id || !projectId) return;
+    if (jobStatus.status === 'ready' || jobStatus.status === 'error' || jobStatus.status === 'cancelled') {
+      return;
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const response = await apiClient.get(`/projects/${projectId}/jobs/${jobStatus.id}`);
+        const updated: JobStatus = response.data;
+        setJobStatus(updated);
+
+        if (updated.status === 'queued') {
+          setUploadProgress(`Queued… (${updated.attempts > 0 ? `retry ${updated.attempts}` : ''})`);
+        } else if (updated.status === 'processing') {
+          setUploadProgress(`Indexing… ${updated.progressPercent}%`);
+        } else if (updated.status === 'ready') {
+          setUploadProgress('Indexing complete!');
+          // Navigate to project after short delay
+          setTimeout(() => {
+            onClose();
+            navigate(`/projects/${projectId}`);
+          }, 800);
+        } else if (updated.status === 'error') {
+          setError(updated.errorMessage || 'Indexing failed');
+          setUploadProgress('');
+        } else if (updated.status === 'cancelled') {
+          setUploadProgress('Cancelled');
+        }
+      } catch (err) {
+        console.error('Failed to fetch job status:', err);
+      }
+    }, 2000);
+
+    return () => window.clearInterval(intervalId);
+  }, [jobStatus, projectId, navigate, onClose]);
+
+  const renderProgress = () => {
+    if (!jobStatus) return null;
+    return (
+      <div className="form-group" role="status" aria-live="polite">
+        <span className="form-label progress-label">{uploadProgress}</span>
+        <div className="progress-bar-container">
+          <div
+            className="progress-bar-fill"
+            style={{ width: `${jobStatus.progressPercent}%` }}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const renderCancelButton = () => {
+    if (!jobStatus) return null;
+    if (jobStatus.status === 'ready' || jobStatus.status === 'error' || jobStatus.status === 'cancelled') {
+      return null;
+    }
+    return (
+      <button
+        type="button"
+        className="ui-btn ui-btn-neutral"
+        onClick={handleCancel}
+        disabled={loading || cancelRequested}
+      >
+        {cancelRequested ? 'Cancelling…' : 'Cancel indexing'}
+      </button>
+    );
   };
 
   return (
@@ -124,7 +222,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
             placeholder="payments-service"
             required
             autoFocus
-            disabled={loading}
+            disabled={loading || !!jobStatus}
           />
         </div>
 
@@ -154,7 +252,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
               setDragActive(false);
               acceptFile(event.dataTransfer.files?.[0]);
             }}
-            disabled={loading}
+            disabled={loading || !!jobStatus}
           >
             <span className="upload-icon" aria-hidden="true">
               {uploadIcon}
@@ -174,34 +272,31 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
           </p>
         )}
 
-        {uploadProgress && (
-          <div className="form-group" role="status" aria-live="polite">
-            <span className="form-label progress-label">{uploadProgress}</span>
-            <div className="progress-bar-container">
-              <div className="progress-bar-fill" />
-            </div>
-          </div>
-        )}
+        {uploadProgress && renderProgress()}
 
         <div className="modal-actions">
           <button
             type="button"
             className="ui-btn ui-btn-neutral"
             onClick={onClose}
-            disabled={loading}
+            disabled={loading || !!jobStatus}
           >
-            Cancel
+            {jobStatus ? 'Back to dashboard' : 'Cancel'}
           </button>
-          <button type="submit" className="ui-btn ui-btn-primary" disabled={loading}>
-            {loading ? (
-              <>
-                <span className="spinner spinner-xs" aria-hidden="true" />
-                Working…
-              </>
-            ) : (
-              'Create project'
-            )}
-          </button>
+          {jobStatus ? (
+            renderCancelButton()
+          ) : (
+            <button type="submit" className="ui-btn ui-btn-primary" disabled={loading}>
+              {loading ? (
+                <>
+                  <span className="spinner spinner-xs" aria-hidden="true" />
+                  Working…
+                </>
+              ) : (
+                'Create project'
+              )}
+            </button>
+          )}
         </div>
       </form>
     </Dialog>
