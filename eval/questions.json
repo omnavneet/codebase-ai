@@ -1,0 +1,464 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "created": "2026-10-10",
+    "description": "Codebase-AI retrieval and agent benchmark questions: 18 on this project and 18 on julienschmidt/httprouter, both pinned by commit SHA in eval/config.json.",
+    "verification_note": "IMPORTANT: You must manually verify every expected_file and expected_line_range against the pinned commit before trusting any baseline built on this dataset. Line ranges are checked for existence and bounds by `python -m eval.run --verify-dataset`, but their accuracy is a human responsibility."
+  },
+  "questions": [
+    {
+      "id": "q001",
+      "repo": "codebase-ai",
+      "question": "Where is the HTTP security chain configured so that only the auth and health endpoints are public?",
+      "type": "locate",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/config/SecurityConfig.java"],
+      "expected_line_ranges": [[56, 68]],
+      "reference_answer_points": [
+        "The SecurityFilterChain bean is defined in SecurityConfig.java",
+        "Requests to /api/auth/** and /api/health are permitAll; every other request must be authenticated"
+      ]
+    },
+    {
+      "id": "q002",
+      "repo": "codebase-ai",
+      "question": "Where are the rate-limit ceilings for auth and AI endpoints defined, and what are they?",
+      "type": "locate",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/config/InMemoryRateLimitFilter.java"],
+      "expected_line_ranges": [[27, 29]],
+      "reference_answer_points": [
+        "AUTH_LIMIT is 5 requests and AI_LIMIT is 20 requests per 60-second fixed window",
+        "The search and agent endpoints share the AI limit; login, register and resend-verification share the auth limit"
+      ]
+    },
+    {
+      "id": "q003",
+      "repo": "codebase-ai",
+      "question": "Where is the pgvector similarity query that backs semantic search?",
+      "type": "locate",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/repository/CodeChunkRepository.java"],
+      "expected_line_ranges": [[21, 31]],
+      "reference_answer_points": [
+        "CodeChunkRepository.findSimilarChunks is a native SQL query over the chunks table",
+        "It orders rows by the pgvector cosine-distance operator <=> and caps results with LIMIT :limit"
+      ]
+    },
+    {
+      "id": "q004",
+      "repo": "codebase-ai",
+      "question": "Where are the ZIP upload resource limits (per file and per archive) defined?",
+      "type": "locate",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/service/ZipExtractionService.java"],
+      "expected_line_ranges": [[46, 47]],
+      "reference_answer_points": [
+        "MAX_FILE_SIZE is 1 MB per extracted file and exceeding it aborts extraction",
+        "MAX_TOTAL_FILES caps the archive at 5000 files"
+      ]
+    },
+    {
+      "id": "q005",
+      "repo": "codebase-ai",
+      "question": "Where are the retrieval top-K defaults configured?",
+      "type": "locate",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/config/AppProperties.java"],
+      "expected_line_ranges": [[66, 71]],
+      "reference_answer_points": [
+        "Retrieval.searchTopK defaults to 10 chunks and is what the search endpoint uses",
+        "Retrieval.chatTopK defaults to 5 chunks for chat context"
+      ]
+    },
+    {
+      "id": "q006",
+      "repo": "codebase-ai",
+      "question": "Where is the investigation agent's main tool-calling loop defined?",
+      "type": "locate",
+      "expected_files": ["ai-service/agent.py"],
+      "expected_line_ranges": [[44, 71]],
+      "reference_answer_points": [
+        "CodebaseAgent.investigate in ai-service/agent.py builds the prompt and runs the tool-calling loop",
+        "Its system prompt tells the model to cite specific files and line numbers and that it has a maximum of 10 tool calls"
+      ]
+    },
+    {
+      "id": "q007",
+      "repo": "codebase-ai",
+      "question": "How does the backend decide which requests require a verified email address?",
+      "type": "explain",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/config/VerifiedUserFilter.java"],
+      "expected_line_ranges": [[88, 99]],
+      "reference_answer_points": [
+        "Only POST requests are checked by the filter's requiresVerifiedUser method",
+        "Protected paths are project creation plus the upload/search/generated/sessions/agent sub-paths and session-message endpoints; plain GET reads stay open because they are ownership-checked"
+      ]
+    },
+    {
+      "id": "q008",
+      "repo": "codebase-ai",
+      "question": "How are email verification tokens created and delivered?",
+      "type": "explain",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/service/EmailVerificationService.java"],
+      "expected_line_ranges": [[32, 48]],
+      "reference_answer_points": [
+        "TOKEN_BYTES is 32 bytes from a SecureRandom",
+        "The emailed link points at {public-url}/auth/verify-email?token=<raw token>",
+        "Only a SHA-256 hash of the token is stored on the user row"
+      ]
+    },
+    {
+      "id": "q009",
+      "repo": "codebase-ai",
+      "question": "How does the AI service prevent embedding-dimension mismatches with the database?",
+      "type": "explain",
+      "expected_files": ["ai-service/embedding_service.py"],
+      "expected_line_ranges": [[10, 39]],
+      "reference_answer_points": [
+        "EXPECTED_EMBEDDING_DIM is 384, matching the chunks.embedding vector(384) column",
+        "Startup raises RuntimeError when the configured model produces a different dimension",
+        "The model name comes from EMBEDDING_MODEL, defaulting to all-MiniLM-L6-v2"
+      ]
+    },
+    {
+      "id": "q010",
+      "repo": "codebase-ai",
+      "question": "How does the AI service authenticate server-to-server requests?",
+      "type": "explain",
+      "expected_files": ["ai-service/main.py"],
+      "expected_line_ranges": [[30, 43]],
+      "reference_answer_points": [
+        "An HTTP middleware requires the X-Internal-Token header on every path except /health",
+        "A missing server-side token configuration returns 503 and a mismatched token returns 403 via constant-time compare_digest"
+      ]
+    },
+    {
+      "id": "q011",
+      "repo": "codebase-ai",
+      "question": "How does the storage layer block path traversal when reading project files?",
+      "type": "explain",
+      "expected_files": ["ai-service/storage.py"],
+      "expected_line_ranges": [[35, 51]],
+      "reference_answer_points": [
+        "normalize_relative_path rejects absolute paths (including Windows drive letters) and any '..' segment",
+        "LocalStorage.resolve additionally checks that the resolved path stays under the project root"
+      ]
+    },
+    {
+      "id": "q012",
+      "repo": "codebase-ai",
+      "question": "What happens when an unverified account tries to log in?",
+      "type": "explain",
+      "expected_files": ["backend/src/main/java/com/codebaseai/backend/service/AuthService.java"],
+      "expected_line_ranges": [[65, 80]],
+      "reference_answer_points": [
+        "login throws 403 with the verification-required message before any token is minted",
+        "A wrong password is rejected as 401 invalid credentials before the verification check"
+      ]
+    },
+    {
+      "id": "q013",
+      "repo": "codebase-ai",
+      "question": "Trace the full path of a semantic search request from the HTTP endpoint down to pgvector and back.",
+      "type": "trace-call-flow",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/controller/ProjectController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/AiServiceClient.java",
+        "backend/src/main/java/com/codebaseai/backend/repository/CodeChunkRepository.java"
+      ],
+      "reference_answer_points": [
+        "POST /api/projects/{projectId}/search is handled by ProjectController.searchCode",
+        "ProjectService.searchCode embeds the question via AiServiceClient.generateEmbeddings before querying",
+        "Results come from CodeChunkRepository.findSimilarChunks ordered by cosine distance and are returned with filePath, startLine and endLine"
+      ]
+    },
+    {
+      "id": "q014",
+      "repo": "codebase-ai",
+      "question": "Trace how a single agent tool call flows from the LLM to the code and back.",
+      "type": "trace-call-flow",
+      "expected_files": ["ai-service/agent.py", "ai-service/mcp_client.py", "ai-service/mcp_server.py"],
+      "reference_answer_points": [
+        "The agent discovers tools from the MCP server's list_tools and keeps only read-only tools",
+        "_execute_tool overwrites any project_id chosen by the model with the investigation's project id",
+        "McpToolClient performs the HTTP call to the MCP server, whose registered handler executes the tool"
+      ]
+    },
+    {
+      "id": "q015",
+      "repo": "codebase-ai",
+      "question": "Trace what happens to an uploaded project ZIP from the HTTP request to a searchable index.",
+      "type": "trace-call-flow",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/controller/ProjectController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ZipExtractionService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/CodeProcessingService.java"
+      ],
+      "reference_answer_points": [
+        "POST /{projectId}/upload calls ProjectService.uploadZip (processed synchronously at this commit)",
+        "uploadZip purges the previous index, extracts the staged ZIP with ZipExtractionService and stores each extracted file",
+        "CodeProcessingService.processProject chunks the stored files and embeds every chunk through the AI service"
+      ]
+    },
+    {
+      "id": "q016",
+      "repo": "codebase-ai",
+      "question": "Trace the account registration and email verification flow end to end.",
+      "type": "trace-call-flow",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/controller/AuthController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/EmailVerificationService.java"
+      ],
+      "reference_answer_points": [
+        "POST /api/auth/register stores the user with verified=false and sends the mail inside the same transaction",
+        "EmailVerificationService.issueAndSend generates the raw token while only a hash is persisted",
+        "GET /api/auth/verify-email?token= consumes the single-use token and flips the account to verified"
+      ]
+    },
+    {
+      "id": "q017",
+      "repo": "codebase-ai",
+      "question": "Trace the checks a request must pass before the investigation agent runs for a project.",
+      "type": "trace-call-flow",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/config/SecurityConfig.java",
+        "backend/src/main/java/com/codebaseai/backend/config/VerifiedUserFilter.java",
+        "backend/src/main/java/com/codebaseai/backend/config/InMemoryRateLimitFilter.java"
+      ],
+      "reference_answer_points": [
+        "SecurityConfig requires authentication for every endpoint except /api/auth/** and /api/health",
+        "VerifiedUserFilter returns 403 for unverified users on agent endpoints",
+        "InMemoryRateLimitFilter caps agent requests at AI_LIMIT (20) per minute per user"
+      ]
+    },
+    {
+      "id": "q018",
+      "repo": "codebase-ai",
+      "question": "Trace what happens inside the AI service when a POST /chat request arrives.",
+      "type": "trace-call-flow",
+      "expected_files": ["ai-service/main.py", "ai-service/chat_service.py"],
+      "reference_answer_points": [
+        "The internal-token middleware runs first and rejects requests without a valid X-Internal-Token",
+        "The handler calls ChatService.generate_answer with the question, context and history",
+        "Citations in the response are built from the request's context entries, not produced by the model"
+      ]
+    },
+    {
+      "id": "q019",
+      "repo": "httprouter",
+      "question": "Where is httprouter's Router type defined and what does it hold?",
+      "type": "locate",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[138, 142]],
+      "reference_answer_points": [
+        "type Router struct lives in router.go and stores the per-method route trees in trees map[string]*node",
+        "It also holds a sync.Pool of Params (paramsPool) for reuse across requests"
+      ]
+    },
+    {
+      "id": "q020",
+      "repo": "httprouter",
+      "question": "Where is the Router constructor and what behavior does it enable by default?",
+      "type": "locate",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[213, 220]],
+      "reference_answer_points": [
+        "New() in router.go returns an initialized Router",
+        "It enables RedirectTrailingSlash, RedirectFixedPath, HandleMethodNotAllowed and HandleOPTIONS by default"
+      ]
+    },
+    {
+      "id": "q021",
+      "repo": "httprouter",
+      "question": "Where is route registration into the radix tree implemented?",
+      "type": "locate",
+      "expected_files": ["tree.go"],
+      "expected_line_ranges": [[109, 120]],
+      "reference_answer_points": [
+        "(*node).addRoute in tree.go inserts a handle for a path into the tree",
+        "It delegates to insertChild to wire up leaf nodes and wildcard segments"
+      ]
+    },
+    {
+      "id": "q022",
+      "repo": "httprouter",
+      "question": "Where is the route lookup function that returns the handler, params and trailing-slash flag?",
+      "type": "locate",
+      "expected_files": ["tree.go"],
+      "expected_line_ranges": [[326, 340]],
+      "reference_answer_points": [
+        "(*node).getValue in tree.go returns (handle, params, tsr)",
+        "The tsr flag signals that only the trailing-slash variant of the requested path exists"
+      ]
+    },
+    {
+      "id": "q023",
+      "repo": "httprouter",
+      "question": "Where does the router enter the http.Handler interface for an incoming request?",
+      "type": "locate",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[463, 478]],
+      "reference_answer_points": [
+        "(*Router).ServeHTTP in router.go selects the tree for req.Method",
+        "It calls getValue with req.URL.Path and invokes the matched handler with the pooled params"
+      ]
+    },
+    {
+      "id": "q024",
+      "repo": "httprouter",
+      "question": "Where is request-path canonicalization implemented?",
+      "type": "locate",
+      "expected_files": ["path.go"],
+      "expected_line_ranges": [[21, 54]],
+      "reference_answer_points": [
+        "CleanPath in path.go returns a canonical slash path (an empty input becomes '/')",
+        "It collapses superfluous slashes and resolves . and .. segments while remembering a trailing slash"
+      ]
+    },
+    {
+      "id": "q025",
+      "repo": "httprouter",
+      "question": "How does the router handle a request whose only mismatch is a trailing slash?",
+      "type": "explain",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[479, 495]],
+      "reference_answer_points": [
+        "getValue reports tsr=true and ServeHTTP redirects only when RedirectTrailingSlash is enabled",
+        "GET requests get 301 Moved Permanently while other methods get 308 Permanent Redirect",
+        "The path gains or loses exactly one trailing slash before the redirect"
+      ]
+    },
+    {
+      "id": "q026",
+      "repo": "httprouter",
+      "question": "How does the router answer OPTIONS requests automatically?",
+      "type": "explain",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[512, 520]],
+      "reference_answer_points": [
+        "OPTIONS is auto-handled only when HandleOPTIONS is true and allowed() finds routes for the path",
+        "The Allow header is set from r.allowed(); a configured GlobalOPTIONS handler, if any, serves the body"
+      ]
+    },
+    {
+      "id": "q027",
+      "repo": "httprouter",
+      "question": "How does the router produce 405 Method Not Allowed?",
+      "type": "explain",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[521, 534]],
+      "reference_answer_points": [
+        "With HandleMethodNotAllowed enabled, allowed() scans the other method trees for the same path",
+        "The Allow header lists the matching methods (plus OPTIONS) and a custom MethodNotAllowed handler overrides the default http.Error 405"
+      ]
+    },
+    {
+      "id": "q028",
+      "repo": "httprouter",
+      "question": "What does the router do when no route matches the request at all?",
+      "type": "explain",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[536, 542]],
+      "reference_answer_points": [
+        "A configured NotFound handler serves the request when one is set",
+        "Otherwise the router falls back to http.NotFound, a plain 404"
+      ]
+    },
+    {
+      "id": "q029",
+      "repo": "httprouter",
+      "question": "How are named parameters and catch-all routes represented in the routing tree?",
+      "type": "explain",
+      "expected_files": ["tree.go"],
+      "expected_line_ranges": [[217, 262]],
+      "reference_answer_points": [
+        "insertChild uses findWildcard to locate the wildcard segment and panics on malformed patterns (unnamed wildcards or conflicts with existing children)",
+        "A ':name' wildcard becomes a child node of type param and marks the parent's wildChild",
+        "Catch-all '*name' segments are processed by the same insertChild loop"
+      ]
+    },
+    {
+      "id": "q030",
+      "repo": "httprouter",
+      "question": "How does RedirectFixedPath rescue messy request paths such as //foo//bar or wrong casing?",
+      "type": "explain",
+      "expected_files": ["router.go", "tree.go"],
+      "reference_answer_points": [
+        "ServeHTTP retries the lookup with CleanPath(path) through root.findCaseInsensitivePath when RedirectFixedPath is enabled",
+        "findCaseInsensitivePath is implemented recursively on the node type in tree.go",
+        "A successful fix issues the same 301/308 style redirect as the trailing-slash case"
+      ]
+    },
+    {
+      "id": "q031",
+      "repo": "httprouter",
+      "question": "Trace an incoming HTTP request from ServeHTTP to the final handler function.",
+      "type": "trace-call-flow",
+      "expected_files": ["router.go", "tree.go"],
+      "reference_answer_points": [
+        "ServeHTTP looks up r.trees[req.Method] and calls getValue(path)",
+        "On a match the handler runs with (w, req, params) and the params slice is returned to the pool via putParams",
+        "On a miss the router tries trailing-slash and fixed-path redirects, then OPTIONS/405 handling, then NotFound"
+      ]
+    },
+    {
+      "id": "q032",
+      "repo": "httprouter",
+      "question": "Trace how Router.GET('/path', handler) becomes a routable entry.",
+      "type": "trace-call-flow",
+      "expected_files": ["router.go", "tree.go"],
+      "reference_answer_points": [
+        "GET delegates to (*Router).Handle, which panics on an empty method, a path not starting with '/' or a nil handle",
+        "Handle stores the route in the tree for that method, creating r.trees[method] when it does not exist yet",
+        "The tree's addRoute splits static prefixes from wildcards via insertChild"
+      ]
+    },
+    {
+      "id": "q033",
+      "repo": "httprouter",
+      "question": "Trace what happens when a request misses a registered route only by a trailing slash.",
+      "type": "trace-call-flow",
+      "expected_files": ["router.go", "tree.go"],
+      "reference_answer_points": [
+        "getValue matches the slash variant and returns tsr=true instead of a handle",
+        "ServeHTTP issues the redirect when RedirectTrailingSlash is true, which New() sets by default",
+        "If the redirect option is disabled the request continues to fixed-path lookup and eventually NotFound"
+      ]
+    },
+    {
+      "id": "q034",
+      "repo": "httprouter",
+      "question": "Trace why a registered path returns 405 when called with the wrong HTTP method.",
+      "type": "trace-call-flow",
+      "expected_files": ["router.go"],
+      "reference_answer_points": [
+        "The lookup in the request method's tree fails (or that tree does not exist), so ServeHTTP falls through to r.allowed(path, method)",
+        "allowed() iterates the other method trees and collects every method whose getValue finds the path",
+        "A non-empty Allow list triggers the 405 branch when HandleMethodNotAllowed is true"
+      ]
+    },
+    {
+      "id": "q035",
+      "repo": "httprouter",
+      "question": "Where is the method that exposes routing decisions without writing a response?",
+      "type": "locate",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[394, 408]],
+      "reference_answer_points": [
+        "(*Router).Lookup(method, path) in router.go returns (Handle, Params, bool)",
+        "It performs the same tree lookup as ServeHTTP but never writes to the ResponseWriter"
+      ]
+    },
+    {
+      "id": "q036",
+      "repo": "httprouter",
+      "question": "Where does the router manage its Params object pool?",
+      "type": "locate",
+      "expected_files": ["router.go"],
+      "expected_line_ranges": [[222, 231]],
+      "reference_answer_points": [
+        "getParams pulls a slice from r.paramsPool, a sync.Pool",
+        "putParams returns the slice after the handler finishes so params are reused across requests"
+      ]
+    }
+  ]
+}
