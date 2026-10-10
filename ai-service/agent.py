@@ -76,6 +76,9 @@ Rules:
         searches_done = set()
         iteration = 0
         tool_calls = 0
+        # Groq usage accounting: summed over every completion in the loop so
+        # callers (notably the evaluation harness) can see real token spend.
+        usage = {"input_tokens": 0, "output_tokens": 0}
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -89,6 +92,14 @@ Rules:
             )
 
             response_message = response.choices[0].message
+
+            # Attribute this completion's Groq usage to the investigation.
+            response_usage = getattr(response, "usage", None)
+            if response_usage is not None:
+                usage["input_tokens"] += getattr(
+                    response_usage, "prompt_tokens", 0) or 0
+                usage["output_tokens"] += getattr(
+                    response_usage, "completion_tokens", 0) or 0
 
             # Check if model wants to call a tool
             if response_message.tool_calls:
@@ -152,6 +163,11 @@ Rules:
                     "tool_calls": tool_calls,
                     "files_read": list(files_read),
                     "searches_performed": list(searches_done),
+                    "usage": {
+                        **usage,
+                        "total_tokens": usage["input_tokens"]
+                        + usage["output_tokens"],
+                    },
                 }
 
         # Max iterations reached
@@ -162,6 +178,10 @@ Rules:
             "tool_calls": tool_calls,
             "files_read": list(files_read),
             "searches_performed": list(searches_done),
+            "usage": {
+                **usage,
+                "total_tokens": usage["input_tokens"] + usage["output_tokens"],
+            },
             "truncated": True,
         }
 

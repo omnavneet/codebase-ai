@@ -154,6 +154,9 @@ class AgentResponse(BaseModel):
     files_read: List[str]
     searches_performed: List[str]
     truncated: bool = False
+    # Groq token usage summed over the investigation's LLM calls
+    # ({"input_tokens": int, "output_tokens": int, "total_tokens": int}).
+    usage: dict = Field(default_factory=dict)
 
 @app.post("/agent/investigate", response_model=AgentResponse)
 def investigate(request: AgentRequest):
