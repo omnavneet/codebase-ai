@@ -32,6 +32,28 @@ public class CodeProcessingService {
         }
     }
 
+    /**
+     * Thrown by a {@link ProgressCallback} to abort processing early, e.g. when
+     * the indexing job was cancelled. Unchecked so the callback stays a clean
+     * functional interface; it unwinds {@link #processProject(UUID, ProgressCallback)}
+     * without being swallowed by the per-file parse/IO handlers.
+     */
+    public static class ProcessingCancelledException extends RuntimeException {
+        public ProcessingCancelledException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Per-batch progress hook. Receives the percent (0-100) of the file set
+     * processed so far, checked between files so a long run can report progress
+     * and stop promptly on cancellation.
+     */
+    @FunctionalInterface
+    public interface ProgressCallback {
+        void onProgress(int percentDone) throws ProcessingCancelledException;
+    }
+
     private final ProjectFileRepository projectFileRepository;
     private final CodeChunkRepository codeChunkRepository;
     private final CodeSymbolRepository codeSymbolRepository;
@@ -44,8 +66,26 @@ public class CodeProcessingService {
      * NOT @Transactional: the embedding calls are remote and can take minutes, so
      * holding one DB transaction (and one pooled connection) across the project is
      * not acceptable. Every save commits on its own.
+     *
+     * <p>Kept for callers that do not need progress or cancellation; delegates to
+     * {@link #processProject(UUID, ProgressCallback)} with a no-op callback.
      */
     public ProcessingResult processProject(UUID projectId) {
+        return processProject(projectId, percent -> { });
+    }
+
+    /**
+     * Same as {@link #processProject(UUID)} but reports progress and honours
+     * cancellation between files.
+     *
+     * <p>The callback is invoked once per file with the percent of the file set
+     * done so far, so the worker can heartbeat its lease. If the callback throws
+     * {@link ProcessingCancelledException} (e.g. the job was cancelled), the loop
+     * stops at once and the exception propagates to the worker, which then purges
+     * the partial index. Ordinary per-file parse/IO failures are still collected
+     * into {@link ProcessingResult} and do not abort the run.
+     */
+    public ProcessingResult processProject(UUID projectId, ProgressCallback callback) {
         log.info("Starting processing for project: {}", projectId);
 
         List<ProjectFile> files = projectFileRepository.findByProjectId(projectId);
@@ -53,8 +93,10 @@ public class CodeProcessingService {
 
         int totalChunks = 0;
         List<String> failedFiles = new ArrayList<>();
+        int total = files.size();
 
-        for (ProjectFile file : files) {
+        for (int index = 0; index < total; index++) {
+            ProjectFile file = files.get(index);
             try {
                 // Same project-relative path the file was indexed under, so the
                 // local backend and S3 resolve it identically.
@@ -104,6 +146,12 @@ public class CodeProcessingService {
                 log.error("Failed to process file: {}", file.getPath(), e);
                 failedFiles.add(file.getPath());
             }
+
+            // Between files (the "batch" boundary): report progress and let the
+            // worker renew its lease / notice a cancellation. May throw
+            // ProcessingCancelledException, which unwinds the loop.
+            int percentDone = total == 0 ? 100 : (int) (((long) (index + 1) * 100) / total);
+            callback.onProgress(percentDone);
         }
 
         log.info("Processing complete for project: {}. Total chunks: {}", projectId, totalChunks);

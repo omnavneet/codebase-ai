@@ -25,6 +25,7 @@ public class AppProperties {
     private Verification verification = new Verification();
     private Storage storage = new Storage();
     private S3 s3 = new S3();
+    private Indexing indexing = new Indexing();
 
     /**
      * Public URL of the SPA (what a user types in the browser), used to build links
@@ -99,6 +100,14 @@ public class AppProperties {
          * stack need no cloud configuration.
          */
         private String provider = "local";
+    }
+
+    @Data
+    public static class Indexing {
+        /** Maximum number of retry attempts for a failed indexing job. */
+        private int maxAttempts = 3;
+        /** How many seconds a processing job can be stuck before being recovered (stale lease). */
+        private int staleJobSeconds = 300;
     }
 
     @Data

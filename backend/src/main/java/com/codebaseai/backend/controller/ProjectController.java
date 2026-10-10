@@ -1,5 +1,6 @@
 package com.codebaseai.backend.controller;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -18,12 +19,16 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.codebaseai.backend.dto.CreateProjectRequest;
+import com.codebaseai.backend.dto.IndexingJobResponse;
 import com.codebaseai.backend.dto.ProjectResponse;
 import com.codebaseai.backend.dto.SearchRequest;
+import com.codebaseai.backend.model.IndexingJob;
+import com.codebaseai.backend.service.IndexingJobService;
 import com.codebaseai.backend.service.ProjectService;
 import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/projects")
@@ -31,6 +36,7 @@ import lombok.RequiredArgsConstructor;
 public class ProjectController {
 
     private final ProjectService projectService;
+    private final IndexingJobService indexingJobService;
 
     @PostMapping
     public ResponseEntity<ProjectResponse> createProject(
@@ -59,12 +65,21 @@ public class ProjectController {
     }
 
     @PostMapping("/{projectId}/upload")
-    public ResponseEntity<ProjectResponse> uploadZip(
+    public ResponseEntity<IndexingJobResponse> uploadZip(
             @PathVariable UUID projectId,
-            @RequestParam("file") MultipartFile file) {
-        UUID userId = getCurrentUserId();
-        projectService.uploadZip(projectId, userId, file);
-        return ResponseEntity.ok(projectService.getProject(projectId, userId));
+            @RequestParam("file") MultipartFile file,
+            Authentication authentication) throws IOException {
+        UUID userId = getCurrentUserId(authentication);
+        IndexingJob job = projectService.uploadZip(projectId, userId, file);
+        IndexingJobResponse response = new IndexingJobResponse(
+                job.getId(),
+                job.getProjectId(),
+                job.getStatus(),
+                job.getProgressPercent(),
+                job.getAttempts(),
+                job.getErrorMessage()
+        );
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @GetMapping("/{projectId}/files")
@@ -119,6 +134,29 @@ public class ProjectController {
             @PathVariable String name) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(projectService.getGeneratedFile(projectId, name, userId));
+    }
+
+    // ---- Indexing job status and cancellation --------------------------------
+
+    @GetMapping("/{projectId}/jobs/{jobId}")
+    public ResponseEntity<IndexingJobResponse> getJobStatus(
+            @PathVariable UUID projectId,
+            @PathVariable UUID jobId) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(indexingJobService.getJobStatus(projectId, jobId, userId));
+    }
+
+    @PostMapping("/{projectId}/jobs/{jobId}/cancel")
+    public ResponseEntity<Void> cancelJob(
+            @PathVariable UUID projectId,
+            @PathVariable UUID jobId) {
+        UUID userId = getCurrentUserId();
+        indexingJobService.cancelJob(projectId, jobId, userId);
+        return ResponseEntity.ok().build();
+    }
+
+    private UUID getCurrentUserId(Authentication authentication) {
+        return UUID.fromString(authentication.getName());
     }
 
     private UUID getCurrentUserId() {

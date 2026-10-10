@@ -24,6 +24,7 @@ import com.codebaseai.backend.model.CodeReference;
 import com.codebaseai.backend.model.CodeSymbol;
 import com.codebaseai.backend.model.Project;
 import com.codebaseai.backend.model.ProjectFile;
+import com.codebaseai.backend.model.IndexingJob;
 import com.codebaseai.backend.repository.CodeChunkRepository;
 import com.codebaseai.backend.repository.CodeReferenceRepository;
 import com.codebaseai.backend.repository.CodeSymbolRepository;
@@ -52,6 +53,7 @@ public class ProjectService {
     private final ZipExtractionService zipExtractionService;
     private final CodeProcessingService codeProcessingService;
     private final AppProperties properties;
+    private final IndexingJobService indexingJobService;
 
     @Transactional
     public ProjectResponse createProject(UUID userId, String name) {
@@ -107,114 +109,19 @@ public class ProjectService {
     }
 
     /**
-     * Deliberately NOT @Transactional: extraction and embedding generation make
-     * remote calls that can take minutes, so holding one DB transaction (and one
-     * pooled connection) for the whole upload is not acceptable. It also makes
-     * the failure paths below correct: they set {@code status="error"} and then
-     * throw, and inside a transaction that write would be rolled back, leaving
-     * the project stuck in "processing" forever.
+     * Creates an indexing job for a project upload. Extraction and embedding
+     * processing is performed asynchronously by a worker.
+     * 
+     * @param projectId Project to index
+     * @param userId    User making the request (for ownership check)
+     * @param file      Uploaded ZIP file
+     * @return IndexingJob for the upload (status will be queued)
+     * @throws IOException if file processing fails
      */
-    public void uploadZip(UUID projectId, UUID userId, MultipartFile file) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
-
-        if (!project.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        if (file == null || file.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File is empty");
-        }
-
-        String originalFilename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
-        if (!originalFilename.toLowerCase().endsWith(".zip")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only ZIP files are allowed");
-        }
-
-        Path stagedZip = null;
-        try {
-            project.setStatus("processing");
-            projectRepository.save(project);
-
-            // A re-upload replaces the previous index instead of adding to it:
-            // otherwise rows would duplicate and stale files would linger in the
-            // store where the AI service could still read them.
-            purgeExistingIndex(projectId);
-            storageService.deleteProject(projectId);
-
-            stagedZip = storageService.storeZip(file, projectId);
-            Path extractionDirectory = storageService.extractionDirectory(projectId);
-            List<ZipExtractionService.ExtractedFile> extractedFiles =
-                    zipExtractionService.extractZip(stagedZip, extractionDirectory);
-
-            int totalSize = 0;
-            for (ZipExtractionService.ExtractedFile extractedFile : extractedFiles) {
-                ProjectFile projectFile = new ProjectFile();
-                projectFile.setProjectId(projectId);
-                projectFile.setPath(extractedFile.getPath());
-                projectFile.setSizeBytes((int) extractedFile.getSize());
-                projectFile.setLanguage(Language.fromPath(extractedFile.getPath()).getId());
-
-                // Hash the staged file: on S3 the object is only uploaded after
-                // this loop (persistExtractedFiles), so the tree is still local.
-                byte[] content = Files.readAllBytes(extractedFile.getFilePath());
-                String hash = DigestUtils.md5DigestAsHex(content);
-                projectFile.setContentHash(hash);
-
-                projectFileRepository.save(projectFile);
-                totalSize += extractedFile.getSize();
-            }
-
-            // Commit the extracted tree to the store: a no-op for local storage
-            // (extraction already wrote the files in place), an upload to S3,
-            // which also removes its own staging directory.
-            storageService.persistExtractedFiles(projectId, extractionDirectory, extractedFiles);
-
-            try {
-                CodeProcessingService.ProcessingResult processingResult =
-                    codeProcessingService.processProject(projectId);
-                if (processingResult.hasFailures()) {
-                    String failedFiles = String.join(", ", processingResult.failedFiles());
-                    project.setStatus("error");
-                    project.setErrorMessage("Failed to index file(s): " + failedFiles);
-                    projectRepository.save(project);
-                    throw new ResponseStatusException(
-                        HttpStatus.BAD_GATEWAY, "Failed to index all project files");
-                }
-            } catch (RuntimeException e) {
-                try {
-                    purgeExistingIndex(projectId);
-                } catch (RuntimeException cleanupFailure) {
-                    log.error("Failed to clean up incomplete index for project {}", projectId, cleanupFailure);
-                }
-                project.setStatus("error");
-                project.setErrorMessage("Failed to process upload: " + e.getMessage());
-                project.setFileCount(0);
-                project.setTotalSizeBytes(0L);
-                projectRepository.save(project);
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to process upload", e);
-            }
-
-            project.setStatus("ready");
-            project.setFileCount(extractedFiles.size());
-            project.setTotalSizeBytes((long) totalSize);
-            project.setErrorMessage(null);
-            projectRepository.save(project);
-
-        } catch (ZipLimitExceededException e) {
-            project.setStatus("error");
-            project.setErrorMessage(e.getMessage());
-            projectRepository.save(project);
-            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, e.getMessage(), e);
-        } catch (IOException e) {
-            project.setStatus("error");
-            project.setErrorMessage("Failed to process upload: " + e.getMessage());
-            projectRepository.save(project);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to process upload", e);
-        } finally {
-            // Always drop the staged archive, on success and on every failure path.
-            storageService.discardStagingFile(stagedZip);
-        }
+    public IndexingJob uploadZip(UUID projectId, UUID userId, 
+            org.springframework.web.multipart.MultipartFile file) throws IOException {
+        // Delegate to IndexingJobService for job creation with idempotency
+        return indexingJobService.createOrGetJob(projectId, userId, file);
     }
 
     public List<Map<String, Object>> getProjectFiles(UUID projectId, UUID userId) {
