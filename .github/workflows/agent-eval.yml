@@ -1,0 +1,113 @@
+name: Agent eval (manual)
+
+# Deliberately manual: this workflow spends real Groq tokens, so it only runs
+# on workflow_dispatch and NEVER on pull requests or pushes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-eval-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  agent-eval:
+    name: Agent evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require GROQ_API_KEY secret
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "GROQ_API_KEY secret is not configured" >&2
+            exit 1
+          fi
+
+      - name: Start Postgres (pgvector) and MailHog
+        run: |
+          docker run -d --name eval-db -e POSTGRES_USER=admin \
+            -e POSTGRES_PASSWORD=eval-password -e POSTGRES_DB=codebase_ai \
+            -p 5432:5432 pgvector/pgvector:pg16
+          docker run -d --name eval-mail -p 1025:1025 -p 8025:8025 mailhog/mailhog
+          for i in $(seq 1 30); do
+            docker exec eval-db pg_isready -U admin && break
+            sleep 2
+          done
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai-service/requirements.txt
+
+      - name: Cache the embedding model (sentence-transformers / HF hub)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: emb-all-MiniLM-L6-v2-${{ hashFiles('ai-service/requirements.txt') }}
+
+      - name: Install Python dependencies (requests + AI service)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ai-service/requirements.txt requests
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Start AI service, MCP tool server and backend
+        env:
+          AI_SERVICE_INTERNAL_TOKEN: ci-internal-token-0123456789abcdef
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          LLM_MODEL: openai/gpt-oss-20b
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          DB_NAME: codebase_ai
+          DB_USER: admin
+          DB_PASSWORD: eval-password
+          APP_STORAGE_PROVIDER: local
+          APP_JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789abcdef
+          APP_AI_SERVICE_INTERNAL_TOKEN: ci-internal-token-0123456789abcdef
+          SPRING_DATASOURCE_PASSWORD: eval-password
+          APP_COOKIE_SECURE: 'false'
+          MCP_SERVER_URL: http://127.0.0.1:8001/mcp
+        run: |
+          mkdir -p backend/uploads
+          cp backend/src/main/resources/application.properties.example \
+             backend/src/main/resources/application.properties
+          export UPLOAD_DIR="$GITHUB_WORKSPACE/backend/uploads"
+          (cd ai-service && nohup python main.py > ../ai-service.log 2>&1 &)
+          (cd ai-service && nohup python -m uvicorn mcp_server:create_app \
+            --factory --host 127.0.0.1 --port 8001 > ../mcp.log 2>&1 &)
+          (cd backend && nohup ./mvnw spring-boot:run > ../backend.log 2>&1 &)
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8080/api/health > /dev/null && break
+            sleep 5
+          done
+          curl -fsS http://localhost:8080/api/health
+          curl -fsS http://localhost:8000/health
+          curl -fsS http://localhost:8001/health
+
+      - name: Run agent eval
+        run: python -m eval.run --suite agent
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-report
+          path: docs/eval/
+
+      - name: Service logs on failure
+        if: failure()
+        run: tail -n 200 ai-service.log mcp.log backend.log

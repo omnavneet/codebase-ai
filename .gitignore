@@ -2,6 +2,7 @@
 backend/src/main/resources/application.properties
 .env
 .env.*
+!.env.example
 *.env
 
 # ---- Build outputs ----
@@ -13,6 +14,23 @@ dist/
 node_modules/
 ai-service/venv/
 ai-service/.venv/
+
+# ---- Python environments (any location) ----
+.venv/
+venv/
+env/
+
+# ---- Python generated files ----
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ---- Test and tooling caches ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # ---- AI service runtime data ----
 ai-service/__pycache__/
@@ -36,6 +54,10 @@ boot_check*.txt
 .idea/
 .vscode/
 *.iml
+
+# ---- Evaluation harness: fetched sources + scratch (never committed) ----
+eval/datasets/
+eval/.cache/
 
 # ---- OS junk ----
 .DS_Store
