@@ -27,9 +27,9 @@ class Citation:
 #   path/to/file.py:100-200       (range)
 #   path/to/file.py (line 123)    (parenthetical)
 #   path/to/file.py (lines 100-200)
-_FILE_EXT = r"\.(java|py|ts|tsx|js|jsx|go|rs|cpp|c|h|cs|rb|php|kt|scala|sh|yml|yaml)"
+_FILE_EXT = r"\.(?:java|py|ts|tsx|js|jsx|go|rs|cpp|c|h|cs|rb|php|kt|scala|sh|yml|yaml)"
 _PATH = r"[\w./-]+" + _FILE_EXT
-_LINE_SINGLE = r"(?::(\d+)(?:-(\d+))?)?"
+_LINE_SINGLE = r"(?::(\d+)(?:-(\d+))?)"
 _LINE_RANGE_PAREN = r"(?:\s*\(line[s]?\s+(\d+)(?:\s*-\s*(\d+))?\))?"
 
 
