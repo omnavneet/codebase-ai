@@ -64,6 +64,31 @@ public class IndexingWorker {
     private final AppProperties properties;
 
     private Path findStoredZip(UUID projectId) {
+        // Staged uploads live in the system temp directory, named
+        // codebase-ai-upload-<projectId>-*.zip by both storage backends (see
+        // StorageService.storeZip). They must be outside the project directory,
+        // because the worker deletes that directory (deleteProject) before it
+        // reads the staged ZIP back. Legacy in-project upload_*.zip files are
+        // still honoured for safety.
+        Path tempDir = Paths.get(System.getProperty("java.io.tmpdir"));
+        String marker = "codebase-ai-upload-" + projectId + "-";
+        try (Stream<Path> paths = Files.list(tempDir)) {
+            Optional<Path> staged = paths
+                    .filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        return name.startsWith(marker) && name.endsWith(".zip");
+                    })
+                    .sorted(Comparator.comparing((Path p) -> p.getFileName().toString())
+                            .reversed())
+                    .findFirst();
+            if (staged.isPresent()) {
+                return staged.get();
+            }
+        } catch (IOException e) {
+            log.warn("Failed to list temp dir {}: {}", tempDir, e.getMessage());
+        }
+
         Path projectDir = Paths.get(
                 properties.getUpload().getDirectory(), projectId.toString());
         if (!Files.exists(projectDir)) {

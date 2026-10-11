@@ -68,14 +68,20 @@ class LocalStorageServiceTest {
     }
 
     @Test
-    void stagesUploadsInsideTheProjectDirectory() throws IOException {
+    void stagesUploadsOutsideTheProjectDirectory() throws IOException {
         MockMultipartFile upload = new MockMultipartFile(
                 "file", "project.zip", "application/zip", "zip-bytes".getBytes(StandardCharsets.UTF_8));
 
         Path staged = storageService.storeZip(upload, projectId);
 
         assertTrue(Files.isRegularFile(staged));
-        assertEquals(projectId.toString(), staged.getParent().getFileName().toString());
+        // The staged archive must live OUTSIDE the project directory (the worker
+        // deletes that directory before reading the ZIP back) and carry the
+        // projectId in its name so the worker can find it again.
+        assertFalse(staged.startsWith(uploadRoot.resolve(projectId.toString())));
+        String name = staged.getFileName().toString();
+        assertTrue(name.startsWith("codebase-ai-upload-" + projectId + "-"), name);
+        assertTrue(name.endsWith(".zip"), name);
         assertArrayEquals("zip-bytes".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(staged));
 
         storageService.discardStagingFile(staged);
@@ -139,6 +145,26 @@ class LocalStorageServiceTest {
         // A second delete (or one for a project that was never uploaded) must not fail.
         storageService.deleteProject(projectId);
         storageService.deleteProject(UUID.randomUUID());
+    }
+
+    @Test
+    void stagedUploadSurvivesDeleteProject() throws IOException {
+        // Regression: the IndexingWorker deletes the project directory to replace
+        // a previous index BEFORE it reads the staged ZIP back. If the staged
+        // upload lived inside that directory it would be deleted first and the
+        // worker would fail with "No uploaded ZIP found for project".
+        MockMultipartFile upload = new MockMultipartFile(
+                "file", "project.zip", "application/zip", "zip-bytes".getBytes(StandardCharsets.UTF_8));
+
+        Path staged = storageService.storeZip(upload, projectId);
+        // Simulate the worker's pre-processing cleanup of the project directory.
+        storageService.deleteProject(projectId);
+
+        assertTrue(Files.isRegularFile(staged), "staged ZIP must survive deleteProject");
+        assertArrayEquals("zip-bytes".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(staged));
+
+        storageService.discardStagingFile(staged);
+        assertFalse(Files.exists(staged));
     }
 
     @Test

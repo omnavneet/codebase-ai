@@ -79,8 +79,11 @@ public class S3StorageService implements StorageService {
     @Override
     public Path storeZip(MultipartFile file, UUID projectId) throws IOException {
         // The archive is transient - extraction happens locally - so there is no
-        // reason to round-trip it through S3.
-        Path staging = Files.createTempFile("codebase-ai-upload-", ".zip");
+        // reason to round-trip it through S3. The projectId is embedded in the
+        // name so the worker can locate this staged file again (see
+        // IndexingWorker.findStoredZip); it must live outside any project prefix.
+        Path staging = Files.createTempFile(
+                "codebase-ai-upload-" + projectId + "-", ".zip");
         file.transferTo(staging.toAbsolutePath());
         return staging;
     }

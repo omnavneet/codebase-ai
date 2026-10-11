@@ -48,16 +48,16 @@ public class LocalStorageService implements StorageService {
 
     @Override
     public Path storeZip(MultipartFile file, UUID projectId) throws IOException {
-        Path projectDir = projectDirectory(projectId);
-        Files.createDirectories(projectDir);
-
-        // A UUID rather than a timestamp: two uploads landing in the same
-        // millisecond must not share a staging file.
-        String filename = "upload_" + UUID.randomUUID() + ".zip";
-        Path zipPath = projectDir.resolve(filename);
-        file.transferTo(zipPath.toAbsolutePath());
-
-        return zipPath;
+        // Stage OUTSIDE the project directory, with the projectId in the name so
+        // the worker can find it again. The worker wipes the project directory
+        // (deleteProject) to replace a previous index BEFORE it reads the staged
+        // ZIP back, so staging inside <upload-dir>/<projectId>/ would delete the
+        // upload we are about to process. A temp file (like the S3 backend uses)
+        // keeps the staged archive clear of that cleanup.
+        Path staging = Files.createTempFile(
+                "codebase-ai-upload-" + projectId + "-", ".zip");
+        file.transferTo(staging.toAbsolutePath());
+        return staging;
     }
 
     @Override
