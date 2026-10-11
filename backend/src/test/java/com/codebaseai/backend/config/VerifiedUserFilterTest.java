@@ -82,7 +82,6 @@ class VerifiedUserFilterTest {
             "/api/projects/11111111-1111-1111-1111-111111111111/sessions",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/investigate",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/generate-docs",
-            "/api/projects/11111111-1111-1111-1111-111111111111/agent/generate-readme",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/explain-code",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/debug",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/improve-code",

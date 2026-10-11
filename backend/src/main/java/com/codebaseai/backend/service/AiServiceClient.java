@@ -150,13 +150,6 @@ public class AiServiceClient {
         return callAgent("/agent/generate-docs", request);
     }
 
-    /**
-     * Investigate the project with the agent and generate a README from the findings.
-     */
-    public Map<String, Object> generateReadme(String projectId) {
-        return callAgent("/agent/generate-readme", Map.of("project_id", projectId));
-    }
-
     /** Explain a file (or symbol) in depth using the investigation agent. */
     public Map<String, Object> explainCode(String filePath, String projectId, String symbol) {
         Map<String, Object> request = new HashMap<>();

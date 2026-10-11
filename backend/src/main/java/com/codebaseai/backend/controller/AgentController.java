@@ -52,12 +52,6 @@ public class AgentController {
         );
     }
 
-    @PostMapping("/generate-readme")
-    public ResponseEntity<Map<String, Object>> generateReadme(@PathVariable UUID projectId) {
-        UUID userId = getCurrentUserId();
-        return ResponseEntity.ok(agentService.generateReadme(projectId, userId));
-    }
-
     @PostMapping("/explain-code")
     public ResponseEntity<Map<String, Object>> explainCode(
             @PathVariable UUID projectId,

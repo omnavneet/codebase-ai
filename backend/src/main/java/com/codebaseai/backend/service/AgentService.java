@@ -68,14 +68,6 @@ public class AgentService {
         return aiServiceClient.generateDocs(filePath.trim(), projectId.toString(), symbol);
     }
 
-    public Map<String, Object> generateReadme(UUID projectId, UUID userId) {
-        requireReadyProject(projectId, userId);
-
-        log.info("Generating README for project {}", projectId);
-
-        return aiServiceClient.generateReadme(projectId.toString());
-    }
-
     public Map<String, Object> explainCode(UUID projectId, UUID userId, String filePath, String symbol) {
         requireReadyProject(projectId, userId);
 
