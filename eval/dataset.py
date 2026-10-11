@@ -70,6 +70,11 @@ def file_exists_at_pin(repo_name: str, rel_path: str) -> bool:
     spec = load_config()["repos"][repo_name]
     sha = spec["sha"]
     cwd = REPO_ROOT if spec["kind"] == "local" else repo_checkout_dir(repo_name)
+    # An external repo that has not been fetched yet (eval/datasets/ is
+    # git-ignored, so a fresh clone has none of them) has nothing at the pin.
+    # Report absence instead of crashing with FileNotFoundError from git's cwd.
+    if spec["kind"] == "git" and not cwd.exists():
+        return False
     # The working tree may differ from the pin; the pin is the source of
     # truth, so ask git about the commit itself.
     return _git_ok(["cat-file", "-e", f"{sha}:{rel_path}"], cwd)
@@ -79,6 +84,8 @@ def file_line_count_at_pin(repo_name: str, rel_path: str) -> Optional[int]:
     """Number of lines of ``rel_path`` at the pinned commit (None if absent)."""
     spec = load_config()["repos"][repo_name]
     cwd = REPO_ROOT if spec["kind"] == "local" else repo_checkout_dir(repo_name)
+    if spec["kind"] == "git" and not cwd.exists():
+        return None
     try:
         text = _git(["show", f"{spec['sha']}:{rel_path}"], cwd)
     except subprocess.CalledProcessError:

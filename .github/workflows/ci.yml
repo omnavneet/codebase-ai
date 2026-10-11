@@ -196,6 +196,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r ai-service/requirements.txt requests
 
+      - name: Fetch pinned benchmark datasets
+        # eval/datasets/ is git-ignored; the gate verifies every expected file
+        # against the pinned commits, so the external repos must be cloned first.
+        run: python -m eval.fetch_datasets
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
