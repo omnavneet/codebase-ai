@@ -28,7 +28,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codebaseai.backend.config.AppProperties;
-import com.codebaseai.backend.config.AppProperties.IndexingConfig;
 import com.codebaseai.backend.model.IndexingJob;
 import com.codebaseai.backend.model.Project;
 import com.codebaseai.backend.model.User;
@@ -124,6 +123,13 @@ class IndexingJobServiceTest {
         when(indexingJobRepository.findFirstByProjectIdAndContentHashAndStatusInOrderByCreatedAtDesc(
                 any(UUID.class), anyString(), any(List.class)))
                 .thenReturn(Optional.empty());
+        // A real JPA save assigns the generated UUID to the entity; the mock must
+        // do the same or the returned job would have a null id.
+        when(indexingJobRepository.save(any(IndexingJob.class))).thenAnswer(invocation -> {
+            IndexingJob saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            return saved;
+        });
 
         IndexingJob result = service.createOrGetJob(testProject.getId(), testUser.getId(), file);
 
