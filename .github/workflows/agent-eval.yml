@@ -86,10 +86,11 @@ jobs:
           cp backend/src/main/resources/application.properties.example \
              backend/src/main/resources/application.properties
           export UPLOAD_DIR="$GITHUB_WORKSPACE/backend/uploads"
+          chmod +x backend/mvnw
           (cd ai-service && nohup python main.py > ../ai-service.log 2>&1 &)
           (cd ai-service && nohup python -m uvicorn mcp_server:create_app \
             --factory --host 127.0.0.1 --port 8001 > ../mcp.log 2>&1 &)
-          (cd backend && nohup ./mvnw spring-boot:run > ../backend.log 2>&1 &)
+          (cd backend && nohup ./mvnw spring-boot:run -Dmaven.test.skip=true > ../backend.log 2>&1 &)
           for i in $(seq 1 60); do
             curl -fsS http://localhost:8080/api/health > /dev/null && break
             sleep 5

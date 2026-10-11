@@ -224,8 +224,9 @@ jobs:
           mkdir -p backend/uploads
           cp backend/src/main/resources/application.properties.example \
              backend/src/main/resources/application.properties
+          chmod +x backend/mvnw
           (cd ai-service && nohup python main.py > ../ai-service.log 2>&1 &)
-          (cd backend && nohup ./mvnw spring-boot:run > ../backend.log 2>&1 &)
+          (cd backend && nohup ./mvnw spring-boot:run -Dmaven.test.skip=true > ../backend.log 2>&1 &)
           for i in $(seq 1 60); do
             curl -fsS http://localhost:8080/api/health > /dev/null && break
             sleep 5
