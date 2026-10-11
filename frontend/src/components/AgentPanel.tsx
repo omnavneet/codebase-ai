@@ -1,9 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import apiClient from '../services/apiClient';
-import {
-  renderAnswerWithCitations,
-  type AgentInvestigation,
-} from './citationUtils';
+import { type AgentInvestigation } from './citationUtils';
+import MarkdownAnswer from './MarkdownAnswer';
 import { getApiErrorMessage } from '../utils/apiError';
 import { CopyButton, PanelEmpty, PanelError, PanelRun } from './PanelKit';
 
@@ -157,7 +155,7 @@ const AgentPanel: React.FC<AgentPanelProps> = ({ projectId, onCitationClick }) =
               <CopyButton text={result.answer} label="Copy answer" />
             </div>
             <div className="panel-answer">
-              {renderAnswerWithCitations(result.answer, onCitationClick)}
+              <MarkdownAnswer content={result.answer} onCitationClick={onCitationClick} />
             </div>
           </section>
         </div>

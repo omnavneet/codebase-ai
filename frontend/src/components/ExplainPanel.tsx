@@ -1,9 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import apiClient from '../services/apiClient';
-import {
-  renderAnswerWithCitations,
-  type AgentInvestigation,
-} from './citationUtils';
+import { type AgentInvestigation } from './citationUtils';
+import MarkdownAnswer from './MarkdownAnswer';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { getApiErrorMessage } from '../utils/apiError';
 import { CopyButton, FilePicker, PanelEmpty, PanelError, PanelRun } from './PanelKit';
@@ -140,7 +138,7 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
               <CopyButton text={result.answer} label="Copy explanation" />
             </div>
             <div className="panel-answer">
-              {renderAnswerWithCitations(result.answer, onCitationClick)}
+              <MarkdownAnswer content={result.answer} onCitationClick={onCitationClick} />
             </div>
           </section>
         </div>

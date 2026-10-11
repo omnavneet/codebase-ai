@@ -27,15 +27,20 @@ const Dialog: React.FC<DialogProps> = ({
   size = 'default',
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
+    const firstFocusable = overlayRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+
     panel?.focus();
 
     // Lock the page behind the dialog so scrolling can't strand the panel.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+    if (firstFocusable) firstFocusable.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -64,17 +69,16 @@ const Dialog: React.FC<DialogProps> = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = previousOverflow;
-      // Return the caret to whatever opened the dialog.
+      // Return the caret to whatever opened the dialog (safely handle removed nodes).
       opener?.focus?.();
     };
   }, [onClose]);
 
   return (
     <div
+      ref={overlayRef}
       className="modal-overlay"
       onMouseDown={(event) => {
-        // Only a press on the backdrop itself closes it — never a drag that
-        // happens to end outside the panel.
         if (event.target === event.currentTarget) onClose();
       }}
     >
@@ -84,6 +88,11 @@ const Dialog: React.FC<DialogProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-describedby={
+          typeof children === 'string' && children.includes('<p')
+            ? labelledBy
+            : undefined
+        }
         tabIndex={-1}
       >
         {children}

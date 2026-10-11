@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { Citation, Message } from './types'
+import MarkdownAnswer from '../../components/MarkdownAnswer'
 
 interface MessageListProps {
   messages: Message[]
@@ -134,7 +135,20 @@ const MessageList: React.FC<MessageListProps> = ({
                 </div>
               ) : (
                 <div className="message-content">
-                  {message.content}
+                  {message.role === 'assistant' ? (
+                    <MarkdownAnswer
+                      content={message.content}
+                      onCitationClick={(filePath, startLine, endLine) =>
+                        onCitationClick({
+                          file_path: filePath,
+                          start_line: startLine ?? 0,
+                          end_line: endLine ?? startLine ?? 0,
+                        })
+                      }
+                    />
+                  ) : (
+                    message.content
+                  )}
                   {isStreaming && <span className="stream-caret" aria-hidden="true" />}
                 </div>
               )}
