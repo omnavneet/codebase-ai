@@ -9,6 +9,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientException;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,17 +19,35 @@ import com.codebaseai.backend.config.AppProperties;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiServiceClient {
 
     private final AppProperties properties;
 
-    private final WebClient webClient = WebClient.create();
+    private final WebClient webClient;
+
+    // Explicit constructor (not @RequiredArgsConstructor): the WebClient needs a
+    // configured ExchangeStrategies, and Lombok would otherwise also generate a
+    // second (AppProperties, WebClient) constructor that leaves Spring unable to
+    // pick one ("No default constructor found" at startup).
+    public AiServiceClient(AppProperties properties) {
+        this.properties = properties;
+        // The framework's default in-memory buffer cap (256 KB) is far too small
+        // for an embeddings batch, so raise it via ExchangeStrategies. Without
+        // this, generateEmbeddings fails with DataBufferLimitException on any
+        // non-trivial upload.
+        ExchangeStrategies strategies = ExchangeStrategies.builder()
+                .codecs(configurer -> configurer
+                        .defaultCodecs()
+                        .maxInMemorySize(properties.getAiService().getMaxInMemoryBytes()))
+                .build();
+        this.webClient = WebClient.builder()
+                .exchangeStrategies(strategies)
+                .build();
+    }
 
     private String baseUrl() {
         return properties.getAiService().getUrl();

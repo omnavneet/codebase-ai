@@ -44,6 +44,13 @@ public class AppProperties {
         private int timeoutSeconds = 60;
         /** Timeout for agent endpoints (several LLM round-trips). */
         private int agentTimeoutSeconds = 300;
+        /**
+         * Max bytes WebClient buffers per response from the AI service. The
+         * framework default (256 KB) is far too small for a batch of embeddings
+         * (each vector is hundreds of floats), which otherwise fails with
+         * DataBufferLimitException. Sized generously; only a safety valve.
+         */
+        private int maxInMemoryBytes = 16 * 1024 * 1024;
     }
 
     @Data

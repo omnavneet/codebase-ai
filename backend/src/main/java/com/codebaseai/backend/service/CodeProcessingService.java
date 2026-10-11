@@ -63,6 +63,15 @@ public class CodeProcessingService {
     private final StorageService storageService;
 
     /**
+     * Chunks embedded per AI-service call. A single 1 MB file can chunk into
+     * thousands of pieces; sending them all in one /embed request makes the
+     * response (thousands of 384-float vectors) large enough to trip the
+     * WebClient in-memory buffer cap. Batching keeps every request/response
+     * small and predictable regardless of file size.
+     */
+    private static final int EMBED_BATCH_SIZE = 128;
+
+    /**
      * NOT @Transactional: the embedding calls are remote and can take minutes, so
      * holding one DB transaction (and one pooled connection) across the project is
      * not acceptable. Every save commits on its own.
@@ -116,7 +125,7 @@ public class CodeProcessingService {
                 List<CodeChunkingService.Chunk> chunks = indexed.chunks();
                 List<List<Double>> embeddings = chunks.isEmpty()
                         ? List.of()
-                        : aiServiceClient.generateEmbeddings(
+                        : embedInBatches(
                                 chunks.stream().map(CodeChunkingService.Chunk::getContent).toList());
 
                 for (int i = 0; i < chunks.size(); i++) {
@@ -185,6 +194,20 @@ public class CodeProcessingService {
             entity.setDynamic(reference.dynamic());
             codeReferenceRepository.save(entity);
         }
+    }
+
+    /**
+     * Embeds every chunk in fixed-size batches so no single /embed request (or
+     * its response) grows with file size. Results are concatenated in input
+     * order, so they still line up index-for-index with {@code chunks}.
+     */
+    private List<List<Double>> embedInBatches(List<String> texts) {
+        List<List<Double>> all = new ArrayList<>(texts.size());
+        for (int from = 0; from < texts.size(); from += EMBED_BATCH_SIZE) {
+            List<String> batch = texts.subList(from, Math.min(texts.size(), from + EMBED_BATCH_SIZE));
+            all.addAll(aiServiceClient.generateEmbeddings(batch));
+        }
+        return all;
     }
 
     private float[] toFloatArray(List<Double> list) {
