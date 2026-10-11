@@ -208,6 +208,30 @@ const MessageList: React.FC<MessageListProps> = ({
                   </div>
                 </div>
               )}
+              {message.investigation && (
+                <div className="investigation-inline" aria-label="Investigation trace">
+                  {message.investigation.truncated && (
+                    <div className="panel-warning" role="status">
+                      The run hit its iteration limit, so this answer may be incomplete.
+                    </div>
+                  )}
+                  <div className="investigation-meta">
+                    <span className="citations-header">Investigation trace</span>
+                    <span className="panel-meta">
+                      {message.investigation.iterations} tool calls ·{' '}
+                      {message.investigation.filesRead.length} files ·{' '}
+                      {message.investigation.searchesPerformed.length} searches
+                    </span>
+                  </div>
+                  <ol className="panel-trace">
+                    {message.investigation.trace.map((step, idx) => (
+                      <li key={idx} className="panel-trace-step">
+                        {step}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </div>
           </div>
         )

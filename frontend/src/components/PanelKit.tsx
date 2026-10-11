@@ -5,11 +5,11 @@ import type { Finding } from './findings';
 /* ------------------------------------------------------------------ *
  * Shared primitives for the workspace modes.
  *
- * Search, Agent, Docs, Explain, Debug and Review all need the same four
- * things around their unique content: what to show before the user has
- * acted, what to show while work is in flight, a way out of a failure, and
- * a copy action. Defining them once is what stops the six modes from
- * drifting into six slightly different visual languages.
+ * Search, Analyze (Explain, Debug, Review, Docstrings) and Chat's inline
+ * investigation all need the same four things around their unique content:
+ * what to show before the user has acted, what to show while work is in
+ * flight, a way out of a failure, and a copy action. Defining them once is
+ * what stops the modes from drifting into slightly different visual languages.
  * ------------------------------------------------------------------ */
 
 const alertIcon = (

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { TabId } from './types'
+import type { AnalyzeSubMode, TabId } from './types'
 
 export interface WorkspaceModeMeta {
   title: string
@@ -37,29 +37,10 @@ export const WORKSPACE_MODES: Record<Exclude<TabId, 'chat'>, WorkspaceModeMeta> 
       </>,
     ),
   },
-  agent: {
-    title: 'Agent',
+  analyze: {
+    title: 'Analyze',
     description:
-      'Run a multi-step investigation and follow every tool call it makes.',
-    icon: icon(<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />),
-  },
-  docs: {
-    title: 'Documentation',
-    description:
-      'Generate documentation comments for one file, or a README for the project.',
-    icon: icon(
-      <>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-      </>,
-    ),
-  },
-  explain: {
-    title: 'Explain code',
-    description:
-      'Get a walkthrough of a file or a single symbol, grounded in the surrounding code.',
+      'Explain code, debug failures, review a file, or generate docstrings.',
     icon: icon(
       <>
         <circle cx="12" cy="12" r="10" />
@@ -68,23 +49,30 @@ export const WORKSPACE_MODES: Record<Exclude<TabId, 'chat'>, WorkspaceModeMeta> 
       </>,
     ),
   },
+}
+
+export interface AnalyzeSubModeMeta {
+  title: string
+  description: string
+}
+
+/** Labels for the four Analyze sub-modes. Backend paths are unchanged. */
+export const ANALYZE_SUB_MODES: Record<AnalyzeSubMode, AnalyzeSubModeMeta> = {
+  explain: {
+    title: 'Explain',
+    description: 'Walk through a file or a single symbol.',
+  },
   debug: {
     title: 'Debug',
-    description:
-      'Describe the failure and paste a stack trace to locate the likely cause.',
-    icon: icon(
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />,
-    ),
+    description: 'Describe the failure and paste a stack trace.',
   },
-  improve: {
-    title: 'Code review',
-    description:
-      'Review a file for bugs, performance, security and readability, with concrete fixes.',
-    icon: icon(
-      <>
-        <polyline points="9 11 12 14 22 4" />
-        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-      </>,
-    ),
+  review: {
+    title: 'Review',
+    description: 'Review a file for bugs, performance, security and readability.',
+  },
+  docstrings: {
+    title: 'Docstrings',
+    description: 'Generate documentation comments for one file.',
   },
 }
+

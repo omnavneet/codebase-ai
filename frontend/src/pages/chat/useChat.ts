@@ -2,10 +2,21 @@ import { useEffect, useRef, useState } from "react"
 import apiClient from "../../services/apiClient"
 import { streamChatMessage } from "../../services/streamChat"
 import { useToast } from "../../context/ToastContext"
-import type { Citation, Message, Session } from "./types"
+import { getApiErrorMessage } from "../../utils/apiError"
+import type { Citation, Investigation, Message, Session } from "./types"
 
 /** Inactivity budget for one send: watchdog abort and stale-lock recovery. */
 const SEND_IDLE_MS = 45000
+
+/** Shape returned by POST /agent/investigate (snake_case from the backend). */
+interface InvestigateResponse {
+  answer: string
+  trace: string[]
+  iterations: number
+  files_read: string[]
+  searches_performed: string[]
+  truncated?: boolean
+}
 
 /**
  * Owns all chat data: sessions, messages, the composer input and the
@@ -182,7 +193,7 @@ export function useChat(projectId: string | undefined) {
     }
   }
 
-  const sendQuery = async (queryText: string) => {
+  const sendQuery = async (queryText: string, options?: { deep?: boolean }) => {
     // Recover from an orphaned busy-lock (e.g. state preserved across a
     // hot-reload while the stream closure that owned it is gone): if no send
     // activity has been recorded for a while, the lock is stale — release it
@@ -215,6 +226,7 @@ export function useChat(projectId: string | undefined) {
       role: "assistant",
       content: "",
       createdAt: new Date().toISOString(),
+      deep: options?.deep,
     }
     setMessages((prev) => [...prev, tempUserMessage, assistantPlaceholder])
 
@@ -224,6 +236,48 @@ export function useChat(projectId: string | undefined) {
           message.id === assistantId ? update(message) : message,
         ),
       )
+    }
+
+    // Deep investigate uses the bounded agent loop (POST /agent/investigate)
+    // instead of the streaming chat endpoint. Same optimistic placeholder,
+    // but the answer lands in one shot with its trace inline.
+    if (options?.deep) {
+      try {
+        const response = await apiClient.post<InvestigateResponse>(
+          `/projects/${projectId}/agent/investigate`,
+          { question: userMessageText },
+        )
+        const data = response.data
+        const investigation: Investigation = {
+          answer: data.answer ?? "",
+          trace: data.trace ?? [],
+          iterations: data.iterations ?? 0,
+          filesRead: data.files_read ?? [],
+          searchesPerformed: data.searches_performed ?? [],
+          truncated: data.truncated,
+        }
+        updateAssistant((message) => ({
+          ...message,
+          content: investigation.answer,
+          investigation,
+          deep: true,
+        }))
+        fetchSessions()
+      } catch (error) {
+        console.error("Deep investigation failed:", error)
+        updateAssistant((message) => ({
+          ...message,
+          content: getApiErrorMessage(
+            error,
+            "The investigation could not be completed.",
+          ),
+          deep: true,
+        }))
+        setInput((current) => (current.trim() ? current : userMessageText))
+      } finally {
+        setLoading(false)
+      }
+      return
     }
 
     // If the stream never produced a token we can safely retry through the

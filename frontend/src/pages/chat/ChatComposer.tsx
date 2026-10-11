@@ -5,6 +5,8 @@ interface ChatComposerProps {
   onChange: (value: string) => void
   onSend: () => void
   loading: boolean
+  deepInvestigate: boolean
+  onToggleDeep: () => void
 }
 
 const ChatComposer: React.FC<ChatComposerProps> = ({
@@ -12,6 +14,8 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
   onChange,
   onSend,
   loading,
+  deepInvestigate,
+  onToggleDeep,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const canSend = value.trim().length > 0 && !loading
@@ -62,7 +66,7 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
               // height when an answer starts streaming.
               <span className="composer-status" role="status">
                 <span className="spinner spinner-xs" aria-hidden="true" />
-                Generating…
+                {deepInvestigate ? 'Investigating…' : 'Generating…'}
               </span>
             ) : (
               <span className="composer-context-hint">
@@ -72,6 +76,18 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
           </div>
 
           <div className="composer-actions">
+            <button
+              type="button"
+              className={`deep-toggle ${deepInvestigate ? "active" : ""}`}
+              onClick={onToggleDeep}
+              aria-pressed={deepInvestigate}
+              title="Deep investigate: multi-step agent run with tool calls"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+              <span>Deep investigate</span>
+            </button>
             <span className="keyboard-shortcut-hint">
               <kbd className="ui-kbd">↵</kbd> send · <kbd className="ui-kbd">⇧</kbd>
               <kbd className="ui-kbd">↵</kbd> new line

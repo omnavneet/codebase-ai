@@ -5,11 +5,6 @@ import CitationModal from "../components/CitationModal"
 import FilePreview from "../components/FilePreview"
 import type { FileNode } from "../components/FileTree"
 import SearchPanel from "../components/SearchPanel"
-import AgentPanel from "../components/AgentPanel"
-import DocsPanel from "../components/DocsPanel"
-import ExplainPanel from "../components/ExplainPanel"
-import DebugPanel from "../components/DebugPanel"
-import ImprovePanel from "../components/ImprovePanel"
 import WorkspaceMode from "../components/WorkspaceMode"
 import { getApiErrorMessage } from "../utils/apiError"
 import { useChat } from "./chat/useChat"
@@ -19,6 +14,7 @@ import ChatEmptyState from "./chat/ChatEmptyState"
 import MessageList from "./chat/MessageList"
 import ChatComposer from "./chat/ChatComposer"
 import FilesMode from "./chat/FilesMode"
+import AnalyzeMode from "./chat/AnalyzeMode"
 import { WORKSPACE_MODES } from "./chat/workspaceModes"
 import type { Citation, TabId } from "./chat/types"
 import "./Chat.css"
@@ -64,6 +60,7 @@ const ChatPage: React.FC = () => {
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(
     null,
   )
+  const [deepInvestigate, setDeepInvestigate] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     // Start collapsed on small screens where the sidebar overlays content
     typeof window !== "undefined" &&
@@ -403,8 +400,10 @@ const ChatPage: React.FC = () => {
             <ChatComposer
               value={chat.input}
               onChange={chat.setInput}
-              onSend={() => chat.sendQuery(chat.input)}
+              onSend={() => chat.sendQuery(chat.input, { deep: deepInvestigate })}
               loading={chat.loading}
+              deepInvestigate={deepInvestigate}
+              onToggleDeep={() => setDeepInvestigate((prev) => !prev)}
             />
           </>
         ) : (
@@ -429,26 +428,9 @@ const ChatPage: React.FC = () => {
               {activeTab === "search" && (
                 <SearchPanel projectId={projectId} onFileClick={openFile} />
               )}
-              {activeTab === "agent" && (
-                <AgentPanel
-                  projectId={projectId}
-                  onCitationClick={openFileByPath}
-                />
+              {activeTab === "analyze" && (
+                <AnalyzeMode projectId={projectId} onCitationClick={openFileByPath} />
               )}
-              {activeTab === "docs" && <DocsPanel projectId={projectId} />}
-              {activeTab === "explain" && (
-                <ExplainPanel
-                  projectId={projectId}
-                  onCitationClick={openFileByPath}
-                />
-              )}
-              {activeTab === "debug" && (
-                <DebugPanel
-                  projectId={projectId}
-                  onCitationClick={openFileByPath}
-                />
-              )}
-              {activeTab === "improve" && <ImprovePanel projectId={projectId} />}
             </WorkspaceMode>
           </div>
         )}
