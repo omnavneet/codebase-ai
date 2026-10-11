@@ -1,10 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import apiClient from '../services/apiClient';
 import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { type Finding } from './findings';
-import { getApiErrorMessage } from '../utils/apiError';
-import { CopyButton, FindingsList, PanelEmpty, PanelError, PanelRun } from './PanelKit';
+import { useAgentRun } from '../hooks/useAgentRun';
+import { AgentCancelButton, AgentStepList, CopyButton, FindingsList, PanelEmpty, PanelError, PanelRun } from './PanelKit';
 
 interface StackFrame {
   file?: string | null;
@@ -46,29 +45,30 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
   const [stackTrace, setStackTrace] = useState('');
   const [filePath, setFilePath] = useState('');
   const [result, setResult] = useState<DebugResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  const runDebug = useCallback(async () => {
+  const handleResult = useCallback((payload: Record<string, unknown>) => {
+    const base = payload as unknown as AgentInvestigation & Record<string, unknown>;
+    setResult({
+      ...base,
+      answer: (payload.answer as string) ?? '',
+      trace: (payload.trace as string[]) ?? [],
+      iterations: (payload.iterations as number) ?? 0,
+      filesRead: (payload.files_read as string[]) ?? [],
+      searchesPerformed: (payload.searches_performed as string[]) ?? [],
+      truncated: payload.truncated as boolean | undefined,
+    } as DebugResult);
+  }, []);
+
+  const { steps, loading, error, run, cancel, retry } = useAgentRun(projectId, handleResult);
+
+  const runDebug = () => {
     if (!description.trim() || loading) return;
-
-    setLoading(true);
-    setError('');
-    setResult(null);
-
-    try {
-      const response = await apiClient.post(`/projects/${projectId}/agent/debug`, {
-        issueDescription: description.trim(),
-        stackTrace: stackTrace.trim() || null,
-        filePath: filePath.trim() || null,
-      });
-      setResult(response.data);
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'The issue could not be investigated.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [description, filePath, loading, projectId, stackTrace]);
+    void run('/debug/stream', {
+      issueDescription: description.trim(),
+      stackTrace: stackTrace.trim() || null,
+      filePath: filePath.trim() || null,
+    });
+  };
 
   return (
     <div className="tool-panel">
@@ -137,16 +137,18 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
             'Debug issue'
           )}
         </button>
+        {loading && <AgentCancelButton onClick={cancel} />}
       </form>
 
-      {error && <PanelError message={error} onRetry={() => void runDebug()} />}
+      {error && <PanelError message={error} onRetry={retry} />}
 
-      {loading && (
+      {loading && steps.length === 0 && (
         <PanelRun
           label="Working through the failure"
           hint="Parsing the trace, then reading the code paths it points at."
         />
       )}
+      <AgentStepList steps={steps} loading={loading} />
 
       {!loading && !error && !result && (
         <PanelEmpty

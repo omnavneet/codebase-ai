@@ -3,7 +3,8 @@ import apiClient from '../services/apiClient';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { getApiErrorMessage } from '../utils/apiError';
 import { useToast } from '../context/ToastContext';
-import { CopyButton, FilePicker, PanelEmpty, PanelError, PanelRun } from './PanelKit';
+import { useAgentRun } from '../hooks/useAgentRun';
+import { AgentCancelButton, AgentStepList, CopyButton, FilePicker, PanelEmpty, PanelError, PanelRun } from './PanelKit';
 
 interface GeneratedFile {
   name: string;
@@ -42,14 +43,20 @@ const DocstringsPanel: React.FC<DocstringsPanelProps> = ({ projectId }) => {
   const [selectedFile, setSelectedFile] = useState('');
   const [selectedSymbol, setSelectedSymbol] = useState('');
   const [documentation, setDocumentation] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [savedPath, setSavedPath] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFile[]>([]);
   const [generatedContent, setGeneratedContent] = useState<{ name: string; content: string } | null>(
     null,
   );
+
+  const handleDocsResult = useCallback((payload: Record<string, unknown>) => {
+    setDocumentation((payload.documentation as string) ?? '');
+    setSavedPath('');
+  }, []);
+
+  const { steps, loading, error, run, cancel, retry } = useAgentRun(projectId, handleDocsResult);
 
   const loadGenerated = useCallback(async () => {
     try {
@@ -66,32 +73,19 @@ const DocstringsPanel: React.FC<DocstringsPanelProps> = ({ projectId }) => {
     void loadGenerated();
   }, [loadGenerated]);
 
-  const generateDocs = useCallback(async () => {
+  const generateDocs = () => {
     if (!selectedFile || loading) return;
-
-    setLoading(true);
-    setError('');
-    setDocumentation('');
-    setSavedPath('');
-
-    try {
-      const response = await apiClient.post(`/projects/${projectId}/agent/generate-docs`, {
-        filePath: selectedFile,
-        symbol: selectedSymbol || null,
-      });
-      setDocumentation(response.data.documentation);
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Documentation could not be generated for this file.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [loading, projectId, selectedFile, selectedSymbol]);
+    void run('/generate-docs/stream', {
+      filePath: selectedFile,
+      symbol: selectedSymbol || null,
+    });
+  };
 
   /** Writes the generated documentation to a NEW file; the source is never touched. */
   const saveAsNewFile = useCallback(async () => {
     if (!documentation || !selectedFile || saving) return;
     setSaving(true);
-    setError('');
+    setSaveError('');
     try {
       const response = await apiClient.post(`/projects/${projectId}/generated`, {
         filePath: selectedFile,
@@ -106,7 +100,7 @@ const DocstringsPanel: React.FC<DocstringsPanelProps> = ({ projectId }) => {
         tone: 'success',
       });
     } catch (err) {
-      setError(getApiErrorMessage(err, 'The document could not be saved.'));
+      setSaveError(getApiErrorMessage(err, 'The document could not be saved.'));
     } finally {
       setSaving(false);
     }
@@ -118,7 +112,7 @@ const DocstringsPanel: React.FC<DocstringsPanelProps> = ({ projectId }) => {
         const response = await apiClient.get(`/projects/${projectId}/generated/${name}`);
         setGeneratedContent({ name, content: response.data.content });
       } catch (err) {
-        setError(getApiErrorMessage(err, 'That generated file could not be opened.'));
+        setSaveError(getApiErrorMessage(err, 'That generated file could not be opened.'));
       }
     },
     [projectId],
@@ -167,16 +161,18 @@ const DocstringsPanel: React.FC<DocstringsPanelProps> = ({ projectId }) => {
             'Generate'
           )}
         </button>
+        {loading && <AgentCancelButton onClick={cancel} />}
       </div>
 
-      {error && <PanelError message={error} onRetry={() => void generateDocs()} />}
+      {error && <PanelError message={error} onRetry={retry} />}
 
-      {loading && (
+      {loading && steps.length === 0 && (
         <PanelRun
           label="Writing documentation"
           hint="Reading the file and drafting doc comments — this can take a minute."
         />
       )}
+      <AgentStepList steps={steps} loading={loading} />
 
       {!loading && !error && !documentation && (
         <PanelEmpty
@@ -220,6 +216,7 @@ const DocstringsPanel: React.FC<DocstringsPanelProps> = ({ projectId }) => {
                 Saved to <code>{savedPath}</code>
               </p>
             )}
+            {saveError && <PanelError message={saveError} />}
           </section>
         </div>
       )}

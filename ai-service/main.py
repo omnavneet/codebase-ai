@@ -6,7 +6,9 @@ from typing import List, Optional
 import json
 import os
 import logging
+import queue
 import secrets
+import threading
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
 from review_service import ReviewService
@@ -14,7 +16,7 @@ from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import create_agent_tools_from_env
 from debug_service import DebugService
-from mcp_client import McpToolClient
+from mcp_client import McpToolClient, McpUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +169,78 @@ def investigate(request: AgentRequest):
         logger.exception("Agent investigation failed")
         raise HTTPException(status_code=502, detail="Agent investigation failed") from e
 
+
+# ---- Streaming agent variants -------------------------------------------
+#
+# The sync endpoints above are kept for the evaluation harness
+# (agent-eval.yml) and any non-streaming client. The `/stream` variants emit
+# the SAME step events the agent produces, as Server-Sent Events, so the UI
+# can show progress instead of a spinner. Both run the identical bounded loop;
+# only the transport differs.
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+def _friendly_ai_error(exc: Exception) -> str:
+    """Map a server-side failure to a message safe to show a user."""
+    if isinstance(exc, McpUnavailableError):
+        return str(exc)
+    if isinstance(exc, HTTPException):
+        return exc.detail if isinstance(exc.detail, str) else "That request could not be completed."
+    return "The AI service could not complete this. Please try again."
+
+
+def _run_agent_stream(fn):
+    """Turn a blocking agent call into an SSE stream of step events.
+
+    ``fn(on_event)`` runs the bounded agent loop on a worker thread; every
+    progress dict it emits is forwarded to the client as a `step`/`status`
+    event, followed by a terminal `done` (with the full result payload) or
+    `error` event. The worker is a daemon so a client disconnect can never
+    leak a thread.
+    """
+    events: "queue.Queue" = queue.Queue()
+    result_box: dict = {}
+
+    def worker():
+        try:
+            result_box["value"] = fn(events.put)
+        except Exception as exc:  # surfaced as an SSE error event below
+            logger.exception("Streaming agent run failed")
+            result_box["error"] = _friendly_ai_error(exc)
+        finally:
+            events.put(None)  # sentinel: the worker is finished
+
+    def generate():
+        threading.Thread(target=worker, daemon=True).start()
+        while True:
+            item = events.get()
+            if item is None:
+                break
+            etype = item.get("type")
+            if etype == "answer":
+                # The final answer text is delivered in `done` with the whole
+                # payload, so don't emit it twice here.
+                continue
+            yield _sse(etype if etype in ("status", "step") else "step", item)
+
+        if "error" in result_box:
+            yield _sse("error", {"message": result_box["error"]})
+        else:
+            payload = result_box.get("value", {})
+            yield _sse("done", payload)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.post("/agent/investigate/stream")
+def investigate_stream(request: AgentRequest):
+    """Streaming twin of POST /agent/investigate (same loop, step events)."""
+    return _run_agent_stream(
+        lambda emit: agent.investigate(request.question, request.project_id, on_event=emit)
+    )
+
 class GenerateDocsRequest(BaseModel):
     file_path: str
     project_id: str
@@ -178,20 +252,24 @@ class GenerateDocsResponse(BaseModel):
     language: str
     symbol: Optional[str] = None
 
-@app.post("/agent/generate-docs", response_model=GenerateDocsResponse)
-def generate_docs(request: GenerateDocsRequest):
-    """Generate doc comments (JavaDoc/JSDoc/docstring/...) for a file or symbol."""
-    try:
-        file_content = agent_tools.read_file(request.file_path, request.project_id)
+def _generate_docs(request: "GenerateDocsRequest", emit=None) -> dict:
+    """Shared doc-generation body for the sync and streaming endpoints."""
+    def status(message: str) -> None:
+        if emit is not None:
+            try:
+                emit({"type": "status", "message": message})
+            except Exception:
+                pass
 
-        if "error" in file_content:
-            raise HTTPException(status_code=404, detail=file_content["error"])
+    file_content = agent_tools.read_file(request.file_path, request.project_id)
+    if "error" in file_content:
+        raise HTTPException(status_code=404, detail=file_content["error"])
 
-        language = detect_language(request.file_path)
-        doc_format = get_doc_format(language)
+    language = detect_language(request.file_path)
+    doc_format = get_doc_format(language)
 
-        if request.symbol:
-            prompt = f"""Generate {doc_format} documentation for {request.symbol} in this file:
+    if request.symbol:
+        prompt = f"""Generate {doc_format} documentation for {request.symbol} in this file:
 
 File: {request.file_path}
 Language: {language}
@@ -208,8 +286,8 @@ Include:
 - Important notes
 
 Format as {doc_format} comments. Return only the documentation."""
-        else:
-            prompt = f"""Generate {doc_format} documentation for this entire file:
+    else:
+        prompt = f"""Generate {doc_format} documentation for this entire file:
 
 File: {request.file_path}
 Language: {language}
@@ -225,27 +303,45 @@ Generate appropriate file-level documentation including:
 
 Format as {doc_format} comments. Return only the documentation."""
 
-        response = chat_service.client.chat.completions.create(
-            model=os.getenv("LLM_MODEL"),
-            messages=[
-                {"role": "system", "content": "You are a documentation expert. Generate clear, concise code documentation."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
-        )
+    status("Writing documentation")
+    response = chat_service.client.chat.completions.create(
+        model=os.getenv("LLM_MODEL"),
+        messages=[
+            {"role": "system", "content": "You are a documentation expert. Generate clear, concise code documentation."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3
+    )
 
-        return GenerateDocsResponse(
-            file_path=request.file_path,
-            documentation=response.choices[0].message.content or "",
-            language=language,
-            symbol=request.symbol
-        )
+    return {
+        "file_path": request.file_path,
+        "documentation": response.choices[0].message.content or "",
+        "language": language,
+        "symbol": request.symbol,
+    }
 
+
+@app.post("/agent/generate-docs", response_model=GenerateDocsResponse)
+def generate_docs(request: GenerateDocsRequest):
+    """Generate doc comments (JavaDoc/JSDoc/docstring/...) for a file or symbol."""
+    try:
+        return GenerateDocsResponse(**_generate_docs(request))
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Documentation generation failed")
         raise HTTPException(status_code=502, detail="Documentation generation failed") from e
+
+
+@app.post("/agent/generate-docs/stream")
+def generate_docs_stream(request: GenerateDocsRequest):
+    """Streaming twin of POST /agent/generate-docs (single LLM call, step events)."""
+    def run(emit):
+        try:
+            return _generate_docs(request, emit)
+        except HTTPException as exc:
+            raise McpUnavailableError(exc.detail if isinstance(exc.detail, str) else "That file could not be documented.")
+    return _run_agent_stream(run)
 
 class ExplainCodeRequest(BaseModel):
     file_path: str
@@ -309,6 +405,70 @@ Verified symbol-index data for the requested symbol:
         logger.exception("Code explanation failed")
         raise HTTPException(status_code=502, detail="Code explanation failed") from e
 
+
+def _build_explain_question(request: "ExplainCodeRequest", emit=None) -> str:
+    """Shared prep for explain (read file, resolve symbol, build the question).
+
+    Raises HTTPException(404) if the file or symbol can't be found — surfaced
+    to the streaming client as an error event.
+    """
+    def status(message: str) -> None:
+        if emit is not None:
+            emit({"type": "status", "message": message})
+
+    file_content = agent_tools.read_file(request.file_path, request.project_id)
+    if "error" in file_content:
+        raise HTTPException(status_code=404, detail=file_content["error"])
+
+    symbol_context = None
+    if request.symbol:
+        status(f"Locating {request.symbol}")
+        symbol_context = agent_tools.analyze_symbol(
+            request.symbol, request.project_id, request.file_path,
+        )
+        candidates = symbol_context.get("candidates", [])
+        matching_candidates = [
+            candidate for candidate in candidates
+            if candidate.get("file_path") == request.file_path
+        ]
+        if not symbol_context.get("found") or not matching_candidates:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Symbol '{request.symbol}' was not found in {request.file_path}",
+            )
+
+    target = f"'{request.symbol}' in {request.file_path}" if request.symbol else request.file_path
+    question = f"""Explain {target} in depth.
+
+First read {request.file_path}, then follow its key dependencies to understand the full context.
+Cover: what it does, how it works step by step, the key data flow, and how it connects to the rest of the codebase.
+Cite specific files and line numbers.
+
+Verified target file content:
+{file_content['content'][:8000]}
+"""
+    if symbol_context:
+        question += f"""
+
+Verified symbol-index data for the requested symbol:
+{json.dumps(symbol_context, default=str)[:8000]}
+"""
+    return question
+
+
+@app.post("/agent/explain-code/stream")
+def explain_code_stream(request: ExplainCodeRequest):
+    """Streaming twin of POST /agent/explain-code (same loop, step events)."""
+    def run(emit):
+        try:
+            question = _build_explain_question(request, emit)
+        except HTTPException as exc:
+            # Surface the not-found as an SSE error rather than a raised 404,
+            # because the stream has already started (200 OK).
+            raise McpUnavailableError(exc.detail if isinstance(exc.detail, str) else "That file or symbol could not be found.")
+        return agent.investigate(question, request.project_id, on_event=emit)
+    return _run_agent_stream(run)
+
 class DebugFinding(BaseModel):
     severity: str
     category: str
@@ -360,6 +520,20 @@ def debug(request: DebugRequest):
     except Exception as e:
         logger.exception("Debug request failed")
         raise HTTPException(status_code=502, detail="Debug request failed") from e
+
+
+@app.post("/agent/debug/stream")
+def debug_stream(request: DebugRequest):
+    """Streaming twin of POST /agent/debug (same pipeline, step events)."""
+    return _run_agent_stream(
+        lambda emit: debug_service.debug(
+            request.issue_description,
+            request.project_id,
+            stack_trace=request.stack_trace,
+            file_path=request.file_path,
+            on_event=emit,
+        )
+    )
 
 class ImproveCodeRequest(BaseModel):
     file_path: str

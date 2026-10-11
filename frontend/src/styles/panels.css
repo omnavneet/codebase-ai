@@ -605,6 +605,12 @@
 /* ============================================================
    4. Generated files (Documentation mode)
    ============================================================ */
+/* Live progress list for streaming agent runs (simple for now; the polished
+   progress component is a later step). */
+.agent-steps .panel-trace-step {
+  animation: fadeSlideUp var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
 .generated-file-row {
   display: flex;
   align-items: center;

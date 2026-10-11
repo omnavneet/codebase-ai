@@ -1,22 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import apiClient from "../../services/apiClient"
 import { streamChatMessage } from "../../services/streamChat"
+import { streamAgent } from "../../services/streamAgent"
 import { useToast } from "../../context/ToastContext"
-import { getApiErrorMessage } from "../../utils/apiError"
 import type { Citation, Investigation, Message, Session } from "./types"
 
 /** Inactivity budget for one send: watchdog abort and stale-lock recovery. */
 const SEND_IDLE_MS = 45000
-
-/** Shape returned by POST /agent/investigate (snake_case from the backend). */
-interface InvestigateResponse {
-  answer: string
-  trace: string[]
-  iterations: number
-  files_read: string[]
-  searches_performed: string[]
-  truncated?: boolean
-}
 
 /**
  * Owns all chat data: sessions, messages, the composer input and the
@@ -239,44 +229,51 @@ export function useChat(projectId: string | undefined) {
     }
 
     // Deep investigate uses the bounded agent loop (POST /agent/investigate)
-    // instead of the streaming chat endpoint. Same optimistic placeholder,
-    // but the answer lands in one shot with its trace inline.
+    // streamed as step events. The optimistic assistant placeholder fills in
+    // as steps arrive, then the terminal `done` carries the full result with
+    // its trace — rendered inline in the message list.
     if (options?.deep) {
-      try {
-        const response = await apiClient.post<InvestigateResponse>(
-          `/projects/${projectId}/agent/investigate`,
-          { question: userMessageText },
-        )
-        const data = response.data
-        const investigation: Investigation = {
-          answer: data.answer ?? "",
-          trace: data.trace ?? [],
-          iterations: data.iterations ?? 0,
-          filesRead: data.files_read ?? [],
-          searchesPerformed: data.searches_performed ?? [],
-          truncated: data.truncated,
-        }
-        updateAssistant((message) => ({
-          ...message,
-          content: investigation.answer,
-          investigation,
-          deep: true,
-        }))
-        fetchSessions()
-      } catch (error) {
-        console.error("Deep investigation failed:", error)
-        updateAssistant((message) => ({
-          ...message,
-          content: getApiErrorMessage(
-            error,
-            "The investigation could not be completed.",
-          ),
-          deep: true,
-        }))
-        setInput((current) => (current.trim() ? current : userMessageText))
-      } finally {
-        setLoading(false)
+      const controller = new AbortController()
+      streamAbortRef.current = controller
+      const traceSteps: string[] = []
+
+      await streamAgent(
+        projectId ?? "",
+        "/investigate/stream",
+        { question: userMessageText },
+        {
+          onStep: (message) => {
+            traceSteps.push(message)
+          },
+          onDone: (data) => {
+            const investigation: Investigation = {
+              answer: (data.answer as string) ?? "",
+              trace: (data.trace as string[]) ?? traceSteps,
+              iterations: (data.iterations as number) ?? 0,
+              filesRead: (data.files_read as string[]) ?? [],
+              searchesPerformed: (data.searches_performed as string[]) ?? [],
+              truncated: data.truncated as boolean | undefined,
+            }
+            updateAssistant((message) => ({
+              ...message,
+              content: investigation.answer,
+              investigation,
+              deep: true,
+            }))
+          },
+          onError: (message) => {
+            updateAssistant((m) => ({ ...m, content: message, deep: true }))
+            setInput((current) => (current.trim() ? current : userMessageText))
+          },
+        },
+        controller.signal,
+      )
+
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null
       }
+      fetchSessions()
+      setLoading(false)
       return
     }
 

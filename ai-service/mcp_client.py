@@ -19,6 +19,17 @@ from mcp.client.streamable_http import streamable_http_client
 
 DEFAULT_MCP_URL = "http://127.0.0.1:8001/mcp"
 
+# Fail fast when the tool server is down or wedged, instead of letting a call
+# hang until the backend's 300s relay timeout. Connect and per-call budgets are
+# short on purpose: the MCP server is a localhost service, so a healthy call is
+# milliseconds; anything slow is a problem worth surfacing immediately.
+MCP_CONNECT_TIMEOUT_S = float(os.getenv("MCP_CONNECT_TIMEOUT_SECONDS", "5"))
+MCP_CALL_TIMEOUT_S = float(os.getenv("MCP_CALL_TIMEOUT_SECONDS", "30"))
+
+
+class McpUnavailableError(RuntimeError):
+    """The MCP tool server could not be reached or timed out."""
+
 
 class McpToolClient:
     """Sync wrapper around one MCP server (list tools / call a tool)."""
@@ -31,15 +42,29 @@ class McpToolClient:
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Discover the server's tools as plain dicts (name/desc/schema/flags)."""
-        return asyncio.run(self._list_tools())
+        try:
+            return asyncio.run(asyncio.wait_for(self._list_tools(), MCP_CALL_TIMEOUT_S))
+        except (asyncio.TimeoutError, OSError, httpx2.HTTPError) as e:
+            raise McpUnavailableError(
+                "The code-search tool server is not reachable. "
+                "Start it (ai-service MCP server on port 8001) and try again."
+            ) from e
 
     def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
         """Call a tool; always returns a JSON-serialisable result.
 
-        Failures come back as ``{"error": ...}`` so the agent loop can feed
-        them to the model exactly like any other tool result.
+        Transport failures come back as ``{"error": ...}`` so the agent loop
+        can feed them to the model exactly like any other tool result. But a
+        connection-level failure (server down / refused) raises
+        ``McpUnavailableError`` so the caller can fail fast with a clear
+        message instead of silently degrading the answer.
         """
-        return asyncio.run(self._call_tool(name, arguments))
+        try:
+            return asyncio.run(asyncio.wait_for(self._call_tool(name, arguments), MCP_CALL_TIMEOUT_S))
+        except (asyncio.TimeoutError, OSError, httpx2.HTTPError) as e:
+            raise McpUnavailableError(
+                "The code-search tool server stopped responding mid-run. Please try again."
+            ) from e
 
     # -- async internals ----------------------------------------------------
 
@@ -49,8 +74,13 @@ class McpToolClient:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         # The HTTP client carries the Authorization header on every request
-        # (and closes cleanly with the session-termination DELETE).
-        http_client = httpx2.AsyncClient(headers=headers)
+        # (and closes cleanly with the session-termination DELETE). A short
+        # connect timeout means a down server is reported in seconds, not
+        # after the backend's whole agent budget is spent retrying.
+        http_client = httpx2.AsyncClient(
+            headers=headers,
+            timeout=httpx2.Timeout(MCP_CALL_TIMEOUT_S, connect=MCP_CONNECT_TIMEOUT_S),
+        )
         try:
             async with Client(
                 streamable_http_client(self.url, http_client=http_client)

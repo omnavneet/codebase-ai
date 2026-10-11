@@ -26,13 +26,23 @@ class DebugService:
         project_id: str,
         stack_trace: Optional[str] = None,
         file_path: Optional[str] = None,
+        on_event: Optional[Any] = None,
     ) -> Dict[str, Any]:
+        def status(message: str) -> None:
+            if on_event is not None:
+                try:
+                    on_event({"type": "status", "message": message})
+                except Exception:
+                    pass
+
+        status("Parsing the stack trace")
         parsed = parse_stack_trace(stack_trace) if stack_trace else parse_stack_trace("")
         project_files = self.tools.list_files(project_id)
         located = project_frames(parsed, project_files)
 
         context_blocks: List[str] = []
         for frame in located[:2]:
+            status("Reading {}".format(frame.get("project_path")))
             snippet = self._read_around(frame["project_path"], project_id, frame.get("line"))
             if snippet:
                 context_blocks.append(
@@ -45,9 +55,10 @@ class DebugService:
                 context_blocks.append("Suspected file {}:\n{}".format(file_path, snippet))
 
         question = self._build_question(issue_description, parsed, located, context_blocks, file_path)
-        investigation = self.agent.investigate(question, project_id)
+        investigation = self.agent.investigate(question, project_id, on_event=on_event)
         answer = investigation.get("answer", "")
 
+        status("Extracting findings")
         return {
             "answer": answer,
             "findings": self._extract_findings(answer),

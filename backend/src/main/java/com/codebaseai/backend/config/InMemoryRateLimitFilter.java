@@ -42,15 +42,20 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
         int limit = limitFor(request.getRequestURI());
-        if (limit == 0 || allow(request, limit)) {
+        long[] retryAfterSeconds = new long[] {0};
+        if (limit == 0 || allow(request, limit, retryAfterSeconds)) {
             filterChain.doFilter(request, response);
             return;
         }
 
+        long seconds = Math.max(1, retryAfterSeconds[0]);
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
-        response.setHeader("Retry-After", "60");
+        // Real countdown so the client can say "Try again in N seconds" instead
+        // of guessing. Clamped to >= 1 so a client never retries instantly.
+        response.setHeader("Retry-After", String.valueOf(seconds));
         response.setContentType("application/json");
-        response.getWriter().write("{\"message\":\"Too many requests. Please try again later.\"}");
+        response.getWriter().write("{\"message\":\"Too many requests. Please try again in "
+                + seconds + " seconds.\"}");
     }
 
     private int limitFor(String path) {
@@ -64,7 +69,7 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
         return 0;
     }
 
-    private boolean allow(HttpServletRequest request, int limit) {
+    private boolean allow(HttpServletRequest request, int limit, long[] retryAfterSecondsOut) {
         String key = keyFor(request);
         long now = Instant.now().toEpochMilli();
         Window window = windows.compute(key, (ignored, current) -> {
@@ -77,7 +82,15 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
         if (windows.size() > 10_000) {
             windows.entrySet().removeIf(entry -> now - entry.getValue().startedAt >= WINDOW_MILLIS);
         }
-        return window.count <= limit;
+
+        if (window.count > limit) {
+            // Seconds until this fixed window resets, so the caller can tell
+            // the client exactly how long to wait.
+            long elapsed = now - window.startedAt;
+            retryAfterSecondsOut[0] = Math.max(1, (WINDOW_MILLIS - elapsed + 999) / 1000);
+            return false;
+        }
+        return true;
     }
 
     private String keyFor(HttpServletRequest request) {

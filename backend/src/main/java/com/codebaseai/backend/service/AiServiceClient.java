@@ -128,6 +128,24 @@ public class AiServiceClient {
     }
 
     /**
+     * Relay one of the AI service's agent {@code /stream} endpoints as an SSE
+     * flux of {@code step}/{@code status} events followed by a terminal
+     * {@code done}/{@code error}. Reuses the same WebFlux path as the chat
+     * stream, so the agent endpoints now stream progress instead of blocking
+     * on a single long POST.
+     *
+     * @param path the AI-service path, e.g. {@code /agent/investigate/stream}
+     */
+    public Flux<ServerSentEvent<String>> streamAgent(String path, Map<String, Object> request) {
+        return webClient.post()
+                .uri(baseUrl() + path)
+                .header("X-Internal-Token", internalToken())
+                .bodyValue(request)
+                .retrieve()
+                .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {});
+    }
+
+    /**
      * Run a bounded agent investigation for a project. The agent can take
      * multiple LLM round-trips, so this uses a generous timeout.
      */

@@ -45,6 +45,12 @@ public class AppProperties {
         /** Timeout for agent endpoints (several LLM round-trips). */
         private int agentTimeoutSeconds = 300;
         /**
+         * Server-side lifetime of one streaming agent SSE run. Must exceed the
+         * AI service's own run deadline (AGENT_RUN_TIMEOUT_SECONDS, default 150s)
+         * plus headroom to stream the final events back.
+         */
+        private long agentStreamTimeoutMs = 200_000L;
+        /**
          * Max bytes WebClient buffers per response from the AI service. The
          * framework default (256 KB) is far too small for a batch of embeddings
          * (each vector is hundreds of floats), which otherwise fails with

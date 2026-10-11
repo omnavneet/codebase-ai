@@ -1,10 +1,9 @@
-import React, { useCallback, useState } from 'react';
-import apiClient from '../services/apiClient';
+import React, { useState } from 'react';
 import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { useProjectFiles } from '../hooks/useProjectFiles';
-import { getApiErrorMessage } from '../utils/apiError';
-import { CopyButton, FilePicker, PanelEmpty, PanelError, PanelRun } from './PanelKit';
+import { useAgentRun } from '../hooks/useAgentRun';
+import { AgentCancelButton, AgentStepList, CopyButton, FilePicker, PanelEmpty, PanelError, PanelRun } from './PanelKit';
 
 interface ExplainPanelProps {
   projectId: string;
@@ -29,28 +28,27 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
   const [selectedFile, setSelectedFile] = useState('');
   const [symbol, setSymbol] = useState('');
   const [result, setResult] = useState<AgentInvestigation | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  const runExplain = useCallback(async () => {
+  const handleResult = React.useCallback((payload: Record<string, unknown>) => {
+    setResult({
+      answer: (payload.answer as string) ?? '',
+      trace: (payload.trace as string[]) ?? [],
+      iterations: (payload.iterations as number) ?? 0,
+      filesRead: (payload.files_read as string[]) ?? [],
+      searchesPerformed: (payload.searches_performed as string[]) ?? [],
+      truncated: payload.truncated as boolean | undefined,
+    });
+  }, []);
+
+  const { steps, loading, error, run, cancel, retry } = useAgentRun(projectId, handleResult);
+
+  const runExplain = () => {
     if (!selectedFile || loading) return;
-
-    setLoading(true);
-    setError('');
-    setResult(null);
-
-    try {
-      const response = await apiClient.post(`/projects/${projectId}/agent/explain-code`, {
-        filePath: selectedFile,
-        symbol: symbol || null,
-      });
-      setResult(response.data);
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'This file could not be explained.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [loading, projectId, selectedFile, symbol]);
+    void run('/explain-code/stream', {
+      filePath: selectedFile,
+      symbol: symbol || null,
+    });
+  };
 
   return (
     <div className="tool-panel">
@@ -83,7 +81,7 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
         <button
           type="button"
           className="ui-btn ui-btn-primary"
-          onClick={() => void runExplain()}
+          onClick={runExplain}
           disabled={!selectedFile || loading}
         >
           {loading ? (
@@ -95,16 +93,18 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
             'Explain'
           )}
         </button>
+        {loading && <AgentCancelButton onClick={cancel} />}
       </div>
 
-      {error && <PanelError message={error} onRetry={() => void runExplain()} />}
+      {error && <PanelError message={error} onRetry={retry} />}
 
-      {loading && (
+      {loading && steps.length === 0 && (
         <PanelRun
           label="Reading the file in context"
           hint="Following the calls it makes before summarising — this can take a minute."
         />
       )}
+      <AgentStepList steps={steps} loading={loading} />
 
       {!loading && !error && !result && (
         <PanelEmpty

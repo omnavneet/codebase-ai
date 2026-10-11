@@ -85,6 +85,40 @@ export const PanelError: React.FC<{
   </div>
 );
 
+/**
+ * Live progress for a streaming agent run: a simple ordered list of the steps
+ * emitted so far. Deliberately plain — the polished progress component is a
+ * later step.
+ */
+export const AgentStepList: React.FC<{ steps: string[]; loading: boolean }> = ({
+  steps,
+  loading,
+}) => {
+  if (steps.length === 0 && !loading) return null;
+  return (
+    <div className="panel-card agent-steps" aria-live="polite" aria-label="Progress">
+      <div className="panel-card-header">
+        <h3 className="panel-section-title">Progress</h3>
+        {loading && <span className="spinner spinner-xs" aria-hidden="true" />}
+      </div>
+      <ol className="panel-trace">
+        {steps.map((step, index) => (
+          <li key={index} className="panel-trace-step">
+            {step}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+};
+
+/** Cancel control for an in-flight streaming agent run. */
+export const AgentCancelButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <button type="button" className="ui-btn ui-btn-neutral ui-btn-sm" onClick={onClick}>
+    Stop
+  </button>
+);
+
 /** Placeholder cards that stand in for results while a request is running. */
 export const PanelSkeleton: React.FC<{ cards?: number }> = ({ cards = 3 }) => (
   <div className="panel-skeleton" aria-hidden="true">
