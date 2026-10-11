@@ -19,6 +19,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the codebase-ai benchmark is pinned to a commit behind
+          # HEAD; the default shallow (depth 1) checkout omits it.
+          fetch-depth: 0
 
       - name: Require GROQ_API_KEY secret
         env:

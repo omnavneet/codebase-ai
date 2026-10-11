@@ -166,6 +166,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the codebase-ai benchmark is pinned to a commit that
+          # is behind HEAD, and the default shallow (depth 1) checkout would not
+          # contain it, so every expected file would verify as "missing".
+          fetch-depth: 0
 
       - name: Start Postgres (pgvector) and MailHog
         run: |
