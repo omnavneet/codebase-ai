@@ -178,12 +178,6 @@ class GenerateDocsResponse(BaseModel):
     language: str
     symbol: Optional[str] = None
 
-class GenerateReadmeRequest(BaseModel):
-    project_id: str
-
-class GenerateReadmeResponse(BaseModel):
-    readme: str
-
 @app.post("/agent/generate-docs", response_model=GenerateDocsResponse)
 def generate_docs(request: GenerateDocsRequest):
     """Generate doc comments (JavaDoc/JSDoc/docstring/...) for a file or symbol."""
@@ -252,59 +246,6 @@ Format as {doc_format} comments. Return only the documentation."""
     except Exception as e:
         logger.exception("Documentation generation failed")
         raise HTTPException(status_code=502, detail="Documentation generation failed") from e
-
-@app.post("/agent/generate-readme", response_model=GenerateReadmeResponse)
-def generate_readme(request: GenerateReadmeRequest):
-    """Investigate the project with the agent, then write a README from the findings."""
-    try:
-        files = agent_tools.list_files(request.project_id)
-
-        question = f"""Analyze this project and gather information for a README.md.
-
-Project structure:
-{chr(10).join(files[:50])}
-
-Investigate:
-- What is the project's purpose?
-- What technology stack does it use?
-- What are the main entry points?
-- How is the project organized?
-- What are the key features?
-- How to set up and run the project?"""
-
-        result = agent.investigate(question, request.project_id)
-
-        readme_prompt = f"""Based on this investigation, write a README.md:
-
-Investigation findings:
-{result['answer']}
-
-Write a professional README.md with:
-# Project Title
-## Description
-## Features
-## Tech Stack
-## Project Structure
-## Getting Started
-## Usage
-## API/Architecture Overview (if relevant)
-
-Return only the README content."""
-
-        response = chat_service.client.chat.completions.create(
-            model=os.getenv("LLM_MODEL"),
-            messages=[
-                {"role": "system", "content": "You are a technical writer. Create practical documentation."},
-                {"role": "user", "content": readme_prompt}
-            ],
-            temperature=0.3
-        )
-
-        return GenerateReadmeResponse(readme=response.choices[0].message.content or "")
-
-    except Exception as e:
-        logger.exception("README generation failed")
-        raise HTTPException(status_code=502, detail="README generation failed") from e
 
 class ExplainCodeRequest(BaseModel):
     file_path: str
