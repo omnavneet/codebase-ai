@@ -236,7 +236,6 @@ class CodebaseAgent:
                         **usage,
                         "total_tokens": usage["input_tokens"] + usage["output_tokens"],
                     },
-                    "truncated": False,
                     "stopped_early": False,
                     "stop_reason": "",
                 }
