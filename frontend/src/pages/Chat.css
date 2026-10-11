@@ -431,83 +431,99 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-/* Tools Dropdown */
-.tools-dropdown-wrapper {
-  position: relative;
-}
+/* ---------- Analyze sub-navigation and deep investigate ---------- */
 
-.tools-trigger {
-  padding-right: 8px;
-}
-
-.chevron-icon {
-  transition: transform 150ms ease;
-  margin-left: 2px;
-}
-
-.chevron-icon.open {
-  transform: rotate(180deg);
-}
-
-.tools-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 240px;
-  background: var(--m3-surface);
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--m3-shape-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 6px;
+/* Sub-tabs inside the Analyze mode: a quiet segmented control. */
+.analyze-mode {
   display: flex;
   flex-direction: column;
+  gap: var(--space-4);
+}
+
+.analyze-subnav {
+  display: inline-flex;
+  align-items: center;
   gap: 2px;
-  z-index: 50;
-  animation: scaleIn 140ms var(--m3-easing-emphasized);
-}
-
-.tools-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--m3-shape-sm);
-  background: transparent;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  transition: all 120ms ease;
-  width: 100%;
-}
-
-.tools-menu-item:hover {
+  padding: 3px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
   background: var(--m3-surface-dim);
+  align-self: flex-start;
 }
 
-.tools-menu-item.active {
-  background: var(--m3-primary-container);
-}
-
-.tool-menu-icon {
-  display: flex;
-  align-items: center;
-  color: var(--m3-on-surface-variant);
-}
-
-.tool-menu-text {
-  display: flex;
-  flex-direction: column;
-}
-
-.tool-menu-name {
+.analyze-subtab {
+  padding: 5px 13px;
+  border: 0;
+  border-radius: var(--m3-shape-full);
+  background: transparent;
   font-size: 13px;
   font-weight: 500;
-  color: var(--m3-on-surface);
+  color: var(--m3-on-surface-variant);
+  cursor: pointer;
+  transition: all 140ms ease;
 }
 
-.tool-menu-desc {
-  font-size: 11px;
+.analyze-subtab:hover {
+  color: var(--m3-on-surface);
+  background: var(--m3-surface-variant);
+}
+
+.analyze-subtab.active {
+  color: var(--m3-primary);
+  background: var(--m3-surface);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.analyze-body {
+  min-width: 0;
+}
+
+/* Toggle in the composer that routes the send through the agent loop. */
+.deep-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--m3-on-surface-variant);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.deep-toggle:hover {
+  color: var(--m3-primary);
+  border-color: var(--m3-primary);
+}
+
+.deep-toggle.active {
+  color: var(--m3-on-primary-container);
+  background: var(--m3-primary-container);
+  border-color: transparent;
+}
+
+.deep-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* Agent result rendered inline in the chat stream. */
+.investigation-inline {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--m3-outline-variant);
+}
+
+.investigation-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: 4px;
 }
 
 .header-right {
@@ -1208,7 +1224,7 @@
 .nav-pill:focus-visible,
 .btn-header-back:focus-visible,
 .btn-icon-header:focus-visible,
-.tools-menu-item:focus-visible {
+.analyze-subtab:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
 }
@@ -1224,17 +1240,6 @@
   background: var(--m3-surface);
   color: var(--m3-primary);
   box-shadow: var(--shadow-xs);
-}
-
-/* The tools dropdown opens the same way as every other menu in the product. */
-.tools-menu {
-  box-shadow: var(--shadow-md);
-  transform-origin: top right;
-  animation: menuIn var(--m3-duration-short) var(--m3-ease-out) both;
-}
-
-.tools-menu-item {
-  transition: background-color var(--m3-duration-short) var(--m3-ease-out);
 }
 
 /* ---------- Empty-state hero (Chat) ----------

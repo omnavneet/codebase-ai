@@ -34,7 +34,7 @@ chat persistence.
 | **Answer** | Streaming chat with file and line citations, plus conversation history |
 | **Investigate** | Semantic search, file reading, dependency inspection, symbol and call-graph analysis |
 | **Review** | Deterministic code review with LLM-assisted explanations |
-| **Generate** | Documentation and README artefacts, stored separately from source files |
+| **Generate** | Per-file docstrings (saved separately from sources); agent folded into chat as Deep investigate |
 | **Protect** | JWT sessions, rotating refresh cookies, email verification, ownership checks, path-traversal guards |
 
 ## Architecture
