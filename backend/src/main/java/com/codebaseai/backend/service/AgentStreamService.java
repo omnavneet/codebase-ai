@@ -55,7 +55,6 @@ public class AgentStreamService {
 
         AtomicReference<Disposable> subscriptionRef = new AtomicReference<>();
 
-        emitter.onCompletion(subscriptionRef.get() != null ? subscriptionRef.get()::dispose : () -> {});
         emitter.onTimeout(() -> {
             Disposable sub = subscriptionRef.get();
             if (sub != null) {
@@ -69,7 +68,7 @@ public class AgentStreamService {
             }
         });
 
-        subscriptionRef.set(aiServiceClient
+        Disposable subscription = aiServiceClient
                 .streamAgent(aiPath, request)
                 .publishOn(Schedulers.boundedElastic())
                 .subscribe(
@@ -101,7 +100,10 @@ public class AgentStreamService {
                             }
                             emitter.complete();
                         },
-                        emitter::complete));
+                        emitter::complete);
+
+        subscriptionRef.set(subscription);
+        emitter.onCompletion(subscription::dispose);
     }
 
     private void requireReadyProject(UUID projectId, UUID userId) {

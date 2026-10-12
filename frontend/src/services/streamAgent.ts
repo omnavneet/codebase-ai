@@ -10,6 +10,47 @@
 import { refreshAccessToken } from './apiClient';
 
 export interface AgentStreamResult {
+  answer: string;
+  trace: string[];
+  iterations: number;
+  tool_calls: number;
+  files_read: string[];
+  searches_performed: string[];
+  truncated?: boolean;
+  stopped_early?: boolean;
+  stop_reason?: string;
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  };
+  findings?: Array<{
+    severity: string;
+    category: string;
+    title: string;
+    lines: string;
+    description: string;
+    suggestion: string;
+    code_before?: string;
+    code_after?: string;
+  }>;
+  frames?: Array<{
+    file?: string;
+    line?: number;
+    symbol?: string;
+    language?: string;
+    raw?: string;
+  }>;
+  project_frames?: Array<{
+    file?: string;
+    line?: number;
+    symbol?: string;
+    language?: string;
+    raw?: string;
+  }>;
+  stack_trace_language?: string;
+  stack_trace_parsed?: boolean;
+  stack_trace_notes?: string[];
   [key: string]: unknown;
 }
 
@@ -107,7 +148,7 @@ export const streamAgent = async (
       const message = typeof payload.message === 'string' ? payload.message : '';
       if (message) handlers.onStep?.(message);
     } else if (event === 'done') {
-      handlers.onDone?.(payload);
+      handlers.onDone?.(payload as AgentStreamResult);
       return true;
     } else if (event === 'error') {
       handlers.onError(

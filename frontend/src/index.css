@@ -333,6 +333,137 @@ img {
 }
 
 /* ============================================================
+   Shared ProgressBar component
+   ============================================================ */
+.progress-bar-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  animation: fadeSlideUp var(--m3-duration-medium) var(--m3-ease-out) both;
+}
+
+.progress-bar-root.terminal {
+  border-color: var(--m3-outline);
+}
+
+.progress-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+}
+
+.progress-bar-elapsed {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--m3-on-surface-subtle);
+  white-space: nowrap;
+}
+
+.progress-bar-step {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-variant);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-bar-track {
+  height: 4px;
+  background: var(--m3-surface-container);
+  border-radius: var(--m3-shape-full);
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar-indeterminate {
+  position: absolute;
+  inset: 0;
+  background: var(--m3-primary);
+  border-radius: var(--m3-shape-full);
+  animation: indeterminate 1.5s var(--m3-easing-standard) infinite;
+}
+
+.progress-bar-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--m3-primary);
+  border-radius: var(--m3-shape-full);
+  transition: width var(--m3-duration-medium) var(--m3-ease-out);
+}
+
+.progress-bar-fill-complete {
+  background: var(--m3-success);
+}
+
+.progress-bar-fill-error {
+  background: var(--m3-error);
+}
+
+.progress-bar-fill-stopped {
+  background: var(--m3-warning);
+}
+
+.progress-bar-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--m3-shape-sm);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.progress-bar-message .progress-bar-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--m3-on-surface-variant);
+}
+
+.progress-bar-root.error .progress-bar-message,
+.progress-bar-root.stopped .progress-bar-message {
+  background: var(--m3-error-container);
+  color: var(--m3-on-error-container);
+  border: 1px solid color-mix(in srgb, var(--m3-error) 32%, transparent);
+}
+
+.progress-bar-root.stopped .progress-bar-message {
+  background: var(--m3-warning-container);
+  color: #6b3b00;
+  border-color: color-mix(in srgb, var(--m3-warning) 32%, transparent);
+}
+
+.progress-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.progress-bar-success {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-success);
+}
+
+.progress-bar-limit-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface-subtle);
+}
+
+/* ============================================================
    Entrance Animations
    ============================================================ */
 @keyframes fadeIn {

@@ -20,6 +20,170 @@ const alertIcon = (
   </svg>
 );
 
+const successIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const errorIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="15" y1="9" x2="9" y2="15" />
+    <line x1="9" y1="9" x2="15" y2="15" />
+  </svg>
+);
+
+type ProgressStage = 'idle' | 'uploading' | 'chunking' | 'embedding' | 'running' | 'ready' | 'error' | 'stopped';
+
+interface ProgressBarProps {
+  /** Current stage of the operation */
+  stage: ProgressStage;
+  /** Current step message from the stream */
+  step?: string;
+  /** Elapsed time in seconds */
+  elapsed?: number;
+  /** Cancel callback */
+  onCancel?: () => void;
+  /** Retry callback (for error/stopped states) */
+  onRetry?: () => void;
+  /** Whether the operation is actively running */
+  loading?: boolean;
+  /** Error message (for error state) */
+  error?: string;
+  /** Stop reason (for stopped state) */
+  stopReason?: string;
+  /** Whether to show the Cancel button */
+  showCancel?: boolean;
+  /** Project upload specific: file size validation message */
+  sizeLimitMessage?: string;
+}
+
+/**
+ * Shared progress component for agent runs and project indexing.
+ *
+ * Pinned position, real step name from stream, elapsed time, Cancel button,
+ * "stopped early" state with partial result, error state with Retry button.
+ * Project upload stages: uploading, chunking, embedding, ready.
+ * 50MB cap explained before file pick; error shown inline if exceeded.
+ * Restrained styling — no gradients, simple indeterminate bar only.
+ */
+export const ProgressBar: React.FC<ProgressBarProps> = ({
+  stage,
+  step,
+  elapsed = 0,
+  onCancel,
+  onRetry,
+  loading = true,
+  error,
+  stopReason,
+  showCancel = true,
+  sizeLimitMessage,
+}) => {
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  const getStageLabel = (s: ProgressStage) => {
+    switch (s) {
+      case 'uploading':
+        return 'Uploading archive…';
+      case 'chunking':
+        return 'Chunking files…';
+      case 'embedding':
+        return 'Embedding chunks…';
+      case 'running':
+        return 'Working…';
+      case 'ready':
+        return 'Indexing complete';
+      case 'error':
+        return 'Indexing failed';
+      case 'stopped':
+        return 'Stopped early';
+      default:
+        return 'Preparing…';
+    }
+  };
+
+  const isTerminal = stage === 'ready' || stage === 'error' || stage === 'stopped';
+  const isError = stage === 'error';
+  const isStopped = stage === 'stopped';
+  const isComplete = stage === 'ready';
+
+  const showProgress = stage !== 'idle';
+
+  if (!showProgress) return null;
+
+  return (
+    <div className={`progress-bar-root ${isTerminal ? 'terminal' : ''} ${isError ? 'error' : ''} ${isStopped ? 'stopped' : ''}`} role="status" aria-live="polite">
+      <div className="progress-bar-header">
+        <span className="progress-bar-title">{getStageLabel(stage)}</span>
+        {elapsed > 0 && <span className="progress-bar-elapsed" aria-label={`Elapsed ${formatTime(elapsed)}`}>{formatTime(elapsed)}</span>}
+      </div>
+
+      {step && <div className="progress-bar-step">{step}</div>}
+
+      <div className="progress-bar-track" aria-hidden={!loading || isTerminal}>
+        {loading && !isTerminal && (
+          <div className="progress-bar-indeterminate" />
+        )}
+        {!loading && !isTerminal && (
+          <div className="progress-bar-fill" style={{ width: '100%' }} />
+        )}
+        {isComplete && (
+          <div className="progress-bar-fill progress-bar-fill-complete" style={{ width: '100%' }} />
+        )}
+        {isError && (
+          <div className="progress-bar-fill progress-bar-fill-error" style={{ width: '100%' }} />
+        )}
+        {isStopped && (
+          <div className="progress-bar-fill progress-bar-fill-stopped" style={{ width: '100%' }} />
+        )}
+      </div>
+
+      {(isError || isStopped) && (
+        <div className="progress-bar-message">
+          {isStopped ? (
+            <>
+              <span className="progress-bar-icon" aria-hidden="true">{stopReason === 'cancelled' ? successIcon : errorIcon}</span>
+              <span>This run was stopped early. {stopReason === 'cancelled' ? 'Here is what was found before stopping.' : 'Here is what was found so far.'}</span>
+            </>
+          ) : (
+            <>
+              <span className="progress-bar-icon" aria-hidden="true">{errorIcon}</span>
+              <span>{error || 'That request could not be completed. Please try again.'}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="progress-bar-actions">
+        {showCancel && loading && !isTerminal && onCancel && (
+          <button type="button" className="ui-btn ui-btn-neutral ui-btn-sm" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+        {(isError || isStopped) && onRetry && (
+          <button type="button" className="ui-btn ui-btn-primary ui-btn-sm" onClick={onRetry}>
+            Retry
+          </button>
+        )}
+        {isComplete && (
+          <span className="progress-bar-success" aria-hidden="true">{successIcon} Done</span>
+        )}
+      </div>
+
+      {sizeLimitMessage && (
+        <p className="progress-bar-limit-hint" role="note">
+          {sizeLimitMessage}
+        </p>
+      )}
+    </div>
+  );
+};
+
 /**
  * First-run state for a mode. `examples` turns the empty state into a
  * starting point instead of a dead end — one click fills the form and runs it.

@@ -47,26 +47,37 @@ export function useAgentRun(projectId: string, onResult: (result: AgentStreamRes
       const controller = new AbortController();
       abortRef.current = controller;
 
-      await streamAgent(
-        projectId,
-        path,
-        body,
-        {
-          onStep: (message) => setSteps((prev) => [...prev, message]),
-          onDone: (payload) => {
-            setResult(payload);
-            setLoading(false);
-            abortRef.current = null;
-            onResult(payload);
+      try {
+        await streamAgent(
+          projectId,
+          path,
+          body,
+          {
+            onStep: (message) => setSteps((prev) => [...prev, message]),
+            onDone: (payload) => {
+              setResult(payload);
+              setLoading(false);
+              abortRef.current = null;
+              onResult(payload);
+            },
+            onError: (message) => {
+              setError(message);
+              setLoading(false);
+              abortRef.current = null;
+            },
           },
-          onError: (message) => {
-            setError(message);
-            setLoading(false);
-            abortRef.current = null;
-          },
-        },
-        controller.signal,
-      );
+          controller.signal,
+        );
+      } catch (err) {
+        // AbortError is expected when user cancels; treat it as a clean stop
+        // rather than an error.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          setLoading(false);
+          abortRef.current = null;
+        } else {
+          throw err;
+        }
+      }
 
       // Aborted mid-run (Cancel): clear the spinner without treating it as an
       // error — the user stopped it on purpose.

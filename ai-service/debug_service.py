@@ -27,6 +27,7 @@ class DebugService:
         stack_trace: Optional[str] = None,
         file_path: Optional[str] = None,
         on_event: Optional[Any] = None,
+        cancel_event: Optional[Any] = None,
     ) -> Dict[str, Any]:
         def status(message: str) -> None:
             if on_event is not None:
@@ -55,7 +56,7 @@ class DebugService:
                 context_blocks.append("Suspected file {}:\n{}".format(file_path, snippet))
 
         question = self._build_question(issue_description, parsed, located, context_blocks, file_path)
-        investigation = self.agent.investigate(question, project_id, on_event=on_event)
+        investigation = self.agent.investigate(question, project_id, on_event=on_event, cancel_event=cancel_event)
         answer = investigation.get("answer", "")
 
         status("Extracting findings")

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { useAgentRun } from '../hooks/useAgentRun';
-import { AgentCancelButton, AgentStepList, CopyButton, FilePicker, PanelEmpty, PanelError, PanelRun } from './PanelKit';
+import { AgentCancelButton, CopyButton, FilePicker, PanelEmpty, PanelError, ProgressBar } from './PanelKit';
 
 interface ExplainPanelProps {
   projectId: string;
@@ -29,18 +29,28 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
   const [symbol, setSymbol] = useState('');
   const [result, setResult] = useState<AgentInvestigation | null>(null);
 
-  const handleResult = React.useCallback((payload: Record<string, unknown>) => {
-    setResult({
-      answer: (payload.answer as string) ?? '',
-      trace: (payload.trace as string[]) ?? [],
-      iterations: (payload.iterations as number) ?? 0,
-      filesRead: (payload.files_read as string[]) ?? [],
-      searchesPerformed: (payload.searches_performed as string[]) ?? [],
-      truncated: payload.truncated as boolean | undefined,
-    });
+  const handleResult = React.useCallback((payload: AgentInvestigation) => {
+    setResult(payload);
   }, []);
 
-  const { steps, loading, error, run, cancel, retry } = useAgentRun(projectId, handleResult);
+  const { steps, loading, error, run, cancel, retry, result: runResult } = useAgentRun(projectId, handleResult);
+
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef(0);
+
+  useEffect(() => {
+    if (loading && !startedAt.current) {
+      startedAt.current = Date.now();
+      const id = window.setInterval(
+        () => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)),
+        1000
+      );
+      return () => window.clearInterval(id);
+    } else if (!loading && startedAt.current) {
+      startedAt.current = 0;
+      setElapsed(0);
+    }
+  }, [loading]);
 
   const runExplain = () => {
     if (!selectedFile || loading) return;
@@ -49,6 +59,12 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
       symbol: symbol || null,
     });
   };
+
+  const isStopped = runResult?.truncated && runResult.stop_reason === 'cancelled';
+  const isPartial = runResult?.truncated && runResult.stop_reason !== 'cancelled';
+
+  // Prefer runResult (complete with all fields) over local result
+  const displayResult = runResult ?? result;
 
   return (
     <div className="tool-panel">
@@ -98,15 +114,37 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
 
       {error && <PanelError message={error} onRetry={retry} />}
 
-      {loading && steps.length === 0 && (
-        <PanelRun
-          label="Reading the file in context"
-          hint="Following the calls it makes before summarising — this can take a minute."
+      {loading && (
+        <ProgressBar
+          stage="running"
+          step={steps[steps.length - 1]}
+          elapsed={elapsed}
+          onCancel={cancel}
+          loading
         />
       )}
-      <AgentStepList steps={steps} loading={loading} />
 
-      {!loading && !error && !result && (
+      {isStopped && runResult && (
+        <ProgressBar
+          stage="stopped"
+          elapsed={elapsed}
+          onRetry={retry}
+          stopReason="cancelled"
+          loading={false}
+        />
+      )}
+
+      {isPartial && runResult && (
+        <ProgressBar
+          stage="stopped"
+          elapsed={elapsed}
+          onRetry={retry}
+          stopReason="timeout"
+          loading={false}
+        />
+      )}
+
+      {!loading && !error && !displayResult && (
         <PanelEmpty
           icon={explainIcon}
           title="Walk through a file"
@@ -114,17 +152,17 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
         />
       )}
 
-      {result && (
+      {displayResult && (
         <div className="panel-result">
           <section className="panel-card" aria-label="Analysis trace">
             <div className="panel-card-header">
               <h3 className="panel-section-title">Analysis trace</h3>
               <span className="panel-meta">
-                {result.filesRead.length} files read · {result.searchesPerformed.length} searches
+                {displayResult.files_read.length} files read · {displayResult.searches_performed.length} searches
               </span>
             </div>
             <ol className="panel-trace">
-              {result.trace.map((step, index) => (
+              {displayResult.trace.map((step, index) => (
                 <li key={index} className="panel-trace-step">
                   {step}
                 </li>
@@ -135,10 +173,10 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
           <section className="panel-card" aria-label="Explanation">
             <div className="panel-card-header">
               <h3 className="panel-section-title">Explanation</h3>
-              <CopyButton text={result.answer} label="Copy explanation" />
+              <CopyButton text={displayResult.answer} label="Copy explanation" />
             </div>
             <div className="panel-answer">
-              <MarkdownAnswer content={result.answer} onCitationClick={onCitationClick} />
+              <MarkdownAnswer content={displayResult.answer} onCitationClick={onCitationClick} />
             </div>
           </section>
         </div>

@@ -9,6 +9,7 @@ import logging
 import queue
 import secrets
 import threading
+import time
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
 from review_service import ReviewService
@@ -191,21 +192,34 @@ def _friendly_ai_error(exc: Exception) -> str:
     return "The AI service could not complete this. Please try again."
 
 
-def _run_agent_stream(fn):
+def _run_agent_stream(fn, request: Request):
     """Turn a blocking agent call into an SSE stream of step events.
 
-    ``fn(on_event)`` runs the bounded agent loop on a worker thread; every
-    progress dict it emits is forwarded to the client as a `step`/`status`
-    event, followed by a terminal `done` (with the full result payload) or
-    `error` event. The worker is a daemon so a client disconnect can never
-    leak a thread.
+    ``fn(on_event, cancel_event)`` runs the bounded agent loop on a worker
+    thread; every progress dict it emits is forwarded to the client as a
+    `step`/`status` event, followed by a terminal `done` (with the full result
+    payload) or `error` event. The worker is a daemon so a client disconnect
+    can never leak a thread.
+
+    A disconnect-monitor thread checks ``request.is_disconnected()`` and sets
+    ``cancel_event``, which is threaded to the agent so a cancelled run really
+    stops the AI work instead of just hiding the UI.
     """
+    cancel_event = threading.Event()
     events: "queue.Queue" = queue.Queue()
     result_box: dict = {}
 
+    emit = events.put
+
+    def monitor():
+        while not request.is_disconnected():
+            time.sleep(0.2)
+        cancel_event.set()
+        logger.info("Client disconnected — signalling cancel to the AI agent")
+
     def worker():
         try:
-            result_box["value"] = fn(events.put)
+            result_box["value"] = fn(emit, cancel_event)
         except Exception as exc:  # surfaced as an SSE error event below
             logger.exception("Streaming agent run failed")
             result_box["error"] = _friendly_ai_error(exc)
@@ -214,6 +228,7 @@ def _run_agent_stream(fn):
 
     def generate():
         threading.Thread(target=worker, daemon=True).start()
+        threading.Thread(target=monitor, daemon=True).start()
         while True:
             item = events.get()
             if item is None:
@@ -237,9 +252,11 @@ def _run_agent_stream(fn):
 @app.post("/agent/investigate/stream")
 def investigate_stream(request: AgentRequest):
     """Streaming twin of POST /agent/investigate (same loop, step events)."""
-    return _run_agent_stream(
-        lambda emit: agent.investigate(request.question, request.project_id, on_event=emit)
-    )
+    def run(emit, cancel_event):
+        return agent.investigate(
+            request.question, request.project_id, on_event=emit, cancel_event=cancel_event
+        )
+    return _run_agent_stream(run, request)
 
 class GenerateDocsRequest(BaseModel):
     file_path: str
@@ -336,12 +353,12 @@ def generate_docs(request: GenerateDocsRequest):
 @app.post("/agent/generate-docs/stream")
 def generate_docs_stream(request: GenerateDocsRequest):
     """Streaming twin of POST /agent/generate-docs (single LLM call, step events)."""
-    def run(emit):
+    def run(emit, cancel_event):
         try:
             return _generate_docs(request, emit)
         except HTTPException as exc:
             raise McpUnavailableError(exc.detail if isinstance(exc.detail, str) else "That file could not be documented.")
-    return _run_agent_stream(run)
+    return _run_agent_stream(run, request)
 
 class ExplainCodeRequest(BaseModel):
     file_path: str
@@ -459,15 +476,15 @@ Verified symbol-index data for the requested symbol:
 @app.post("/agent/explain-code/stream")
 def explain_code_stream(request: ExplainCodeRequest):
     """Streaming twin of POST /agent/explain-code (same loop, step events)."""
-    def run(emit):
+    def run(emit, cancel_event):
         try:
             question = _build_explain_question(request, emit)
         except HTTPException as exc:
             # Surface the not-found as an SSE error rather than a raised 404,
             # because the stream has already started (200 OK).
             raise McpUnavailableError(exc.detail if isinstance(exc.detail, str) else "That file or symbol could not be found.")
-        return agent.investigate(question, request.project_id, on_event=emit)
-    return _run_agent_stream(run)
+        return agent.investigate(question, request.project_id, on_event=emit, cancel_event=cancel_event)
+    return _run_agent_stream(run, request)
 
 class DebugFinding(BaseModel):
     severity: str
@@ -525,15 +542,16 @@ def debug(request: DebugRequest):
 @app.post("/agent/debug/stream")
 def debug_stream(request: DebugRequest):
     """Streaming twin of POST /agent/debug (same pipeline, step events)."""
-    return _run_agent_stream(
-        lambda emit: debug_service.debug(
+    def run(emit, cancel_event):
+        return debug_service.debug(
             request.issue_description,
             request.project_id,
             stack_trace=request.stack_trace,
             file_path=request.file_path,
             on_event=emit,
+            cancel_event=cancel_event,
         )
-    )
+    return _run_agent_stream(run, request)
 
 class ImproveCodeRequest(BaseModel):
     file_path: str
