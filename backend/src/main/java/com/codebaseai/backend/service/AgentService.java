@@ -42,17 +42,21 @@ public class AgentService {
         String answer = response.get("answer") != null ? response.get("answer").toString() : "";
         List<String> trace = castStringList(response.get("trace"));
         int iterations = response.get("iterations") instanceof Number number ? number.intValue() : 0;
+        int toolCalls = response.get("tool_calls") instanceof Number number ? number.intValue() : 0;
         List<String> filesRead = castStringList(response.get("files_read"));
         List<String> searchesPerformed = castStringList(response.get("searches_performed"));
         boolean truncated = Boolean.TRUE.equals(response.get("truncated"));
+        AgentInvestigateResponse.Usage usage = parseUsage(response.get("usage"));
 
         return new AgentInvestigateResponse(
             answer,
             trace,
             iterations,
+            toolCalls,
             filesRead,
             searchesPerformed,
-            truncated
+            truncated,
+            usage
         );
     }
 
@@ -122,5 +126,20 @@ public class AgentService {
     @SuppressWarnings("unchecked")
     private List<String> castStringList(Object value) {
         return value instanceof List ? (List<String>) value : List.of();
+    }
+
+    private AgentInvestigateResponse.Usage parseUsage(Object value) {
+        int inputTokens = 0;
+        int outputTokens = 0;
+        int totalTokens = 0;
+        if (value instanceof Map<?, ?> usage) {
+            inputTokens = usage.get("input_tokens") instanceof Number number ? number.intValue() : 0;
+            outputTokens = usage.get("output_tokens") instanceof Number number ? number.intValue() : 0;
+            totalTokens = usage.get("total_tokens") instanceof Number number ? number.intValue() : 0;
+            if (totalTokens == 0) {
+                totalTokens = inputTokens + outputTokens;
+            }
+        }
+        return new AgentInvestigateResponse.Usage(inputTokens, outputTokens, totalTokens);
     }
 }

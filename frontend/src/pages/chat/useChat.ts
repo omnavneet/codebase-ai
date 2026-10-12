@@ -237,7 +237,8 @@ export function useChat(projectId: string | undefined) {
       streamAbortRef.current = controller
       const traceSteps: string[] = []
 
-      await streamAgent(
+      try {
+        await streamAgent(
         projectId ?? "",
         "/investigate/stream",
         { question: userMessageText },
@@ -267,13 +268,42 @@ export function useChat(projectId: string | undefined) {
           },
         },
         controller.signal,
-      )
-
-      if (streamAbortRef.current === controller) {
-        streamAbortRef.current = null
+        )
+      } catch (error) {
+        const aborted =
+          controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")
+        if (!aborted) {
+          console.error("Deep investigate failed:", error)
+          updateAssistant((message) =>
+            message.content
+              ? message
+              : {
+                  ...message,
+                  content:
+                    "The investigation could not be completed right now. Your question is safe in the conversation above; press Enter in the composer to try again.",
+                },
+          )
+          // Return the failed question to the composer so retrying is one
+          // keystroke — unless the user has already started typing something
+          // new, which always wins.
+          setInput((current) => (current.trim() ? current : userMessageText))
+        }
+      } finally {
+        if (streamAbortRef.current === controller) {
+          streamAbortRef.current = null
+        }
+        // Never leave an empty assistant bubble behind on abort or error.
+        setMessages((prev) => {
+          const target = prev.find((message) => message.id === assistantId)
+          return target && target.content === ""
+            ? prev.filter((message) => message.id !== assistantId)
+            : prev
+        })
+        setLoading(false)
       }
+
       fetchSessions()
-      setLoading(false)
       return
     }
 

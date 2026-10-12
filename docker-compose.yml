@@ -143,6 +143,12 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       APP_UPLOAD_DIRECTORY: /app/uploads
+      # Same storage backend as ai-service/mcp: the backend writes what the
+      # agent tools read, so the provider must match (see application.properties.example).
+      APP_STORAGE_PROVIDER: ${APP_STORAGE_PROVIDER:-local}
+      APP_S3_BUCKET: ${APP_S3_BUCKET:-}
+      APP_S3_PREFIX: ${APP_S3_PREFIX:-projects}
+      APP_S3_REGION: ${APP_S3_REGION:-}
       APP_AI_SERVICE_URL: http://ai-service:8000
       APP_AI_SERVICE_INTERNAL_TOKEN: ${AI_SERVICE_INTERNAL_TOKEN}
       APP_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}

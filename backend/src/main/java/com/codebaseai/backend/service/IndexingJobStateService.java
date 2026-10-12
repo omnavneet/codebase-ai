@@ -228,12 +228,27 @@ public class IndexingJobStateService {
         job.setLockedAt(null);
         job.setUpdatedAt(LocalDateTime.now());
         IndexingJob saved = indexingJobRepository.save(job);
+        // Enqueue flips project to "processing": a cancel must move it to a
+        // terminal state the dashboard already handles. Projects have no
+        // "cancelled" (only jobs do), so use "error" with a clear message.
+        // Same short transaction as the job flip: no bulk deletes here.
+        project.setStatus("error");
+        project.setErrorMessage("Indexing cancelled");
+        project.setFileCount(0);
+        project.setTotalSizeBytes(0L);
+        projectRepository.save(project);
         log.info("Cancelled indexing job {} for project {}", jobId, job.getProjectId());
         return saved;
     }
 
     /**
-     * Deletes a cancelled job's partial index OUTSIDE the cancel transaction.
+     * Deletes a cancelled job's partial index OUTSIDE the cancel transaction,
+     * then moves the project to a terminal state the dashboard handles.
+     *
+     * <p>The index purge stays non-transactional (slow bulk deletes must not
+     * hold the job row). The project flip below is a single repository save,
+     * i.e. its own short transaction, guarded so a newer re-upload (latest
+     * job != this job) or an already-ready project is never clobbered.
      */
     public void purgeAfterCancel(UUID projectId, UUID jobId) {
         try {
@@ -242,6 +257,35 @@ public class IndexingJobStateService {
             log.warn("Failed to clean up partial index for project {} after cancelling job {}",
                     projectId, jobId, e);
         }
+        try {
+            markProjectCancelledIfStale(projectId, jobId);
+        } catch (Exception e) {
+            log.warn("Failed to mark project {} cancelled after job {}", projectId, jobId, e);
+        }
+    }
+
+    /** Removes partially indexed rows and staged files for a project. */
+    @Transactional
+    public void markProjectCancelledIfStale(UUID projectId, UUID jobId) {
+        Project project = projectRepository.findById(projectId).orElse(null);
+        if (project == null) {
+            return;
+        }
+        // Never clobber a newer re-upload: only the latest job may move the
+        // project, and never away from a finished ready state.
+        if ("ready".equals(project.getStatus())) {
+            return;
+        }
+        var latest = indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId)
+                .orElse(null);
+        if (latest != null && !latest.getId().equals(jobId)) {
+            return;
+        }
+        project.setStatus("error");
+        project.setErrorMessage("Indexing cancelled");
+        project.setFileCount(0);
+        project.setTotalSizeBytes(0L);
+        projectRepository.save(project);
     }
 
     /** Removes partially indexed rows and staged files for a project. */

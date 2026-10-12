@@ -109,6 +109,8 @@ jobs:
           curl -fsS http://localhost:8001/health
 
       - name: Run agent eval
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python -m eval.run --suite agent
 
       - name: Upload eval report
