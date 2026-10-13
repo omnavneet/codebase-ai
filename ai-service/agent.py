@@ -5,7 +5,20 @@ from typing import Any, Callable, Dict, List, Optional
 
 from groq import Groq
 
+from llm_errors import (
+    AgentContextError,
+    AgentRateLimitError,
+    is_context_length_error,
+    is_rate_limit_error,
+    retry_after_seconds,
+)
+from mcp_client import McpUnavailableError
 from tool_registry import groq_function_from_mcp
+
+# Replaces the oldest tool results when the conversation grows past the
+# context budget. The model is told nothing; it simply stops paying for
+# evidence it already acted on.
+EARLIER_RESULT_STUB = "[earlier result omitted]"
 
 
 class CodebaseAgent:
@@ -34,6 +47,14 @@ class CodebaseAgent:
         # backend's 300s relay timeout so a partial answer can still be
         # generated and streamed back before the backend gives up.
         self.run_timeout_seconds = int(os.getenv("AGENT_RUN_TIMEOUT_SECONDS", "150"))
+        # Approximate budget for one running conversation (tokens ~ chars/4).
+        # When the conversation grows past it, the oldest tool results are
+        # stubbed; a context-length rejection halves it once before giving up.
+        self.context_budget_chars = int(os.getenv("AGENT_CONTEXT_BUDGET_CHARS", "60000"))
+        # Per-run retry flags: the agent instance is shared across requests,
+        # so investigate() resets them at the start of every run.
+        self._context_trimmed = False
+        self._rate_limit_retries = 0
         # Discovered lazily from the MCP server so the service can start even
         # if the MCP server is still booting; cached for the process lifetime.
         self.tool_definitions: Optional[List[Dict]] = None
@@ -76,6 +97,10 @@ class CodebaseAgent:
 
         def cancelled() -> bool:
             return cancel_event is not None and cancel_event.is_set()
+
+        # Retry policy is per run; this agent instance is shared.
+        self._context_trimmed = False
+        self._rate_limit_retries = 0
 
         if self.tool_definitions is None:
             emit({"type": "status", "message": "Discovering available tools"})
@@ -140,13 +165,7 @@ class CodebaseAgent:
             iteration += 1
             emit({"type": "status", "message": f"Thinking (step {iteration} of {self.max_iterations})"})
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=self.tool_definitions,
-                tool_choice="auto",
-                temperature=0.3,
-            )
+            response = self._create_completion(messages, tools=self.tool_definitions)
 
             response_message = response.choices[0].message
 
@@ -220,6 +239,9 @@ class CodebaseAgent:
                         "tool_call_id": tool_call.id,
                         "content": json.dumps(result, default=str),
                     })
+                    # Keep the running conversation inside the context budget
+                    # by stubbing the oldest tool results when it overflows.
+                    self._trim_to_budget(messages)
 
             else:
                 # Model is done, return final answer
@@ -263,8 +285,90 @@ class CodebaseAgent:
             arguments["project_id"] = project_id
             return self.mcp.call_tool(tool_name, arguments)
 
+        except McpUnavailableError:
+            # The tool server is down or timed out: fail the whole run fast
+            # with the right reason instead of feeding the failure back to
+            # the model as if it were a normal tool result.
+            raise
         except Exception as e:
             return {"error": f"Tool execution failed: {e}"}
+
+    # -- context budget and provider retry policy --------------------------
+
+    def _create_completion(self, messages: List[Any], tools: Optional[List[Dict]] = None) -> Any:
+        """One model call with the context and rate-limit policies applied.
+
+        - 413 / context-length rejection: halve the budget, stub the oldest
+          tool results and retry ONCE; a second rejection raises
+          AgentContextError so the caller can answer with the
+          "touched too much code" reason.
+        - 429: honour Retry-After once when it is under 10 seconds, otherwise
+          raise AgentRateLimitError carrying the wait time.
+        """
+        while True:
+            try:
+                kwargs: Dict[str, Any] = {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": 0.3,
+                }
+                if tools is not None:
+                    kwargs["tools"] = tools
+                    kwargs["tool_choice"] = "auto"
+                return self.client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                if is_context_length_error(exc):
+                    if self._context_trimmed:
+                        raise AgentContextError(
+                            "The conversation exceeded the model's context window"
+                        ) from exc
+                    self._context_trimmed = True
+                    self.context_budget_chars = max(4_000, self.context_budget_chars // 2)
+                    self._trim_to_budget(messages)
+                    continue
+                if is_rate_limit_error(exc):
+                    wait = retry_after_seconds(exc)
+                    if wait is None or wait >= 10 or self._rate_limit_retries >= 1:
+                        raise AgentRateLimitError(
+                            "The model provider rate-limited this request",
+                            wait_seconds=int(wait) if wait else 30,
+                        ) from exc
+                    self._rate_limit_retries += 1
+                    time.sleep(wait)
+                    continue
+                raise
+
+    @staticmethod
+    def _message_content(message: Any) -> str:
+        if isinstance(message, dict):
+            content = message.get("content")
+        else:
+            content = getattr(message, "content", None)
+        return content if isinstance(content, str) else ""
+
+    def _messages_size(self, messages: List[Any]) -> int:
+        return sum(len(self._message_content(message)) for message in messages)
+
+    def _trim_to_budget(self, messages: List[Any]) -> None:
+        """Stub the oldest tool results until the conversation fits the budget.
+
+        Only tool results are ever replaced: the system prompt and the
+        question must survive so the model can still answer. Already-stubbed
+        results are skipped, so the trim always makes progress.
+        """
+        size = self._messages_size(messages)
+        if size <= self.context_budget_chars:
+            return
+        for message in messages:
+            if not (isinstance(message, dict) and message.get("role") == "tool"):
+                continue
+            content = message.get("content")
+            if not isinstance(content, str) or content == EARLIER_RESULT_STUB:
+                continue
+            size -= len(content) - len(EARLIER_RESULT_STUB)
+            message["content"] = EARLIER_RESULT_STUB
+            if size <= self.context_budget_chars:
+                return
 
     def _system_prompt(self) -> str:
         """System prompt for an investigation (tool cap injected from config)."""

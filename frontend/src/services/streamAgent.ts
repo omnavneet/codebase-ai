@@ -77,6 +77,8 @@ const friendlyHttpError = (status: number, retryAfterHeader: string | null): str
       ? `You're going a little fast — try again in ${seconds} second${seconds === 1 ? '' : 's'}.`
       : "You're going a little fast — try again in a moment.";
   }
+  if (status === 409) return 'This project is still being indexed — try again once it is ready.';
+  if (status === 413) return 'This question touched too much code, try naming a file or folder.';
   if (status === 403) return 'Please verify your email to use this feature.';
   if (status === 404) return "That file or project could not be found.";
   if (status === 502 || status === 503) {

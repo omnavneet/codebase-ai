@@ -94,6 +94,9 @@ class ReadFileOutput(BaseModel):
     partial: bool = False
     start_line: Optional[int] = None
     end_line: Optional[int] = None
+    # Populated when the content hit a context cap; tells the model how to
+    # fetch the rest (a line range) instead of silently showing a cut file.
+    note: Optional[str] = None
 
 
 class ListFilesOutput(BaseModel):

@@ -36,11 +36,25 @@ class AgentTools:
     MAX_GREP_FILES = 300
     MAX_GREP_MATCHES = 50
 
+    # Context-budget caps for tool results (env-overridable, tokens ~ chars/4):
+    # AGENT_TOOL_READ_MAX_LINES / AGENT_TOOL_READ_MAX_CHARS cap read_file,
+    # AGENT_TOOL_GREP_MAX_MATCHES / AGENT_TOOL_GREP_LINE_MAX_CHARS cap grep,
+    # AGENT_TOOL_LIST_MAX_FILES caps list_files and AGENT_TOOL_SEARCH_MAX_CHARS
+    # caps each search_code snippet.
+    READ_MAX_LINES = int(os.getenv("AGENT_TOOL_READ_MAX_LINES", "400"))
+    READ_MAX_CHARS = int(os.getenv("AGENT_TOOL_READ_MAX_CHARS", "20000"))
+    LIST_MAX_FILES = int(os.getenv("AGENT_TOOL_LIST_MAX_FILES", "1000"))
+    SEARCH_SNIPPET_MAX_CHARS = int(os.getenv("AGENT_TOOL_SEARCH_MAX_CHARS", "2000"))
+
     def __init__(self, db_config: Dict[str, str], embedding_service, upload_dir: str, storage=None):
         self.db_config = db_config
         self.embedding_service = embedding_service
         self.upload_dir = upload_dir
         self.storage = storage if storage is not None else create_storage(upload_dir)
+        self.grep_max_matches = int(
+            os.getenv("AGENT_TOOL_GREP_MAX_MATCHES", str(self.MAX_GREP_MATCHES)))
+        self.grep_line_max_chars = int(
+            os.getenv("AGENT_TOOL_GREP_LINE_MAX_CHARS", "400"))
 
     def _get_db_connection(self):
         return psycopg2.connect(**self.db_config)
@@ -92,7 +106,7 @@ class AgentTools:
                 "chunk_id": str(r["chunk_id"]),
                 "file_path": r["file_path"],
                 "file_id": str(r["file_id"]),
-                "content": r["content"],
+                "content": (r["content"] or "")[:self.SEARCH_SNIPPET_MAX_CHARS],
                 "start_line": r["start_line"],
                 "end_line": r["end_line"],
                 "similarity": float(r["similarity"]),
@@ -113,10 +127,34 @@ class AgentTools:
             return {"error": f"Failed to read file: {e}"}
 
         lines = _split_lines(content_text)
+        max_lines = self.READ_MAX_LINES
+        max_chars = self.READ_MAX_CHARS
+        note = ("Truncated: showing the first {shown} lines. "
+                "Request a line range (start_line/end_line) to read more.")
 
         if start_line is not None and end_line is not None:
             selected_lines = lines[start_line - 1:end_line]
             content = "".join(selected_lines)
+            truncated = False
+            if len(selected_lines) > max_lines:
+                selected_lines = selected_lines[:max_lines]
+                content = "".join(selected_lines)
+                truncated = True
+            if len(content) > max_chars:
+                content = content[:max_chars]
+                truncated = True
+            if truncated:
+                shown = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+                selected_lines = _split_lines(content)
+                return {
+                    "file_path": file_path,
+                    "content": content,
+                    "start_line": start_line,
+                    "end_line": start_line + len(selected_lines) - 1,
+                    "total_lines": len(lines),
+                    "partial": True,
+                    "note": note.format(shown=shown),
+                }
             return {
                 "file_path": file_path,
                 "content": content,
@@ -126,12 +164,26 @@ class AgentTools:
                 "partial": True,
             }
 
-        return {
+        selected_lines = lines
+        truncated = False
+        if len(selected_lines) > max_lines:
+            selected_lines = selected_lines[:max_lines]
+            truncated = True
+        content = "".join(selected_lines)
+        if len(content) > max_chars:
+            content = content[:max_chars]
+            truncated = True
+
+        result: Dict[str, Any] = {
             "file_path": file_path,
-            "content": content_text,
+            "content": content,
             "total_lines": len(lines),
             "partial": False,
         }
+        if truncated:
+            shown = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+            result["note"] = note.format(shown=shown)
+        return result
 
     def list_files(self, project_id: str) -> List[str]:
         """List the project's files, as paths relative to the project root.
@@ -154,9 +206,9 @@ class AgentTools:
             conn.close()
 
         if files:
-            return files
+            return files[: self.LIST_MAX_FILES]
         try:
-            return self.storage.list_paths(project_id)
+            return self.storage.list_paths(project_id)[: self.LIST_MAX_FILES]
         except ValueError:
             return []
 
@@ -176,7 +228,10 @@ class AgentTools:
         except re.error as e:
             return {"error": f"Invalid regular expression: {e}"}
 
-        limit = max_matches if isinstance(max_matches, int) and max_matches > 0 else self.MAX_GREP_MATCHES
+        if isinstance(max_matches, int) and max_matches > 0:
+            limit = max_matches
+        else:
+            limit = self.grep_max_matches
 
         try:
             if file_path:
@@ -211,7 +266,7 @@ class AgentTools:
                     matches.append({
                         "file_path": path,
                         "line": number,
-                        "text": line.strip()[:400],
+                        "text": line.strip()[: self.grep_line_max_chars],
                     })
                     if len(matches) >= limit:
                         capped = True
@@ -552,6 +607,21 @@ def create_agent_tools_from_env(embedding_service=None) -> AgentTools:
 
     upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
     storage = create_storage(upload_dir)
+    if storage.provider == "s3":
+        # One clear line at startup instead of an SdkClientException on the
+        # first read: fail fast when no credential in the default chain resolves.
+        credentials = None
+        try:
+            import boto3
+            credentials = boto3.Session().get_credentials()
+        except Exception as exc:
+            logger.error("S3 storage selected but the AWS credential chain failed: %s", exc)
+        if credentials is None:
+            message = ("APP_STORAGE_PROVIDER=s3 but no AWS credentials were found "
+                       "(set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, a shared config "
+                       "profile, or attach an instance/task role)")
+            logger.error(message)
+            raise RuntimeError(message)
     logger.info("Project storage provider: %s", storage.provider)
     return AgentTools(
         db_config={

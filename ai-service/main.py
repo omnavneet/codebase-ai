@@ -10,6 +10,7 @@ import queue
 import secrets
 import threading
 import time
+import uuid
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
 from review_service import ReviewService
@@ -17,6 +18,14 @@ from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import create_agent_tools_from_env
 from debug_service import DebugService
+from llm_errors import (
+    GENERIC_MESSAGE,
+    AgentContextError,
+    AgentRateLimitError,
+    is_context_length_error,
+    is_rate_limit_error,
+    retry_after_seconds,
+)
 from mcp_client import McpToolClient, McpUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -139,9 +148,9 @@ def chat_stream(request: ChatRequest):
             for delta in chat_service.generate_answer_stream(request.question, request.context, request.history):
                 yield sse_format("token", {"t": delta})
             yield sse_format("done", {})
-        except Exception:
+        except Exception as exc:
             logger.exception("Chat stream failed")
-            yield sse_format("error", {"message": "AI chat request failed"})
+            yield sse_format("error", _friendly_ai_error(exc))
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -183,13 +192,58 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def _friendly_ai_error(exc: Exception) -> str:
-    """Map a server-side failure to a message safe to show a user."""
+def _friendly_ai_error(exc: Exception) -> dict:
+    """Map a server-side failure to a short user-safe reason plus a code.
+
+    The stream endpoints emit this as the SSE ``error`` event payload; the
+    full exception (with its stack trace, the project id and a request id) is
+    logged separately. Raw provider bodies, tokens and stack traces never
+    reach the user - the generic message is the last resort only.
+    """
     if isinstance(exc, McpUnavailableError):
-        return str(exc)
+        return {"message": "Code tools unavailable (MCP)", "code": "mcp_unavailable"}
+    if isinstance(exc, AgentRateLimitError):
+        wait = max(1, int(exc.wait_seconds or 30))
+        return {
+            "message": "Model rate limited, try again in {} second{}.".format(
+                wait, "" if wait == 1 else "s"),
+            "code": "rate_limited",
+        }
+    if isinstance(exc, AgentContextError) or is_context_length_error(exc):
+        return {
+            "message": "This question touched too much code, try naming a file or folder",
+            "code": "context_too_large",
+        }
+    if is_rate_limit_error(exc):
+        raw = retry_after_seconds(exc)
+        wait = max(1, int(raw)) if raw else 30
+        return {
+            "message": "Model rate limited, try again in {} second{}.".format(
+                wait, "" if wait == 1 else "s"),
+            "code": "rate_limited",
+        }
     if isinstance(exc, HTTPException):
-        return exc.detail if isinstance(exc.detail, str) else "That request could not be completed."
-    return "The AI service could not complete this. Please try again."
+        detail = exc.detail if isinstance(exc.detail, str) else GENERIC_MESSAGE
+        code = {
+            404: "not_found",
+            413: "context_too_large",
+            429: "rate_limited",
+            502: "ai_unreachable",
+            503: "ai_unreachable",
+        }.get(exc.status_code, "upstream_error")
+        return {"message": detail, "code": code}
+    if isinstance(exc, (FileNotFoundError, PermissionError)):
+        return {"message": "Project files could not be read", "code": "storage_read_failed"}
+    if isinstance(exc, ValueError) and "APP_S3" in str(exc):
+        return {"message": "Project files could not be read", "code": "storage_read_failed"}
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return {"message": "AI service unreachable", "code": "ai_unreachable"}
+    if type(exc).__name__ in ("APIConnectionError", "APITimeoutError"):
+        return {"message": "AI service unreachable", "code": "ai_unreachable"}
+    if "mcp server" in str(exc).lower() or "mcp tool server" in str(exc).lower():
+        # e.g. RuntimeError("The MCP server exposed no read-only tools")
+        return {"message": "Code tools unavailable (MCP)", "code": "mcp_unavailable"}
+    return {"message": GENERIC_MESSAGE, "code": "internal"}
 
 
 def _run_agent_stream(fn, request: Request):
@@ -208,6 +262,8 @@ def _run_agent_stream(fn, request: Request):
     cancel_event = threading.Event()
     events: "queue.Queue" = queue.Queue()
     result_box: dict = {}
+    # Correlates the server-side stack trace with what the client saw.
+    request_id = uuid.uuid4().hex[:12]
 
     emit = events.put
 
@@ -221,7 +277,9 @@ def _run_agent_stream(fn, request: Request):
         try:
             result_box["value"] = fn(emit, cancel_event)
         except Exception as exc:  # surfaced as an SSE error event below
-            logger.exception("Streaming agent run failed")
+            logger.exception(
+                "Streaming agent run failed project_id=%s request_id=%s",
+                getattr(request, "project_id", "?"), request_id)
             result_box["error"] = _friendly_ai_error(exc)
         finally:
             events.put(None)  # sentinel: the worker is finished
@@ -241,7 +299,8 @@ def _run_agent_stream(fn, request: Request):
             yield _sse(etype if etype in ("status", "step") else "step", item)
 
         if "error" in result_box:
-            yield _sse("error", {"message": result_box["error"]})
+            # Carries both the user-safe message and its machine-readable code.
+            yield _sse("error", result_box["error"])
         else:
             payload = result_box.get("value", {})
             yield _sse("done", payload)

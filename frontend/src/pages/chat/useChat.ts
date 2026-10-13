@@ -354,16 +354,17 @@ export function useChat(projectId: string | undefined) {
               updateAssistant((message) => ({ ...message, id: messageId }))
             }
           },
-          onError: () => {
-            updateAssistant((message) =>
-              message.content
-                ? message
-                : {
-                    ...message,
-                    content:
-                      'The answer never started — the AI service may be briefly unavailable. Your question is safe in the conversation above; press Enter in the composer to try again.',
-                  },
-            )
+          onError: (message) => {
+            // Always show the reason carried by the error event; if a partial
+            // answer already streamed, keep it and surface the reason below.
+            updateAssistant((current) => {
+              if (!current.content) {
+                return { ...current, content: message }
+              }
+              return current.content.includes(message)
+                ? current
+                : { ...current, content: `${current.content}\n\n${message}` }
+            })
           },
         },
         abortController.signal,

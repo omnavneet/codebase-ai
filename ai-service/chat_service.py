@@ -1,10 +1,16 @@
+import logging
+import os
+import time
 from typing import Any, Dict, Generator, List
 
 from groq import Groq
-import os
 from dotenv import load_dotenv
 
+from llm_errors import is_context_length_error, is_rate_limit_error, retry_after_seconds
+
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -49,26 +55,55 @@ Include relevant file paths and line numbers in your answer."""
         messages.append({"role": "user", "content": self._build_prompt(question, context)})
         return messages
 
+    def _create(self, question: str, context: List[Dict[str, Any]],
+                history: List[Dict[str, Any]], stream: bool):
+        """One completion with the context and rate-limit retry policy applied.
+
+        - Context rejection: trim to half (history and retrieved chunks) and
+          retry ONCE; a second rejection is re-raised so the endpoint maps it
+          to the "touched too much code" reason.
+        - 429: honour Retry-After once when it is under 10 seconds, otherwise
+          re-raise so the stream reports the rate-limit reason with the wait.
+        """
+        context = list(context or [])
+        history = list(history or [])
+        context_trimmed = False
+        rate_retried = False
+        while True:
+            try:
+                return self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self._build_messages(question, context, history),
+                    temperature=0.3,
+                    max_tokens=1000,
+                    stream=stream,
+                )
+            except Exception as exc:
+                if is_context_length_error(exc) and not context_trimmed:
+                    context_trimmed = True
+                    history = history[: len(history) // 2]
+                    context = context[: max(1, len(context) // 2)]
+                    logger.warning(
+                        "Chat prompt too large for the model; trimming history and "
+                        "context to half and retrying once")
+                    continue
+                if is_rate_limit_error(exc):
+                    wait = retry_after_seconds(exc)
+                    if wait is not None and wait < 10 and not rate_retried:
+                        rate_retried = True
+                        time.sleep(wait)
+                        continue
+                raise
+
     def generate_answer(self, question, context, history=None):
         """Generate answer using Groq"""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=self._build_messages(question, context, history),
-            temperature=0.3,
-            max_tokens=1000
-        )
+        response = self._create(question, context, history, stream=False)
 
         return response.choices[0].message.content
 
     def generate_answer_stream(self, question, context, history=None) -> Generator[str, None, None]:
         """Yield answer content deltas as they arrive from Groq."""
-        stream = self.client.chat.completions.create(
-            model=self.model,
-            messages=self._build_messages(question, context, history),
-            temperature=0.3,
-            max_tokens=1000,
-            stream=True,
-        )
+        stream = self._create(question, context, history, stream=True)
 
         for chunk in stream:
             if not chunk.choices:

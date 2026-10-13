@@ -82,12 +82,22 @@ public class AppProperties {
         private int chatTopK = 5;
         /** Chunks returned by the semantic search endpoint. */
         private int searchTopK = 10;
+        /**
+         * Per-chunk character cap for chat context (approx tokens = chars/4),
+         * so one huge chunk cannot blow the model's context window.
+         */
+        private int chatContextMaxChars = 2000;
     }
 
     @Data
     public static class Chat {
         /** Server-side lifetime of one SSE answer stream. */
         private long streamTimeoutMs = 120_000L;
+        /**
+         * How many of the most recent messages are sent to the LLM as history
+         * (no summarisation). Bounds the prompt on long conversations.
+         */
+        private int historyMaxMessages = 8;
     }
 
     @Data

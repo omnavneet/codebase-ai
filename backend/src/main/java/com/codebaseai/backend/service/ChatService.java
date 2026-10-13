@@ -188,9 +188,10 @@ public class ChatService {
                 recentMessages = recentMessages.subList(0, recentMessages.size() - 1);
             }
         }
-        // Last 10 messages (5 question/answer turns), each truncated to bound
-        // the prompt size sent to the LLM.
-        int from = Math.max(0, recentMessages.size() - 10);
+        // Last N messages (see app.chat.history-max-messages, default 8), each
+        // truncated to bound the prompt size sent to the LLM. No summarisation.
+        int historySize = Math.max(0, properties.getChat().getHistoryMaxMessages());
+        int from = Math.max(0, recentMessages.size() - historySize);
         List<Map<String, String>> history = new ArrayList<>();
         for (ChatMessage message : recentMessages.subList(from, recentMessages.size())) {
             String content = message.getContent();
@@ -222,7 +223,12 @@ public class ChatService {
         List<Map<String, Object>> context = similarChunks.stream()
                 .map(chunk -> {
                     Map<String, Object> ctx = new HashMap<>();
-                    ctx.put("content", chunk.getContent());
+                    // Cap each chunk (app.retrieval.chat-context-max-chars,
+                    // default 2000) so one huge chunk cannot blow the model's
+                    // context window; chatTopK caps the count.
+                    ctx.put("content", truncate(
+                            chunk.getContent(),
+                            properties.getRetrieval().getChatContextMaxChars()));
                     ctx.put("start_line", chunk.getStartLine());
                     ctx.put("end_line", chunk.getEndLine());
                     String filePath = projectFileRepository.findById(chunk.getFileId())
@@ -277,10 +283,15 @@ public class ChatService {
         AtomicBoolean persisted = new AtomicBoolean(false);
         AtomicReference<Disposable> subscriptionRef = new AtomicReference<>();
 
-        // Persist whatever we have, exactly once, on any exit path.
+        // Persist whatever we have, exactly once, on any exit path. A DB
+        // failure here must never escape into the stream or to Spring.
         Runnable persistPartial = () -> {
             if (persisted.compareAndSet(false, true) && content.length() > 0) {
-                persistAssistantMessage(session, content.toString(), prepared.context());
+                try {
+                    persistAssistantMessage(session, content.toString(), prepared.context());
+                } catch (RuntimeException e) {
+                    log.error("Failed to persist partial answer for session {}", session.getId(), e);
+                }
             }
         };
 
@@ -309,10 +320,11 @@ public class ChatService {
             emitter.send(SseEmitter.event()
                     .name("meta")
                     .data(Map.of("citations", prepared.context())));
-        } catch (IOException e) {
-            // Client is already gone: nothing left to stream.
+        } catch (IOException | RuntimeException e) {
+            // Client is already gone (or the emitter closed): nothing left to stream.
+            log.debug("Chat meta event undeliverable session={}: {}", session.getId(), e.toString());
             persistPartial.run();
-            emitter.complete();
+            completeQuietly(emitter);
             return;
         }
 
@@ -344,52 +356,69 @@ public class ChatService {
                                         sub.dispose();
                                     }
                                     persistPartial.run();
-                                    emitter.complete();
+                                    completeQuietly(emitter);
+                                } catch (RuntimeException e) {
+                                    // Emitter already closed; never let this reach
+                                    // Spring after the response is committed.
+                                    log.debug("Chat token send failed session={}: {}",
+                                            session.getId(), e.toString());
+                                    Disposable sub = subscriptionRef.get();
+                                    if (sub != null) {
+                                        sub.dispose();
+                                    }
+                                    persistPartial.run();
+                                    completeQuietly(emitter);
                                 }
                             } else if ("error".equals(type)) {
-                                log.warn("AI service reported a stream error for session {}", session.getId());
+                                log.warn("AI service reported a stream error for session {} (code={}): {}",
+                                        session.getId(),
+                                        extractField(data, "code"),
+                                        extractField(data, "message"));
                                 persistPartial.run();
-                                try {
-                                    emitter.send(SseEmitter.event()
-                                            .name("error")
-                                            .data(Map.of("message", "The AI service failed while generating the answer.")));
-                                } catch (IOException ignored) {
-                                    // Client is gone.
-                                }
-                                emitter.complete();
+                                // Ship the upstream user-safe message and code
+                                // verbatim (already sanitized in Python).
+                                sendError(emitter, errorPayload(data,
+                                        "The AI service failed while generating the answer.",
+                                        "upstream_error"));
+                                completeQuietly(emitter);
                             }
                             // The Python `done` event is ignored: this service owns the
                             // terminal `done`, sent after the answer is persisted.
                         },
                         error -> {
-                            log.error("Chat stream failed for session {}", session.getId(), error);
+                            Map<String, String> payload = AiStreamErrors.describe(error);
+                            log.error("Chat stream failed session={} project={} code={}",
+                                    session.getId(), session.getProjectId(), payload.get("code"), error);
                             persistPartial.run();
-                            try {
-                                emitter.send(SseEmitter.event()
-                                        .name("error")
-                                        .data(Map.of("message", "The AI service failed while generating the answer.")));
-                            } catch (IOException ignored) {
-                                // Client is gone.
-                            }
-                            emitter.complete();
+                            sendError(emitter, payload);
+                            completeQuietly(emitter);
                         },
                         () -> {
                             // Own the persisted flag so the onCompletion safety
                             // net below cannot persist the same answer twice.
                             String messageId = "";
                             if (persisted.compareAndSet(false, true) && content.length() > 0) {
-                                ChatMessage saved = persistAssistantMessage(
-                                        session, content.toString(), prepared.context());
-                                messageId = String.valueOf(saved.getId());
+                                try {
+                                    ChatMessage saved = persistAssistantMessage(
+                                            session, content.toString(), prepared.context());
+                                    messageId = String.valueOf(saved.getId());
+                                } catch (RuntimeException e) {
+                                    // Still send `done`: losing history must not
+                                    // break the live stream.
+                                    log.error("Failed to persist answer for session {}", session.getId(), e);
+                                }
                             }
                             try {
                                 emitter.send(SseEmitter.event()
                                         .name("done")
                                         .data(Map.of("messageId", messageId)));
-                            } catch (IOException ignored) {
-                                // Client is gone; persistence already happened.
+                            } catch (IOException | RuntimeException e) {
+                                // Client is gone or the emitter already closed;
+                                // persistence already happened.
+                                log.debug("Chat done event undeliverable session={}: {}",
+                                        session.getId(), e.toString());
                             }
-                            emitter.complete();
+                            completeQuietly(emitter);
                         }));
     }
 
@@ -399,5 +428,73 @@ public class ChatService {
         } catch (JsonProcessingException e) {
             return "";
         }
+    }
+
+    /** Truncate to {@code maxChars} without ever returning more than asked. */
+    private static String truncate(String value, int maxChars) {
+        if (value == null || maxChars <= 0 || value.length() <= maxChars) {
+            return value;
+        }
+        return value.substring(0, maxChars);
+    }
+
+    /** Send the terminal {@code error} event; never throws after commit. */
+    private void sendError(SseEmitter emitter, Map<String, String> payload) {
+        try {
+            emitter.send(SseEmitter.event().name("error").data(payload));
+        } catch (IOException | RuntimeException e) {
+            // Client is gone or the emitter already closed.
+            log.debug("Chat error event undeliverable: {}", e.toString());
+        }
+    }
+
+    /** Complete the emitter, swallowing the "already closed" race. */
+    private void completeQuietly(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (RuntimeException e) {
+            log.debug("Chat emitter already closed: {}", e.toString());
+        }
+    }
+
+    /** Read a string field from an SSE JSON payload ("" when absent). */
+    private String extractField(String data, String field) {
+        if (data == null || data.isBlank()) {
+            return "";
+        }
+        try {
+            return objectMapper.readTree(data).path(field).asText("");
+        } catch (JsonProcessingException e) {
+            return "";
+        }
+    }
+
+    /**
+     * Build the SSE {@code error} payload from an upstream (Python) error
+     * event, keeping its user-safe message and code when present and falling
+     * back to {@code fallbackMessage}/{@code fallbackCode} otherwise. Raw
+     * provider detail is never accepted from the upstream payload beyond the
+     * message the Python service already sanitized.
+     */
+    private Map<String, String> errorPayload(String data, String fallbackMessage, String fallbackCode) {
+        if (data != null && !data.isBlank()) {
+            try {
+                var node = objectMapper.readTree(data);
+                String message = node.path("message").asText("").trim();
+                String code = node.path("code").asText("").trim();
+                if (!message.isEmpty()) {
+                    Map<String, String> payload = new HashMap<>();
+                    payload.put("message", message);
+                    payload.put("code", code.isEmpty() ? fallbackCode : code);
+                    return payload;
+                }
+            } catch (JsonProcessingException e) {
+                // Not JSON (or truncated): use the fallback below.
+            }
+        }
+        Map<String, String> payload = new HashMap<>();
+        payload.put("message", fallbackMessage);
+        payload.put("code", fallbackCode);
+        return payload;
     }
 }
