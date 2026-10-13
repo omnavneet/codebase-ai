@@ -16,4 +16,8 @@ public class ProjectResponse {
     private Long totalSizeBytes;
     private String errorMessage;
     private LocalDateTime createdAt;
+    /** Latest indexing job for this project, when one exists (additive). */
+    private UUID latestJobId;
+    /** Progress of that job, percent 0-100; null when no job has run yet. */
+    private Integer indexingProgressPercent;
 }

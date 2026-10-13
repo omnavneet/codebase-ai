@@ -47,6 +47,19 @@ public interface IndexingJobRepository extends JpaRepository<IndexingJob, UUID> 
     /** The job that reflects a project's current indexing state (latest wins). */
     Optional<IndexingJob> findFirstByProjectIdOrderByCreatedAtDesc(UUID projectId);
 
+    /**
+     * Latest job per project for a whole page of projects, in ONE query so the
+     * project list can carry live progress without an N+1.
+     */
+    @Query("""
+            SELECT j FROM IndexingJob j
+            WHERE j.projectId IN :projectIds
+              AND j.createdAt = (
+                  SELECT MAX(j2.createdAt) FROM IndexingJob j2 WHERE j2.projectId = j.projectId
+              )
+            """)
+    List<IndexingJob> findLatestJobsForProjects(@Param("projectIds") Collection<UUID> projectIds);
+
     /** Jobs a user may still cancel (anything not yet finished). */
     List<IndexingJob> findByProjectIdAndStatusIn(UUID projectId, Collection<String> statuses);
 

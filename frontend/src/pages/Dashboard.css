@@ -187,10 +187,74 @@
   border: 1px solid var(--m3-outline-variant);
   border-radius: var(--m3-shape-md);
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
   transition: border-color var(--m3-duration-short) var(--m3-ease-out),
               box-shadow var(--m3-duration-short) var(--m3-ease-out);
   animation: rowEnter var(--m3-duration-medium) var(--m3-ease-out) both;
   animation-delay: calc(var(--row-index) * 28ms);
+}
+
+/* Live indexing fill: soft blue washing from left to right, tracking the
+   real percent and gliding between updates (no full-width scanner bar). */
+.project-row-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  background: rgba(25, 103, 210, 0.09);
+  pointer-events: none;
+  transition: width 0.9s var(--m3-ease-out);
+  z-index: 0;
+}
+
+/* Percent unknown (queued, or 0 before the first worker heartbeat): a short
+   band drifting across the card instead of any solid bar. */
+.project-row-fill-indeterminate {
+  width: 38%;
+  background: linear-gradient(90deg, transparent, rgba(25, 103, 210, 0.13), transparent);
+  animation: project-row-drift 1.8s ease-in-out infinite;
+}
+
+@keyframes project-row-drift {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(280%); }
+}
+
+/* Keep content above the fill. */
+.project-row > *:not(.project-row-fill) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Failure detail shown inline on error cards; cancelled jobs read neutral. */
+.project-row-error {
+  color: var(--m3-error);
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-row-error-neutral {
+  color: var(--m3-on-surface-variant);
+}
+
+/* Small re-upload action on error cards. */
+.project-row-retry {
+  padding: 2px 10px;
+  border: 1px solid var(--m3-border-strong);
+  border-radius: var(--m3-shape-full);
+  background: transparent;
+  color: var(--m3-primary);
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+}
+
+.project-row-retry:hover {
+  background: var(--m3-primary-container);
 }
 
 .project-row:hover {

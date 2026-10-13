@@ -57,6 +57,11 @@ interface ProgressBarProps {
   showCancel?: boolean;
   /** Project upload specific: file size validation message */
   sizeLimitMessage?: string;
+  /**
+   * Real progress percent (0-100). When set and positive on a non-terminal
+   * running stage, the bar renders determinately instead of shimmering.
+   */
+  percent?: number;
 }
 
 /**
@@ -79,6 +84,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   stopReason,
   showCancel = true,
   sizeLimitMessage,
+  percent,
 }) => {
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -114,19 +120,33 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
 
   const showProgress = stage !== 'idle';
 
+  // A real, positive percent makes the running bar determinate; anything
+  // else (unknown progress, 0 before the first heartbeat) keeps the
+  // indeterminate shimmer instead of a misleading solid bar.
+  const determinatePercent =
+    !isTerminal && typeof percent === 'number' && percent > 0
+      ? Math.min(100, Math.round(percent))
+      : null;
+
   if (!showProgress) return null;
 
   return (
     <div className={`progress-bar-root ${isTerminal ? 'terminal' : ''} ${isError ? 'error' : ''} ${isStopped ? 'stopped' : ''}`} role="status" aria-live="polite">
       <div className="progress-bar-header">
-        <span className="progress-bar-title">{getStageLabel(stage)}</span>
+        <span className="progress-bar-title">
+          {getStageLabel(stage)}
+          {determinatePercent !== null ? ` ${determinatePercent}%` : ''}
+        </span>
         {elapsed > 0 && <span className="progress-bar-elapsed" aria-label={`Elapsed ${formatTime(elapsed)}`}>{formatTime(elapsed)}</span>}
       </div>
 
       {step && <div className="progress-bar-step">{step}</div>}
 
       <div className="progress-bar-track" aria-hidden={!loading || isTerminal}>
-        {loading && !isTerminal && (
+        {loading && !isTerminal && determinatePercent !== null && (
+          <div className="progress-bar-fill progress-bar-fill-determinate" style={{ width: `${determinatePercent}%` }} />
+        )}
+        {loading && !isTerminal && determinatePercent === null && (
           <div className="progress-bar-indeterminate" />
         )}
         {!loading && !isTerminal && (

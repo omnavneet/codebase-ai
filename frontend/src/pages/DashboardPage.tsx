@@ -5,6 +5,7 @@ import { useToast } from '../context/ToastContext';
 import apiClient from '../services/apiClient';
 import { getApiErrorMessage } from '../utils/apiError';
 import NewProjectModal from '../components/NewProjectModal';
+import IndexingProgressModal from '../components/IndexingProgressModal';
 import './Dashboard.css';
 
 interface Project {
@@ -13,7 +14,15 @@ interface Project {
   status: 'pending' | 'processing' | 'ready' | 'error';
   fileCount?: number;
   errorMessage?: string | null;
+  latestJobId?: string | null;
+  indexingProgressPercent?: number | null;
   createdAt: string;
+}
+
+interface InFlightProgress {
+  projectId: string;
+  projectName: string;
+  jobId: string;
 }
 
 const DashboardPage: React.FC = () => {
@@ -30,6 +39,9 @@ const DashboardPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Id of the project whose delete is in flight — blocks double deletion.
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  // Project whose progress popup is open; closing keeps the job running.
+  const [progressJob, setProgressJob] = useState<InFlightProgress | null>(null);
+
   // True once a list has been received; keeps a failed background poll from
   // replacing good data with an error panel.
   const hasProjectsRef = useRef(false);
@@ -94,8 +106,10 @@ const DashboardPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll while any project is still indexing. The effect depends on the
-  // boolean, not the array — otherwise every fetch re-arms the interval.
+  // Poll the projects list every 3 s ONLY while at least one project is
+  // still indexing (card percent/job fields ride along in the same response,
+  // so no extra requests). The effect depends on the boolean, not the array —
+  // otherwise every fetch re-arms the interval.
   const hasPendingProjects = projects.some(
     (project) => project.status === 'processing' || project.status === 'pending'
   );
@@ -105,7 +119,7 @@ const DashboardPage: React.FC = () => {
 
     const intervalId = window.setInterval(
       () => fetchProjects({ silent: true }),
-      5000,
+      3000,
     );
     return () => window.clearInterval(intervalId);
   }, [hasPendingProjects, fetchProjects]);
@@ -157,6 +171,18 @@ const DashboardPage: React.FC = () => {
       case 'error': return 'Error';
       case 'pending': return 'Pending';
       default: return 'Unknown';
+    }
+  };
+
+  // Only ready projects open chat. A queued/processing card opens the
+  // progress popup instead; an error card stays put (it has its own actions).
+  const openProject = (project: Project) => {
+    if (project.status === 'ready') {
+      navigate(`/projects/${project.id}`);
+      return;
+    }
+    if ((project.status === 'pending' || project.status === 'processing') && project.latestJobId) {
+      setProgressJob({ projectId: project.id, projectName: project.name, jobId: project.latestJobId });
     }
   };
 
@@ -270,13 +296,33 @@ const DashboardPage: React.FC = () => {
           </div>
         ) : (
           <div className="project-list">
-            {projects.map((project, index) => (
+            {projects.map((project, index) => {
+              const isIndexing = project.status === 'pending' || project.status === 'processing';
+              const percent = project.indexingProgressPercent ?? 0;
+              // A zero percent means "no heartbeat yet" — shimmer instead of a
+              // misleading empty or full solid bar.
+              const hasPercent = isIndexing && percent > 0;
+              const indexingLabel = !isIndexing
+                ? getStatusText(project.status)
+                : hasPercent
+                  ? `Indexing ${Math.round(percent)}%`
+                  : 'Queued';
+              const isCancelled = project.status === 'error'
+                && (project.errorMessage || '').toLowerCase().includes('cancelled');
+              return (
               <div
                 key={project.id}
                 className="project-row"
                 style={{ '--row-index': index } as React.CSSProperties}
-                onClick={() => navigate(`/projects/${project.id}`)}
+                onClick={() => openProject(project)}
               >
+                {isIndexing && (
+                  <div
+                    className={`project-row-fill${hasPercent ? '' : ' project-row-fill-indeterminate'}`}
+                    style={hasPercent ? { width: `${Math.min(100, percent)}%` } : undefined}
+                    aria-hidden="true"
+                  />
+                )}
                 <div className="project-row-icon">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -291,7 +337,7 @@ const DashboardPage: React.FC = () => {
                     className="project-row-name"
                     onClick={event => {
                       event.stopPropagation();
-                      navigate(`/projects/${project.id}`);
+                      openProject(project);
                     }}
                   >
                     {project.name}
@@ -302,11 +348,34 @@ const DashboardPage: React.FC = () => {
                         className={`status-pill status-${project.status}`}
                         title={project.errorMessage || undefined}
                       >
-                        {getStatusText(project.status)}
+                        {indexingLabel}
                       </span>
                     )}
-                    <span>{project.fileCount || 0} files</span>
-                    <span>Created {formatDate(project.createdAt)}</span>
+                    {project.status === 'error' ? (
+                      <>
+                        <span
+                          className={`project-row-error${isCancelled ? ' project-row-error-neutral' : ''}`}
+                          title={project.errorMessage || undefined}
+                        >
+                          {project.errorMessage || 'Indexing failed'}
+                        </span>
+                        <button
+                          type="button"
+                          className="project-row-retry"
+                          onClick={event => {
+                            event.stopPropagation();
+                            setShowModal(true);
+                          }}
+                        >
+                          Upload again
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span>{project.fileCount || 0} files</span>
+                        <span>Created {formatDate(project.createdAt)}</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -361,13 +430,26 @@ const DashboardPage: React.FC = () => {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
 
       {showModal && (
-        <NewProjectModal onClose={() => setShowModal(false)} />
+        <NewProjectModal
+          onClose={() => setShowModal(false)}
+          onUploaded={() => fetchProjects({ silent: true })}
+        />
+      )}
+
+      {progressJob && (
+        <IndexingProgressModal
+          projectId={progressJob.projectId}
+          projectName={progressJob.projectName}
+          jobId={progressJob.jobId}
+          onClose={() => setProgressJob(null)}
+        />
       )}
     </div>
   );

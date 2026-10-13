@@ -1,21 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef } from 'react';
 import apiClient from '../services/apiClient';
 import { getApiErrorMessage } from '../utils/apiError';
 import Dialog from './Dialog';
+import { ProgressBar } from './PanelKit';
 import './Modal.css';
 
 interface NewProjectModalProps {
   onClose: () => void;
-}
-
-interface JobStatus {
-  id: string;
-  projectId: string;
-  status: 'queued' | 'processing' | 'ready' | 'error' | 'cancelled';
-  progressPercent: number;
-  attempts: number;
-  errorMessage: string | null;
+  /** Called after the upload is accepted (202) so the dashboard can refresh. */
+  onUploaded?: () => void;
 }
 
 const MAX_ZIP_BYTES = 50 * 1024 * 1024;
@@ -33,20 +26,17 @@ const uploadIcon = (
  *
  * The dialog shell (Escape to dismiss, focus trapping, scroll lock, focus
  * return) is delegated to `Dialog`; everything here is the form and the
- * progress feedback for a two-step operation — create, then upload.
+ * upload feedback for a two-step operation — create, then upload. As soon as
+ * the backend accepts the upload (202) the dialog closes: indexing runs in
+ * the background and the dashboard card shows its progress.
  */
-const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
+const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }) => {
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [uploadProgress, setUploadProgress] = useState('');
-  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [cancelRequested, setCancelRequested] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
 
   /** Validation lives in one place so picking and dropping behave identically. */
   const acceptFile = (selectedFile: File | undefined | null) => {
@@ -86,112 +76,26 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
 
     try {
       // Create project
-      setUploadProgress('Creating project…');
       const createResponse = await apiClient.post('/projects', { name });
       const pid = createResponse.data.id;
-      setProjectId(pid);
 
-      // Upload ZIP — backend now returns 202 Accepted with job info
-      setUploadProgress('Uploading archive…');
+      // Upload ZIP — the backend answers 202 Accepted as soon as the job is
+      // queued. Indexing continues in the background: close immediately and
+      // let the dashboard card report progress (no navigation to chat).
       const formData = new FormData();
       formData.append('file', file);
 
-      const uploadResponse = await apiClient.post(`/projects/${pid}/upload`, formData, {
+      await apiClient.post(`/projects/${pid}/upload`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      // Start polling job status
-      const job: JobStatus = uploadResponse.data;
-      setJobStatus(job);
-      setUploadProgress(`Queued (${job.status})`);
+      onUploaded?.();
+      onClose();
     } catch (err) {
       setError(getApiErrorMessage(err, 'Failed to create project'));
-      setUploadProgress('');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleCancel = async () => {
-    if (!jobStatus || !projectId) return;
-    setCancelRequested(true);
-    try {
-      await apiClient.post(`/projects/${projectId}/jobs/${jobStatus.id}/cancel`);
-      setUploadProgress('Cancelling…');
-    } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to cancel indexing job'));
-      setCancelRequested(false);
-    }
-  };
-
-  // Poll job status while job is active
-  useEffect(() => {
-    if (!jobStatus || !jobStatus.id || !projectId) return;
-    if (jobStatus.status === 'ready' || jobStatus.status === 'error' || jobStatus.status === 'cancelled') {
-      return;
-    }
-
-    const intervalId = window.setInterval(async () => {
-      try {
-        const response = await apiClient.get(`/projects/${projectId}/jobs/${jobStatus.id}`);
-        const updated: JobStatus = response.data;
-        setJobStatus(updated);
-
-        if (updated.status === 'queued') {
-          setUploadProgress(`Queued… (${updated.attempts > 0 ? `retry ${updated.attempts}` : ''})`);
-        } else if (updated.status === 'processing') {
-          setUploadProgress(`Indexing… ${updated.progressPercent}%`);
-        } else if (updated.status === 'ready') {
-          setUploadProgress('Indexing complete!');
-          // Navigate to project after short delay
-          setTimeout(() => {
-            onClose();
-            navigate(`/projects/${projectId}`);
-          }, 800);
-        } else if (updated.status === 'error') {
-          setError(updated.errorMessage || 'Indexing failed');
-          setUploadProgress('');
-        } else if (updated.status === 'cancelled') {
-          setUploadProgress('Cancelled');
-        }
-      } catch (err) {
-        console.error('Failed to fetch job status:', err);
-      }
-    }, 2000);
-
-    return () => window.clearInterval(intervalId);
-  }, [jobStatus, projectId, navigate, onClose]);
-
-  const renderProgress = () => {
-    if (!jobStatus) return null;
-    return (
-      <div className="form-group" role="status" aria-live="polite">
-        <span className="form-label progress-label">{uploadProgress}</span>
-        <div className="progress-bar-container">
-          <div
-            className="progress-bar-fill"
-            style={{ width: `${jobStatus.progressPercent}%` }}
-          />
-        </div>
-      </div>
-    );
-  };
-
-  const renderCancelButton = () => {
-    if (!jobStatus) return null;
-    if (jobStatus.status === 'ready' || jobStatus.status === 'error' || jobStatus.status === 'cancelled') {
-      return null;
-    }
-    return (
-      <button
-        type="button"
-        className="ui-btn ui-btn-neutral"
-        onClick={handleCancel}
-        disabled={loading || cancelRequested}
-      >
-        {cancelRequested ? 'Cancelling…' : 'Cancel indexing'}
-      </button>
-    );
   };
 
   return (
@@ -222,7 +126,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
             placeholder="payments-service"
             required
             autoFocus
-            disabled={loading || !!jobStatus}
+            disabled={loading}
           />
         </div>
 
@@ -252,7 +156,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
               setDragActive(false);
               acceptFile(event.dataTransfer.files?.[0]);
             }}
-            disabled={loading || !!jobStatus}
+            disabled={loading}
           >
             <span className="upload-icon" aria-hidden="true">
               {uploadIcon}
@@ -272,31 +176,24 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose }) => {
           </p>
         )}
 
-        {uploadProgress && renderProgress()}
+        {loading && (
+          <div className="form-group" role="status" aria-live="polite">
+            <ProgressBar stage="uploading" loading showCancel={false} />
+          </div>
+        )}
 
         <div className="modal-actions">
           <button
             type="button"
             className="ui-btn ui-btn-neutral"
             onClick={onClose}
-            disabled={loading || !!jobStatus}
+            disabled={loading}
           >
-            {jobStatus ? 'Back to dashboard' : 'Cancel'}
+            Cancel
           </button>
-          {jobStatus ? (
-            renderCancelButton()
-          ) : (
-            <button type="submit" className="ui-btn ui-btn-primary" disabled={loading}>
-              {loading ? (
-                <>
-                  <span className="spinner spinner-xs" aria-hidden="true" />
-                  Working…
-                </>
-              ) : (
-                'Create project'
-              )}
-            </button>
-          )}
+          <button type="submit" className="ui-btn ui-btn-primary" disabled={loading}>
+            {loading ? 'Uploading…' : 'Create project'}
+          </button>
         </div>
       </form>
     </Dialog>

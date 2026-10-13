@@ -69,13 +69,17 @@ public class ProjectService {
 
         projectRepository.save(project);
 
-        return mapToResponse(project);
+        // No indexing job exists yet; the upload step creates it.
+        return mapToResponse(project, null);
     }
 
     public List<ProjectResponse> getUserProjects(UUID userId) {
-        return projectRepository.findByUserIdOrderByCreatedAtDesc(userId)
-                .stream()
-                .map(this::mapToResponse)
+        List<Project> projects = projectRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        // One extra query for the whole page: latest job per project (no N+1).
+        Map<UUID, IndexingJob> latestJobs = indexingJobService.latestJobsFor(
+                projects.stream().map(Project::getId).collect(Collectors.toList()));
+        return projects.stream()
+                .map(project -> mapToResponse(project, latestJobs.get(project.getId())))
                 .collect(Collectors.toList());
     }
 
@@ -87,7 +91,8 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
         }
 
-        return mapToResponse(project);
+        IndexingJob latestJob = indexingJobService.latestJobsFor(List.of(projectId)).get(projectId);
+        return mapToResponse(project, latestJob);
     }
 
     @Transactional
@@ -389,7 +394,7 @@ public class ProjectService {
         throw new ResponseStatusException(HttpStatus.CONFLICT, "Too many generated files with this name");
     }
 
-    private ProjectResponse mapToResponse(Project project) {
+    private ProjectResponse mapToResponse(Project project, IndexingJob latestJob) {
         return new ProjectResponse(
                 project.getId(),
                 project.getName(),
@@ -397,7 +402,9 @@ public class ProjectService {
                 project.getFileCount(),
                 project.getTotalSizeBytes(),
                 project.getErrorMessage(),
-                project.getCreatedAt()
+                project.getCreatedAt(),
+                latestJob != null ? latestJob.getId() : null,
+                latestJob != null ? latestJob.getProgressPercent() : null
         );
     }
 

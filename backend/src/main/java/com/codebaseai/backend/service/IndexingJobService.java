@@ -6,7 +6,9 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -221,6 +223,25 @@ public class IndexingJobService {
                 job.getAttempts(),
                 job.getErrorMessage()
         );
+    }
+
+    /**
+     * Latest job per project for a page of projects (dashboard progress).
+     * One query for the whole set — no N+1. Ownership is enforced by the
+     * caller's project list, never by the job rows themselves.
+     */
+    @Transactional(readOnly = true)
+    public Map<UUID, IndexingJob> latestJobsFor(Collection<UUID> projectIds) {
+        if (projectIds == null || projectIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<UUID, IndexingJob> latest = new HashMap<>();
+        for (IndexingJob job : indexingJobRepository.findLatestJobsForProjects(projectIds)) {
+            latest.merge(job.getProjectId(), job, (a, b) ->
+                    a.getCreatedAt() != null && b.getCreatedAt() != null
+                            && b.getCreatedAt().isAfter(a.getCreatedAt()) ? b : a);
+        }
+        return latest;
     }
 
     /** Purges any partially indexed data for a project. */
