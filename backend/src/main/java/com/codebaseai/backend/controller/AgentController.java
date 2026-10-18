@@ -19,8 +19,6 @@ import com.codebaseai.backend.dto.AgentInvestigateRequest;
 import com.codebaseai.backend.dto.AgentInvestigateResponse;
 import com.codebaseai.backend.dto.DebugRequest;
 import com.codebaseai.backend.dto.ExplainCodeRequest;
-import com.codebaseai.backend.dto.GenerateDocsRequest;
-import com.codebaseai.backend.dto.ImproveCodeRequest;
 import com.codebaseai.backend.config.AppProperties;
 import com.codebaseai.backend.service.AgentService;
 import com.codebaseai.backend.service.AgentStreamService;
@@ -48,17 +46,6 @@ public class AgentController {
         );
     }
 
-    @PostMapping("/generate-docs")
-    public ResponseEntity<Map<String, Object>> generateDocs(
-            @PathVariable UUID projectId,
-            @Valid @RequestBody GenerateDocsRequest request) {
-
-        UUID userId = getCurrentUserId();
-        return ResponseEntity.ok(
-            agentService.generateDocs(projectId, userId, request.getFilePath(), request.getSymbol())
-        );
-    }
-
     @PostMapping("/explain-code")
     public ResponseEntity<Map<String, Object>> explainCode(
             @PathVariable UUID projectId,
@@ -82,16 +69,6 @@ public class AgentController {
         );
     }
 
-    @PostMapping("/improve-code")
-    public ResponseEntity<Map<String, Object>> improveCode(
-            @PathVariable UUID projectId,
-            @Valid @RequestBody ImproveCodeRequest request) {
-
-        UUID userId = getCurrentUserId();
-        return ResponseEntity.ok(
-            agentService.improveCode(projectId, userId, request.getFilePath())
-        );
-    }
     // ---- Streaming variants ---------------------------------------------
     //
     // Same bounded runs as the sync endpoints above, but relayed as SSE so the
@@ -144,21 +121,6 @@ public class AgentController {
         body.put("stack_trace", request.getStackTrace());
         body.put("file_path", request.getFilePath());
         agentStreamService.stream(projectId, userId, "/agent/debug/stream", body, emitter);
-        return emitter;
-    }
-
-    @PostMapping(value = "/generate-docs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter generateDocsStream(
-            @PathVariable UUID projectId,
-            @Valid @RequestBody GenerateDocsRequest request) {
-
-        UUID userId = getCurrentUserId();
-        SseEmitter emitter = newEmitter();
-        Map<String, Object> body = new HashMap<>();
-        body.put("file_path", request.getFilePath());
-        body.put("project_id", projectId.toString());
-        body.put("symbol", request.getSymbol());
-        agentStreamService.stream(projectId, userId, "/agent/generate-docs/stream", body, emitter);
         return emitter;
     }
 

@@ -33,5 +33,5 @@ export interface Message {
 
 export type TabId = "chat" | "files" | "search" | "analyze"
 
-export type AnalyzeSubMode = "explain" | "debug" | "review" | "docstrings"
+export type AnalyzeSubMode = "explain" | "debug"
 

@@ -3,7 +3,7 @@ import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { useAgentRun } from '../hooks/useAgentRun';
-import { AgentCancelButton, CopyButton, FilePicker, PanelEmpty, PanelError, ProgressBar } from './PanelKit';
+import { CopyButton, FilePicker, PanelEmpty, PanelError, ProgressBar } from './PanelKit';
 
 interface ExplainPanelProps {
   projectId: string;
@@ -103,13 +103,12 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
           {loading ? (
             <>
               <span className="spinner spinner-xs" aria-hidden="true" />
-              Explaining…
+              Explaining...
             </>
           ) : (
             'Explain'
           )}
         </button>
-        {loading && <AgentCancelButton onClick={cancel} />}
       </div>
 
       {error && <PanelError message={error} onRetry={retry} />}

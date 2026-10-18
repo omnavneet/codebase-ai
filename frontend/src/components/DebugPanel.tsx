@@ -3,7 +3,7 @@ import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { type Finding } from './findings';
 import { useAgentRun } from '../hooks/useAgentRun';
-import { AgentCancelButton, AgentStepList, CopyButton, FindingsList, PanelEmpty, PanelError, PanelRun } from './PanelKit';
+import { AgentStepList, CopyButton, FindingsList, PanelEmpty, PanelError, ProgressBar } from './PanelKit';
 
 interface StackFrame {
   file?: string | null;
@@ -131,21 +131,22 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
           {loading ? (
             <>
               <span className="spinner spinner-xs" aria-hidden="true" />
-              Debugging…
+              Debugging...
             </>
           ) : (
             'Debug issue'
           )}
         </button>
-        {loading && <AgentCancelButton onClick={cancel} />}
       </form>
 
       {error && <PanelError message={error} onRetry={retry} />}
 
-      {loading && steps.length === 0 && (
-        <PanelRun
-          label="Working through the failure"
-          hint="Parsing the trace, then reading the code paths it points at."
+      {loading && (
+        <ProgressBar
+          stage="running"
+          step={steps[steps.length - 1]}
+          onCancel={cancel}
+          loading
         />
       )}
       <AgentStepList steps={steps} loading={loading} />

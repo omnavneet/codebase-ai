@@ -1,8 +1,6 @@
 import React, { useState } from "react"
 import ExplainPanel from "../../components/ExplainPanel"
 import DebugPanel from "../../components/DebugPanel"
-import ImprovePanel from "../../components/ImprovePanel"
-import DocstringsPanel from "../../components/DocstringsPanel"
 import { ANALYZE_SUB_MODES } from "./workspaceModes"
 import type { AnalyzeSubMode } from "./types"
 
@@ -12,9 +10,9 @@ interface AnalyzeModeProps {
 }
 
 /**
- * Groups Explain / Debug / Review / Docstrings under one Analyze tab.
- * Debug stays description-first; the other three are file-first.
- * Backend paths are unchanged — Review still hits /agent/improve-code.
+ * Groups Explain and Debug under one Analyze tab. Both run fixed, single-model
+ * pipelines on the AI service (no agent loop), so each is fast and predictable.
+ * Debug stays description-first; Explain is file-first.
  */
 const AnalyzeMode: React.FC<AnalyzeModeProps> = ({ projectId, onCitationClick }) => {
   const [subMode, setSubMode] = useState<AnalyzeSubMode>("explain")
@@ -45,8 +43,6 @@ const AnalyzeMode: React.FC<AnalyzeModeProps> = ({ projectId, onCitationClick })
         {subMode === "debug" && (
           <DebugPanel projectId={projectId} onCitationClick={onCitationClick} />
         )}
-        {subMode === "review" && <ImprovePanel projectId={projectId} />}
-        {subMode === "docstrings" && <DocstringsPanel projectId={projectId} />}
       </div>
     </div>
   )

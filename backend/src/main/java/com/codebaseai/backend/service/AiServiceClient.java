@@ -155,20 +155,7 @@ public class AiServiceClient {
                 "project_id", projectId));
     }
 
-    /**
-     * Generate doc comments for a file (or a specific symbol in it).
-     */
-    public Map<String, Object> generateDocs(String filePath, String projectId, String symbol) {
-        Map<String, Object> request = new HashMap<>();
-        request.put("file_path", filePath);
-        request.put("project_id", projectId);
-        if (symbol != null && !symbol.isBlank()) {
-            request.put("symbol", symbol);
-        }
-        return callAgent("/agent/generate-docs", request);
-    }
-
-    /** Explain a file (or symbol) in depth using the investigation agent. */
+    /** Explain a file (or symbol) with the fixed pipeline (one model call). */
     public Map<String, Object> explainCode(String filePath, String projectId, String symbol) {
         Map<String, Object> request = new HashMap<>();
         request.put("file_path", filePath);
@@ -191,13 +178,6 @@ public class AiServiceClient {
             request.put("file_path", filePath);
         }
         return callAgent("/agent/debug", request);
-    }
-
-    /** Review a file for bugs, performance, security and readability issues. */
-    public Map<String, Object> improveCode(String filePath, String projectId) {
-        return callAgent("/agent/improve-code", Map.of(
-                "file_path", filePath,
-                "project_id", projectId));
     }
 
     /**

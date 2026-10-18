@@ -296,13 +296,6 @@ export const AgentStepList: React.FC<{ steps: string[]; loading: boolean }> = ({
   );
 };
 
-/** Cancel control for an in-flight streaming agent run. */
-export const AgentCancelButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
-  <button type="button" className="ui-btn ui-btn-neutral ui-btn-sm" onClick={onClick}>
-    Stop
-  </button>
-);
-
 /** Placeholder cards that stand in for results while a request is running. */
 export const PanelSkeleton: React.FC<{ cards?: number }> = ({ cards = 3 }) => (
   <div className="panel-skeleton" aria-hidden="true">

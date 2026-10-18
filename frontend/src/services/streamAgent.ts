@@ -2,7 +2,7 @@
  * Consume an agent run streamed as Server-Sent Events.
  *
  * The backend relays the AI service's streaming agent endpoints (investigate,
- * explain, debug, docstrings), which emit `status` and `step` events as work
+ * explain, debug), which emit `status` and `step` events as work
  * happens, then a terminal `done` (with the full result payload) or `error`.
  * Uses fetch (POST + auth header + streaming body), the same approach as the
  * chat stream.

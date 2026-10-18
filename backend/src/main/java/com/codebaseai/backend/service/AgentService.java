@@ -60,18 +60,6 @@ public class AgentService {
         );
     }
 
-    public Map<String, Object> generateDocs(UUID projectId, UUID userId, String filePath, String symbol) {
-        requireReadyProject(projectId, userId);
-
-        if (filePath == null || filePath.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File path is required");
-        }
-
-        log.info("Generating documentation for {} in project {}", filePath, projectId);
-
-        return aiServiceClient.generateDocs(filePath.trim(), projectId.toString(), symbol);
-    }
-
     public Map<String, Object> explainCode(UUID projectId, UUID userId, String filePath, String symbol) {
         requireReadyProject(projectId, userId);
 
@@ -94,18 +82,6 @@ public class AgentService {
         log.info("Debugging issue in project {}", projectId);
 
         return aiServiceClient.debug(issueDescription.trim(), projectId.toString(), stackTrace, filePath);
-    }
-
-    public Map<String, Object> improveCode(UUID projectId, UUID userId, String filePath) {
-        requireReadyProject(projectId, userId);
-
-        if (filePath == null || filePath.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File path is required");
-        }
-
-        log.info("Reviewing {} in project {}", filePath, projectId);
-
-        return aiServiceClient.improveCode(filePath.trim(), projectId.toString());
     }
 
     private void requireReadyProject(UUID projectId, UUID userId) {

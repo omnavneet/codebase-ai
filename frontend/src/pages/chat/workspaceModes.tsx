@@ -56,7 +56,7 @@ export interface AnalyzeSubModeMeta {
   description: string
 }
 
-/** Labels for the four Analyze sub-modes. Backend paths are unchanged. */
+/** Labels for the two Analyze sub-modes. Backend paths are unchanged. */
 export const ANALYZE_SUB_MODES: Record<AnalyzeSubMode, AnalyzeSubModeMeta> = {
   explain: {
     title: 'Explain',
@@ -65,14 +65,6 @@ export const ANALYZE_SUB_MODES: Record<AnalyzeSubMode, AnalyzeSubModeMeta> = {
   debug: {
     title: 'Debug',
     description: 'Describe the failure and paste a stack trace.',
-  },
-  review: {
-    title: 'Review',
-    description: 'Review a file for bugs, performance, security and readability.',
-  },
-  docstrings: {
-    title: 'Docstrings',
-    description: 'Generate documentation comments for one file.',
   },
 }
 

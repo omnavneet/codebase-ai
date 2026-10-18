@@ -1,17 +1,18 @@
 """Synchronous bridge from the agent loop to the MCP tool server.
 
 The MCP SDK's client is async, while the agent runs inside FastAPI's sync
-endpoints, so each operation runs its own short event loop: connect over
-Streamable HTTP with the shared bearer token, do one call, disconnect. The
-per-connection cost is a few localhost round-trips, and the benefit is no
-background thread, no shared session state, and automatic recovery when the
-MCP server restarts.
+endpoints, so operations run their own short event loops. Two call shapes are
+offered: ``call_tool`` (one call, one connection) and ``call_tools`` — the
+batch used by one agent iteration, which runs all of its calls inside ONE
+connection and ONE event loop via ``asyncio.gather``. The per-connection cost
+is a few localhost round-trips, and the benefit is no background thread, no
+shared session state, and automatic recovery when the MCP server restarts.
 """
 
 import asyncio
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import httpx2
 from mcp import Client
@@ -66,6 +67,31 @@ class McpToolClient:
                 "The code-search tool server stopped responding mid-run. Please try again."
             ) from e
 
+    def call_tools(self, calls: Sequence[Tuple[str, Dict[str, Any]]]) -> List[Any]:
+        """Call several tools inside ONE connection and ONE event loop.
+
+        The calls run concurrently (``asyncio.gather``) and the results come
+        back in the same order as ``calls``. A per-call failure is captured
+        as that call's ``{"error": ...}`` result so one bad call does not
+        sink the rest of the iteration; connection-level failures (server
+        down, whole-batch timeout) still raise ``McpUnavailableError`` so the
+        run fails fast with the right reason.
+        """
+        if not calls:
+            return []
+        try:
+            return asyncio.run(
+                asyncio.wait_for(
+                    self._call_tools(calls),
+                    # One connection plus one round of parallel calls.
+                    MCP_CONNECT_TIMEOUT_S + 2 * MCP_CALL_TIMEOUT_S,
+                )
+            )
+        except (asyncio.TimeoutError, OSError, httpx2.HTTPError) as e:
+            raise McpUnavailableError(
+                "The code-search tool server stopped responding mid-run. Please try again."
+            ) from e
+
     # -- async internals ----------------------------------------------------
 
     @asynccontextmanager
@@ -107,13 +133,39 @@ class McpToolClient:
     async def _call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
         async with self._session() as client:
             result = await client.call_tool(name, arguments)
+        return _result_payload(result)
 
-        if result.is_error:
-            return {"error": _text_of(result) or "tool failed"}
-        if result.structured_content is not None:
-            return result.structured_content
-        text = _text_of(result)
-        return {} if text is None else text
+    async def _call_tools(self, calls: Sequence[Tuple[str, Dict[str, Any]]]) -> List[Any]:
+        async with self._session() as client:
+            return list(
+                await asyncio.gather(
+                    *(
+                        self._call_one(client, name, arguments)
+                        for name, arguments in calls
+                    )
+                )
+            )
+
+    async def _call_one(self, client, name: str, arguments: Dict[str, Any]) -> Any:
+        """One call inside a shared session; failures become that call's result."""
+        try:
+            result = await asyncio.wait_for(
+                client.call_tool(name, arguments), MCP_CALL_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            return {"error": "Tool timed out"}
+        except Exception as e:  # captured so the rest of the batch survives
+            return {"error": f"Tool execution failed: {e}"}
+        return _result_payload(result)
+
+
+def _result_payload(result) -> Any:
+    """Shape one MCP call result as a JSON-serialisable payload."""
+    if result.is_error:
+        return {"error": _text_of(result) or "tool failed"}
+    if result.structured_content is not None:
+        return result.structured_content
+    text = _text_of(result)
+    return {} if text is None else text
 
 
 def _text_of(result) -> Optional[str]:

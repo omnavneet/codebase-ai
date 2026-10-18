@@ -46,7 +46,7 @@ public class AppProperties {
         private int agentTimeoutSeconds = 300;
         /**
          * Server-side lifetime of one streaming agent SSE run. Must exceed the
-         * AI service's own run deadline (AGENT_RUN_TIMEOUT_SECONDS, default 150s)
+         * AI service's own run deadline (AGENT_RUN_TIMEOUT_SECONDS, default 60s)
          * plus headroom to stream the final events back.
          */
         private long agentStreamTimeoutMs = 200_000L;

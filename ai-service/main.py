@@ -13,10 +13,10 @@ import time
 import uuid
 from dotenv import load_dotenv
 from embedding_service import EmbeddingService
-from review_service import ReviewService
 from chat_service import ChatService
 from agent import CodebaseAgent
 from agent_tools import create_agent_tools_from_env
+from explain_service import ExplainService
 from debug_service import DebugService
 from llm_errors import (
     GENERIC_MESSAGE,
@@ -29,6 +29,14 @@ from llm_errors import (
 from mcp_client import McpToolClient, McpUnavailableError
 
 logger = logging.getLogger(__name__)
+
+# Make the agent's per-iteration timing logs (model_ms / tool_ms with the
+# request id) visible in the service output; uvicorn only configures its own
+# loggers, so without this the root logger drops INFO lines.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 # Load environment variables
 load_dotenv()
@@ -66,12 +74,12 @@ chat_service = ChatService()
 # processes always see identical configuration.
 agent_tools = create_agent_tools_from_env(embedding_service)
 
-# The investigation agent no longer holds a tool list of its own: it discovers
-# the read-only tools from the MCP tool server on first use and executes every
-# call through it, always scoped to the project it was asked about.
+# The investigation agent still owns its MCP-discovered tool loop for the
+# deep-investigate path. Explain and Debug use the fixed pipelines below,
+# which read through the in-process agent_tools (no MCP, no agent loop).
 agent = CodebaseAgent(chat_service.client, McpToolClient())
-review_service = ReviewService(agent_tools, chat_service.client)
-debug_service = DebugService(agent, agent_tools, chat_service.client)
+explain_service = ExplainService(agent_tools, chat_service.client)
+debug_service = DebugService(agent_tools, chat_service.client)
 
 # Request/Response models
 class EmbedRequest(BaseModel):
@@ -172,11 +180,14 @@ class AgentResponse(BaseModel):
 
 @app.post("/agent/investigate", response_model=AgentResponse)
 def investigate(request: AgentRequest):
+    # Correlates the per-iteration timing logs with this request.
+    request_id = uuid.uuid4().hex[:12]
     try:
-        result = agent.investigate(request.question, request.project_id)
+        result = agent.investigate(
+            request.question, request.project_id, request_id=request_id)
         return AgentResponse(**result)
     except Exception as e:
-        logger.exception("Agent investigation failed")
+        logger.exception("Agent investigation failed request_id=%s", request_id)
         raise HTTPException(status_code=502, detail="Agent investigation failed") from e
 
 
@@ -246,7 +257,7 @@ def _friendly_ai_error(exc: Exception) -> dict:
     return {"message": GENERIC_MESSAGE, "code": "internal"}
 
 
-def _run_agent_stream(fn, request: Request):
+def _run_agent_stream(fn, request: Request, request_id: Optional[str] = None):
     """Turn a blocking agent call into an SSE stream of step events.
 
     ``fn(on_event, cancel_event)`` runs the bounded agent loop on a worker
@@ -258,12 +269,15 @@ def _run_agent_stream(fn, request: Request):
     A disconnect-monitor thread checks ``request.is_disconnected()`` and sets
     ``cancel_event``, which is threaded to the agent so a cancelled run really
     stops the AI work instead of just hiding the UI.
+
+    ``request_id`` (optional) lets the caller pick the id used in the logs so
+    its own lines correlate with the agent's per-iteration timing lines.
     """
     cancel_event = threading.Event()
     events: "queue.Queue" = queue.Queue()
     result_box: dict = {}
     # Correlates the server-side stack trace with what the client saw.
-    request_id = uuid.uuid4().hex[:12]
+    request_id = request_id or uuid.uuid4().hex[:12]
 
     emit = events.put
 
@@ -311,113 +325,16 @@ def _run_agent_stream(fn, request: Request):
 @app.post("/agent/investigate/stream")
 def investigate_stream(request: AgentRequest):
     """Streaming twin of POST /agent/investigate (same loop, step events)."""
+    # One id per run, shared with the agent's own per-iteration timing logs
+    # so a slow run can be diagnosed from the ai-service logs.
+    request_id = uuid.uuid4().hex[:12]
+
     def run(emit, cancel_event):
         return agent.investigate(
-            request.question, request.project_id, on_event=emit, cancel_event=cancel_event
+            request.question, request.project_id,
+            on_event=emit, cancel_event=cancel_event, request_id=request_id,
         )
-    return _run_agent_stream(run, request)
-
-class GenerateDocsRequest(BaseModel):
-    file_path: str
-    project_id: str
-    symbol: Optional[str] = None  # function/class name if specific
-
-class GenerateDocsResponse(BaseModel):
-    file_path: str
-    documentation: str
-    language: str
-    symbol: Optional[str] = None
-
-def _generate_docs(request: "GenerateDocsRequest", emit=None) -> dict:
-    """Shared doc-generation body for the sync and streaming endpoints."""
-    def status(message: str) -> None:
-        if emit is not None:
-            try:
-                emit({"type": "status", "message": message})
-            except Exception:
-                pass
-
-    file_content = agent_tools.read_file(request.file_path, request.project_id)
-    if "error" in file_content:
-        raise HTTPException(status_code=404, detail=file_content["error"])
-
-    language = detect_language(request.file_path)
-    doc_format = get_doc_format(language)
-
-    if request.symbol:
-        prompt = f"""Generate {doc_format} documentation for {request.symbol} in this file:
-
-File: {request.file_path}
-Language: {language}
-
-Code:
-{file_content['content'][:5000]}
-
-Generate appropriate documentation based on the actual implementation.
-Include:
-- Description of what it does
-- Parameters/inputs
-- Return values/outputs
-- Exceptions/errors
-- Important notes
-
-Format as {doc_format} comments. Return only the documentation."""
-    else:
-        prompt = f"""Generate {doc_format} documentation for this entire file:
-
-File: {request.file_path}
-Language: {language}
-
-Code:
-{file_content['content'][:5000]}
-
-Generate appropriate file-level documentation including:
-- File purpose
-- Main functions/classes
-- Dependencies
-- Usage example if relevant
-
-Format as {doc_format} comments. Return only the documentation."""
-
-    status("Writing documentation")
-    response = chat_service.client.chat.completions.create(
-        model=os.getenv("LLM_MODEL"),
-        messages=[
-            {"role": "system", "content": "You are a documentation expert. Generate clear, concise code documentation."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3
-    )
-
-    return {
-        "file_path": request.file_path,
-        "documentation": response.choices[0].message.content or "",
-        "language": language,
-        "symbol": request.symbol,
-    }
-
-
-@app.post("/agent/generate-docs", response_model=GenerateDocsResponse)
-def generate_docs(request: GenerateDocsRequest):
-    """Generate doc comments (JavaDoc/JSDoc/docstring/...) for a file or symbol."""
-    try:
-        return GenerateDocsResponse(**_generate_docs(request))
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Documentation generation failed")
-        raise HTTPException(status_code=502, detail="Documentation generation failed") from e
-
-
-@app.post("/agent/generate-docs/stream")
-def generate_docs_stream(request: GenerateDocsRequest):
-    """Streaming twin of POST /agent/generate-docs (single LLM call, step events)."""
-    def run(emit, cancel_event):
-        try:
-            return _generate_docs(request, emit)
-        except HTTPException as exc:
-            raise McpUnavailableError(exc.detail if isinstance(exc.detail, str) else "That file could not be documented.")
-    return _run_agent_stream(run, request)
+    return _run_agent_stream(run, request, request_id=request_id)
 
 class ExplainCodeRequest(BaseModel):
     file_path: str
@@ -432,48 +349,10 @@ class DebugRequest(BaseModel):
 
 @app.post("/agent/explain-code", response_model=AgentResponse)
 def explain_code(request: ExplainCodeRequest):
-    """Explain a file (or symbol) in depth using the investigation agent."""
+    """Explain a file (or symbol) with the fixed pipeline: one model call."""
     try:
-        file_content = agent_tools.read_file(request.file_path, request.project_id)
-        if "error" in file_content:
-            raise HTTPException(status_code=404, detail=file_content["error"])
-
-        symbol_context = None
-        if request.symbol:
-            symbol_context = agent_tools.analyze_symbol(
-                request.symbol,
-                request.project_id,
-                request.file_path,
-            )
-            candidates = symbol_context.get("candidates", [])
-            matching_candidates = [
-                candidate for candidate in candidates
-                if candidate.get("file_path") == request.file_path
-            ]
-            if not symbol_context.get("found") or not matching_candidates:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Symbol '{request.symbol}' was not found in {request.file_path}",
-                )
-
-        target = f"'{request.symbol}' in {request.file_path}" if request.symbol else request.file_path
-        question = f"""Explain {target} in depth.
-
-First read {request.file_path}, then follow its key dependencies to understand the full context.
-Cover: what it does, how it works step by step, the key data flow, and how it connects to the rest of the codebase.
-Cite specific files and line numbers.
-
-Verified target file content:
-{file_content['content'][:8000]}
-"""
-        if symbol_context:
-            question += f"""
-
-Verified symbol-index data for the requested symbol:
-{json.dumps(symbol_context, default=str)[:8000]}
-"""
-
-        result = agent.investigate(question, request.project_id)
+        result = explain_service.explain(
+            request.file_path, request.project_id, request.symbol)
         return AgentResponse(**result)
     except HTTPException:
         raise
@@ -482,67 +361,20 @@ Verified symbol-index data for the requested symbol:
         raise HTTPException(status_code=502, detail="Code explanation failed") from e
 
 
-def _build_explain_question(request: "ExplainCodeRequest", emit=None) -> str:
-    """Shared prep for explain (read file, resolve symbol, build the question).
-
-    Raises HTTPException(404) if the file or symbol can't be found — surfaced
-    to the streaming client as an error event.
-    """
-    def status(message: str) -> None:
-        if emit is not None:
-            emit({"type": "status", "message": message})
-
-    file_content = agent_tools.read_file(request.file_path, request.project_id)
-    if "error" in file_content:
-        raise HTTPException(status_code=404, detail=file_content["error"])
-
-    symbol_context = None
-    if request.symbol:
-        status(f"Locating {request.symbol}")
-        symbol_context = agent_tools.analyze_symbol(
-            request.symbol, request.project_id, request.file_path,
-        )
-        candidates = symbol_context.get("candidates", [])
-        matching_candidates = [
-            candidate for candidate in candidates
-            if candidate.get("file_path") == request.file_path
-        ]
-        if not symbol_context.get("found") or not matching_candidates:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Symbol '{request.symbol}' was not found in {request.file_path}",
-            )
-
-    target = f"'{request.symbol}' in {request.file_path}" if request.symbol else request.file_path
-    question = f"""Explain {target} in depth.
-
-First read {request.file_path}, then follow its key dependencies to understand the full context.
-Cover: what it does, how it works step by step, the key data flow, and how it connects to the rest of the codebase.
-Cite specific files and line numbers.
-
-Verified target file content:
-{file_content['content'][:8000]}
-"""
-    if symbol_context:
-        question += f"""
-
-Verified symbol-index data for the requested symbol:
-{json.dumps(symbol_context, default=str)[:8000]}
-"""
-    return question
-
-
 @app.post("/agent/explain-code/stream")
 def explain_code_stream(request: ExplainCodeRequest):
-    """Streaming twin of POST /agent/explain-code (same loop, step events)."""
+    """Streaming twin of POST /agent/explain-code (fixed pipeline, step events)."""
     def run(emit, cancel_event):
         try:
-            question = _build_explain_question(request, emit)
+            return explain_service.explain(
+                request.file_path, request.project_id, request.symbol,
+                on_event=emit, cancel_event=cancel_event)
         except HTTPException as exc:
             # Surface the not-found as an SSE error rather than a raised 404,
             # because the stream has already started (200 OK).
-            raise McpUnavailableError(exc.detail if isinstance(exc.detail, str) else "That file or symbol could not be found.")
-        return agent.investigate(question, request.project_id, on_event=emit, cancel_event=cancel_event)
+            raise McpUnavailableError(
+                exc.detail if isinstance(exc.detail, str)
+                else "That file or symbol could not be found.")
     return _run_agent_stream(run, request)
 
 class DebugFinding(BaseModel):
@@ -611,74 +443,6 @@ def debug_stream(request: DebugRequest):
             cancel_event=cancel_event,
         )
     return _run_agent_stream(run, request)
-
-class ImproveCodeRequest(BaseModel):
-    file_path: str
-    project_id: str
-
-class ImprovementFinding(BaseModel):
-    severity: str
-    category: str
-    title: str
-    lines: str
-    description: str
-    suggestion: str
-    code_before: Optional[str] = None
-    code_after: Optional[str] = None
-
-class ImproveCodeResponse(BaseModel):
-    file_path: str
-    summary: str
-    findings: List[ImprovementFinding]
-
-@app.post("/agent/improve-code", response_model=ImproveCodeResponse)
-def improve_code(request: ImproveCodeRequest):
-    """Review a file for bugs, performance, security and readability issues.
-
-    Uses a deterministic pipeline (read -> dependencies -> semantic search ->
-    one LLM call) instead of the agent loop, because the task is bounded to a
-    single known file.
-    """
-    try:
-        result = review_service.review_file(request.file_path, request.project_id)
-        return ImproveCodeResponse(**result)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.exception("Code review failed")
-        raise HTTPException(status_code=502, detail="Code review failed") from e
-
-def detect_language(file_path: str) -> str:
-    """Detect language from file extension"""
-    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
-
-    language_map = {
-        "java": "java",
-        "py": "python",
-        "js": "javascript",
-        "ts": "typescript",
-        "jsx": "javascript",
-        "tsx": "typescript",
-        "go": "go",
-        "rb": "ruby",
-        "rs": "rust"
-    }
-
-    return language_map.get(ext, "unknown")
-
-def get_doc_format(language: str) -> str:
-    """Get documentation comment format for language"""
-    format_map = {
-        "java": "JavaDoc",
-        "python": "docstring",
-        "javascript": "JSDoc",
-        "typescript": "JSDoc",
-        "go": "GoDoc",
-        "ruby": "RDoc",
-        "rust": "RustDoc"
-    }
-
-    return format_map.get(language, "standard comment")
 
 
 if __name__ == "__main__":
