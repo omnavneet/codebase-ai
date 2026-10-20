@@ -10,4 +10,6 @@ import java.util.Map;
 public class ChatMessageResponse {
     private String answer;
     private List<Map<String, Object>> citations;
+    private int usedChars;
+    private int budgetChars;
 }

@@ -23,8 +23,19 @@ public class Conversation {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at")
+        @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    /** Condensed summary of older messages (kept out of the live history window). */
+    @Column(name = "summary", columnDefinition = "TEXT")
+    private String summary;
+
+    /**
+     * Id of the last message folded into {@code summary}; everything after it
+     * is still live history sent to the model.
+     */
+    @Column(name = "summary_through_message_id")
+    private UUID summaryThroughMessageId;
 
     @PrePersist
     protected void onCreate() {

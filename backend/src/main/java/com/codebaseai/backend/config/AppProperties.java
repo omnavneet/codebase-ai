@@ -76,7 +76,7 @@ public class AppProperties {
         private int overlapLines = 3;
     }
 
-    @Data
+@Data
     public static class Retrieval {
         /** Chunks fed to the LLM as chat context. */
         private int chatTopK = 5;
@@ -98,6 +98,18 @@ public class AppProperties {
          * (no summarisation). Bounds the prompt on long conversations.
          */
         private int historyMaxMessages = 8;
+        /**
+         * Approximate character budget for the chat prompt (tokens ~ chars/4).
+         * When the assembled prompt exceeds 70% of this budget,
+         * summarization is triggered.
+         */
+        private int chatContextBudgetChars = 60000;
+        /**
+         * Maximum number of messages older than the recent window and not covered
+         * by the summary that can accumulate before summarization is triggered.
+         * Defaults to about 6 messages.
+         */
+        private int chatHistorySummaryThreshold = 6;
     }
 
     @Data
