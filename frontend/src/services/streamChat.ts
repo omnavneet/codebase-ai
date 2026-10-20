@@ -10,6 +10,7 @@ export interface StreamHandlers {
   onMeta?: (citations: unknown[]) => void;
   onToken: (token: string) => void;
   onDone?: (messageId: string) => void;
+  onContext?: (context: { usedChars: number; budgetChars: number } | undefined) => void;
   onError: (message: string) => void;
 }
 
@@ -19,6 +20,7 @@ interface StreamEventPayload {
   t?: string;
   messageId?: string;
   message?: string;
+  context?: { usedChars: number; budgetChars: number };
 }
 
 export const streamChatMessage = async (
@@ -79,7 +81,7 @@ export const streamChatMessage = async (
     return value;
   };
 
-  const processEvent = (rawEvent: string) => {
+const processEvent = (rawEvent: string) => {
     let event = 'message';
     const dataLines: string[] = [];
     for (const rawLine of rawEvent.split('\n')) {
@@ -107,6 +109,8 @@ export const streamChatMessage = async (
       handlers.onToken(payload.t ?? '');
     } else if (event === 'done') {
       handlers.onDone?.(payload.messageId ?? '');
+      // Handle context indicator from the done event
+      handlers.onContext?.(payload.context);
       // `done` is the authoritative end-of-answer signal. Stop reading
       // immediately: dev proxies (and some intermediaries) keep the SSE
       // connection open after the server completes, which would otherwise
@@ -118,7 +122,7 @@ export const streamChatMessage = async (
       return true;
     }
     return false;
-  };
+};
 
   // Locate the blank-line separator that terminates an event. Servers and
   // intermediaries may use LF or CRLF line endings, so handle "\n\n",

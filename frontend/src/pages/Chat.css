@@ -832,6 +832,7 @@
   justify-content: center;
   flex-shrink: 0;
   background: linear-gradient(180deg, transparent 0%, var(--m3-surface) 40%);
+  position: relative;
 }
 
 .chat-composer-card {
@@ -850,6 +851,22 @@
 .chat-composer-card:focus-within {
   border-color: var(--m3-primary);
   box-shadow: 0 6px 24px rgba(26, 115, 232, 0.12), 0 0 0 1px var(--m3-primary);
+}
+
+.composer-context-indicator {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--m3-on-surface-variant);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.composer-context-indicator.critical {
+  color: var(--m3-error);
+  opacity: 0.9;
 }
 
 .chat-composer-input {

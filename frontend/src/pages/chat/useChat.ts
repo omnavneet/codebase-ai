@@ -31,6 +31,10 @@ export function useChat(projectId: string | undefined) {
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState("")
 
+  // Context indicator state
+  const [contextPercent, setContextPercent] = useState<number | null>(null)
+  const [contextBudget, setContextBudget] = useState<number>(60000)
+
   // Tracks the in-flight chat stream so it can be cancelled when leaving the
   // page or switching projects.
   const streamAbortRef = useRef<AbortController | null>(null)
@@ -107,6 +111,7 @@ export function useChat(projectId: string | undefined) {
     setLoading(false)
     setActiveConversation(conversationId)
     setError("")
+    setContextPercent(null)
     rememberConversation(conversationId)
     if (isLocalNewChat(conversationId) || !projectId) {
       setMessages([])
@@ -534,6 +539,15 @@ export function useChat(projectId: string | undefined) {
               updateAssistant((message) => ({ ...message, id: messageId }))
             }
           },
+          onContext: (context) => {
+            if (context && context.budgetChars > 0) {
+              const used = context.usedChars || 0
+              const budget = context.budgetChars
+              const percent = Math.round((used / budget) * 100)
+              setContextPercent(percent)
+              setContextBudget(budget)
+            }
+          },
           onError: (message) => {
             // The stream's own reason becomes the error bar with Retry; any
             // partial answer already shown is kept untouched.
@@ -660,5 +674,7 @@ export function useChat(projectId: string | undefined) {
     sendQuery,
     stop,
     regenerate,
+    contextPercent,
+    contextBudget,
   }
 }

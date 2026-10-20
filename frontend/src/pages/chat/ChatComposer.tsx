@@ -9,6 +9,8 @@ interface ChatComposerProps {
   loading: boolean
   deepInvestigate: boolean
   onToggleDeep: () => void
+  /** null when unknown; otherwise estimated percentage of context budget used. */
+  contextPercent: number | null
 }
 
 const ChatComposer: React.FC<ChatComposerProps> = ({
@@ -19,6 +21,7 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
   loading,
   deepInvestigate,
   onToggleDeep,
+  contextPercent,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const canSend = value.trim().length > 0 && !loading
@@ -45,6 +48,10 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
     }
     wasLoadingRef.current = loading
   }, [loading])
+
+  // Determine context color and class
+  const contextClass = contextPercent !== null && contextPercent >= 85 ? "critical" : ""
+  const contextPercentDisplay = contextPercent !== null ? `${contextPercent}%` : ""
 
   const handleSend = () => {
     // Enter on an empty (or whitespace-only) box does nothing.
@@ -151,6 +158,13 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
             )}
           </div>
         </div>
+
+        {/* Context indicator */}
+        {contextPercent !== null && (
+          <span className={`composer-context-indicator ${contextClass}`} title="Older messages are summarized automatically">
+            Context {contextPercentDisplay}
+          </span>
+        )}
       </div>
     </div>
   )

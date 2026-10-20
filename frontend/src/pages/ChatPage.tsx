@@ -480,6 +480,7 @@ const ChatPage: React.FC = () => {
               loading={chat.loading}
               deepInvestigate={deepInvestigate}
               onToggleDeep={() => setDeepInvestigate((prev) => !prev)}
+              contextPercent={chat.contextPercent}
             />
           </>
         ) : (
