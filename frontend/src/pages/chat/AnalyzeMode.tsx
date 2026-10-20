@@ -7,6 +7,8 @@ import type { AnalyzeSubMode } from "./types"
 interface AnalyzeModeProps {
   projectId: string
   onCitationClick: (filePath: string, startLine?: number, endLine?: number) => void
+  /** Project file paths — citations only link when they resolve against it. */
+  filePaths: string[]
 }
 
 /**
@@ -14,7 +16,7 @@ interface AnalyzeModeProps {
  * pipelines on the AI service (no agent loop), so each is fast and predictable.
  * Debug stays description-first; Explain is file-first.
  */
-const AnalyzeMode: React.FC<AnalyzeModeProps> = ({ projectId, onCitationClick }) => {
+const AnalyzeMode: React.FC<AnalyzeModeProps> = ({ projectId, onCitationClick, filePaths }) => {
   const [subMode, setSubMode] = useState<AnalyzeSubMode>("explain")
   const subModes = Object.keys(ANALYZE_SUB_MODES) as AnalyzeSubMode[]
 
@@ -38,10 +40,18 @@ const AnalyzeMode: React.FC<AnalyzeModeProps> = ({ projectId, onCitationClick })
 
       <div className="analyze-body" role="tabpanel">
         {subMode === "explain" && (
-          <ExplainPanel projectId={projectId} onCitationClick={onCitationClick} />
+          <ExplainPanel
+            projectId={projectId}
+            onCitationClick={onCitationClick}
+            filePaths={filePaths}
+          />
         )}
         {subMode === "debug" && (
-          <DebugPanel projectId={projectId} onCitationClick={onCitationClick} />
+          <DebugPanel
+            projectId={projectId}
+            onCitationClick={onCitationClick}
+            filePaths={filePaths}
+          />
         )}
       </div>
     </div>

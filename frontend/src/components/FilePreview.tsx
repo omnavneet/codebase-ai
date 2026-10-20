@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import Dialog from './Dialog';
 import { CopyButton } from './PanelKit';
 import './Modal.css';
@@ -15,6 +15,13 @@ interface FilePreviewProps {
   error?: string;
   onRetry?: () => void;
   onClose: () => void;
+  /**
+   * Optional line focus, set when the viewer is opened from a citation: the
+   * range is highlighted and scrolled into view (clamped to the file's real
+   * length). The caller drops the props after ~2s to end the flash.
+   */
+  highlightLine?: number;
+  highlightEnd?: number;
 }
 
 const formatBytes = (bytes: number) => {
@@ -36,6 +43,8 @@ const FilePreview: React.FC<FilePreviewProps> = ({
   error = "",
   onRetry,
   onClose,
+  highlightLine,
+  highlightEnd,
 }) => {
   const stats = useMemo(() => {
     if (!file || !file.content) return null;
@@ -45,6 +54,37 @@ const FilePreview: React.FC<FilePreviewProps> = ({
       size: formatBytes(bytes),
     };
   }, [file]);
+
+  const contentLines = useMemo(
+    () => (file?.content ? file.content.split('\n') : []),
+    [file],
+  );
+  const codeRef = useRef<HTMLPreElement>(null);
+
+  // Clamp the citation's line to the real file, so a line number beyond the
+  // end lands on the last line instead of nowhere.
+  const focusStart =
+    highlightLine != null && contentLines.length > 0
+      ? Math.min(Math.max(1, highlightLine), contentLines.length)
+      : 0;
+  const focusEnd =
+    focusStart > 0
+      ? Math.min(
+          Math.max(focusStart, highlightEnd ?? focusStart),
+          contentLines.length,
+        )
+      : 0;
+
+  // Bring the cited line into view once the content it lives in has rendered
+  // (the <pre> is its own scroll container). focusStart only becomes > 0
+  // when that content has actually arrived.
+  useEffect(() => {
+    if (!focusStart || loading || error) return;
+    const target = codeRef.current?.querySelector<HTMLElement>(
+      `[data-line="${focusStart}"]`,
+    );
+    target?.scrollIntoView({ block: 'center' });
+  }, [focusStart, loading, error]);
 
   if (!file) return null;
 
@@ -98,6 +138,27 @@ const FilePreview: React.FC<FilePreviewProps> = ({
             </button>
           )}
         </div>
+      ) : focusStart > 0 ? (
+        // Citation open: render line by line so the cited range can be
+        // highlighted and scrolled to. Newlines stay as text between the
+        // spans, so the copied/selected text matches the file exactly.
+        <pre className="file-preview-code" ref={codeRef}>
+          {contentLines.map((line, index) => (
+            <React.Fragment key={index}>
+              <span
+                data-line={index + 1}
+                className={
+                  index + 1 >= focusStart && index + 1 <= focusEnd
+                    ? 'file-preview-line file-preview-line-focus'
+                    : 'file-preview-line'
+                }
+              >
+                {line}
+              </span>
+              {index < contentLines.length - 1 ? '\n' : ''}
+            </React.Fragment>
+          ))}
+        </pre>
       ) : (
         <pre className="file-preview-code">{file.content}</pre>
       )}

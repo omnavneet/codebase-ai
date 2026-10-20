@@ -202,30 +202,30 @@
   color: #10612b;
 }
 
-/* Citation chip inside an answer: opens the file at that line. */
+/* Inline citation inside an answer: a quiet monospace link (only rendered
+   when the cited path resolves to a real project file). */
 .inline-citation {
-  display: inline-flex;
-  align-items: center;
-  margin: 0 2px;
-  padding: 1px 7px;
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--m3-shape-xs);
-  background: var(--m3-surface-container-low);
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
   font-family: var(--font-mono);
-  font-size: var(--text-2xs);
+  font-size: 0.92em;
   color: var(--m3-primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--m3-primary) 45%, transparent);
+  text-underline-offset: 2px;
   cursor: pointer;
-  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
-              border-color var(--m3-duration-short) var(--m3-ease-out);
 }
 
 .inline-citation:hover {
-  background: var(--m3-primary-soft);
-  border-color: var(--m3-primary);
+  text-decoration-color: var(--m3-primary);
 }
 
 .inline-citation:focus-visible {
   outline: none;
+  border-radius: 2px;
   box-shadow: var(--ring-focus);
 }
 

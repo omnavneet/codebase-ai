@@ -266,6 +266,20 @@
   white-space: pre;
 }
 
+/* Line flash when the viewer is opened from a citation: the cited range
+   gets this background for ~2s, then ChatPage drops the highlight prop and
+   the transition fades it out. Text-run width only — no layout shift. */
+.file-preview-line {
+  border-radius: 2px;
+  transition: background-color 400ms ease;
+}
+
+.file-preview-line-focus {
+  background: var(--m3-primary-soft);
+  padding: 0 1px;
+  margin: 0 -1px;
+}
+
 .file-preview-skeleton {
   display: flex;
   flex-direction: column;

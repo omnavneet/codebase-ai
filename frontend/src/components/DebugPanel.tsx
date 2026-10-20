@@ -26,6 +26,8 @@ interface DebugResult extends AgentInvestigation {
 interface DebugPanelProps {
   projectId: string;
   onCitationClick: (filePath: string, startLine?: number, endLine?: number) => void;
+  /** Project file paths — citations only link when they resolve against it. */
+  filePaths: string[];
 }
 
 const debugIcon = (
@@ -40,7 +42,7 @@ const debugIcon = (
  * it gets a monospaced field with room to paste — but it stays optional, so
  * the mode still works from a description alone.
  */
-const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) => {
+const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, filePaths }) => {
   const [description, setDescription] = useState('');
   const [stackTrace, setStackTrace] = useState('');
   const [filePath, setFilePath] = useState('');
@@ -217,7 +219,11 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) =
               <CopyButton text={result.answer} label="Copy" />
             </div>
             <div className="panel-answer">
-              <MarkdownAnswer content={result.answer} onCitationClick={onCitationClick} />
+              <MarkdownAnswer
+                content={result.answer}
+                onCitationClick={onCitationClick}
+                filePaths={filePaths}
+              />
             </div>
           </section>
         </div>

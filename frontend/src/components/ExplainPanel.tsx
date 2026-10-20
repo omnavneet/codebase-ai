@@ -8,6 +8,8 @@ import { CopyButton, FilePicker, PanelEmpty, PanelError, ProgressBar } from './P
 interface ExplainPanelProps {
   projectId: string;
   onCitationClick: (filePath: string, startLine?: number, endLine?: number) => void;
+  /** Project file paths — citations only link when they resolve against it. */
+  filePaths: string[];
 }
 
 const explainIcon = (
@@ -23,7 +25,7 @@ const explainIcon = (
  * interaction, so it leads; the answer is a trace plus an explanation, both of
  * which can cite the source they came from.
  */
-const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick }) => {
+const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick, filePaths }) => {
   const { files, loading: filesLoading, error: filesError, reload } = useProjectFiles(projectId);
   const [selectedFile, setSelectedFile] = useState('');
   const [symbol, setSymbol] = useState('');
@@ -175,7 +177,11 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick 
               <CopyButton text={displayResult.answer} label="Copy explanation" />
             </div>
             <div className="panel-answer">
-              <MarkdownAnswer content={displayResult.answer} onCitationClick={onCitationClick} />
+              <MarkdownAnswer
+                content={displayResult.answer}
+                onCitationClick={onCitationClick}
+                filePaths={filePaths}
+              />
             </div>
           </section>
         </div>

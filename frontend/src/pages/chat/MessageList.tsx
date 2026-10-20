@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { Citation, Message } from './types'
 import MarkdownAnswer from '../../components/MarkdownAnswer'
+import type { CitationClickHandler } from '../../components/citationUtils'
 import { copyText } from '../../utils/clipboard'
 
 interface MessageListProps {
@@ -8,7 +9,15 @@ interface MessageListProps {
   loading: boolean
   /** Terminal reason from a failed stream; rendered with a Retry action. */
   error?: string
+  /** Sources chips under an answer: open the snippet preview (unchanged). */
   onCitationClick: (citation: Citation) => void
+  /** Inline `file.ext:line` citations in the answer text: open the file. */
+  onOpenCitation: CitationClickHandler
+  /**
+   * The project's file paths — inline citations only become links when they
+   * resolve against this list.
+   */
+  filePaths: string[]
   /**
    * Scroll container owned by the workspace. Passing it in lets auto-scroll
    * respect where the user has scrolled to instead of yanking the view down
@@ -61,6 +70,8 @@ const MessageList: React.FC<MessageListProps> = ({
   loading,
   error,
   onCitationClick,
+  onOpenCitation,
+  filePaths,
   scrollContainerRef,
   onRetry,
   onRegenerate,
@@ -173,13 +184,8 @@ const MessageList: React.FC<MessageListProps> = ({
                   {message.role === 'assistant' ? (
                     <MarkdownAnswer
                       content={message.content}
-                      onCitationClick={(filePath, startLine, endLine) =>
-                        onCitationClick({
-                          file_path: filePath,
-                          start_line: startLine ?? 0,
-                          end_line: endLine ?? startLine ?? 0,
-                        })
-                      }
+                      onCitationClick={onOpenCitation}
+                      filePaths={filePaths}
                     />
                   ) : (
                     message.content
