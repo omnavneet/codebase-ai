@@ -119,24 +119,30 @@ public class ChatService {
 
     /**
      * Result of the blocking prep phase: session, question, retrieved context
-     * and the recent conversation history (for LLM continuity).
+     * and the recent conversation history (for LLM continuity). The flag says
+     * whether this run is a re-ask that must replace the trailing answer.
      */
     public record PreparedChat(
             ChatSession session,
             String question,
             List<Map<String, Object>> context,
-            List<Map<String, String>> history) {}
+            List<Map<String, String>> history,
+            boolean regenerate) {}
 
     @Transactional
     public ChatMessageResponse sendMessage(
-            UUID sessionId, UUID userId, String question, boolean userMessagePersisted) {
-        PreparedChat prepared = prepareChat(sessionId, userId, question, !userMessagePersisted);
+            UUID sessionId, UUID userId, String question,
+            boolean userMessagePersisted, boolean regenerate) {
+        PreparedChat prepared = prepareChat(
+                sessionId, userId, question, !userMessagePersisted, regenerate);
 
         Map<String, Object> aiResponse = aiServiceClient.chat(
                 prepared.question(), prepared.context(), prepared.history());
         String answer = (String) aiResponse.get("answer");
 
-        persistAssistantMessage(prepared.session(), answer != null ? answer : "", prepared.context());
+        persistAssistantMessage(
+                prepared.session(), answer != null ? answer : "",
+                prepared.context(), prepared.regenerate());
 
         return new ChatMessageResponse(answer, prepared.context());
     }
@@ -152,7 +158,7 @@ public class ChatService {
      * self-invocation — so removing it changes nothing there.)
      */
     public PreparedChat prepareChat(UUID sessionId, UUID userId, String question) {
-        return prepareChat(sessionId, userId, question, true);
+        return prepareChat(sessionId, userId, question, true, false);
     }
 
     /**
@@ -160,9 +166,16 @@ public class ChatService {
      * The streaming path persists the user message in this prep phase, so the
      * sync endpoint — used as a fallback when streaming fails — must not save
      * the question again, otherwise it appears duplicated in the conversation.
+     *
+     * <p>{@code regenerate} marks a re-ask of the trailing question: the stale
+     * answer and the stored copy of the question are dropped from the LLM
+     * history (the question itself is passed to the model separately) and the
+     * user message is never persisted again, so history keeps exactly one
+     * copy of the question and one answer per ask.
      */
     public PreparedChat prepareChat(
-            UUID sessionId, UUID userId, String question, boolean persistUserMessage) {
+            UUID sessionId, UUID userId, String question,
+            boolean persistUserMessage, boolean regenerate) {
         ChatSession session = chatSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
         if (!session.getUserId().equals(userId)) {
@@ -179,6 +192,15 @@ public class ChatService {
         // streaming path.
         List<ChatMessage> recentMessages =
                 chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        // Re-ask (regenerate): drop the stale trailing answer first; the rule
+        // below then drops the trailing copy of this question, so the prompt
+        // matches the original ask and nothing is prompted (or stored) twice.
+        if (regenerate && !recentMessages.isEmpty()) {
+            int end = recentMessages.size();
+            if ("assistant".equals(recentMessages.get(end - 1).getRole())) {
+                recentMessages = recentMessages.subList(0, end - 1);
+            }
+        }
         // Fallback path (persistUserMessage=false): the failed stream already
         // persisted this exact question, so it is the trailing entry — drop it
         // to avoid prompting it twice.
@@ -200,7 +222,8 @@ public class ChatService {
                     "content", content.length() > 2000 ? content.substring(0, 2000) : content));
         }
 
-        if (persistUserMessage) {
+        // A regenerate never re-persists the question: it is already stored.
+        if (persistUserMessage && !regenerate) {
             ChatMessage userMessage = new ChatMessage();
             userMessage.setSessionId(sessionId);
             userMessage.setRole("user");
@@ -253,13 +276,34 @@ public class ChatService {
         session.setUpdatedAt(LocalDateTime.now());
         chatSessionRepository.save(session);
 
-        return new PreparedChat(session, trimmedQuestion, context, history);
+        return new PreparedChat(session, trimmedQuestion, context, history, regenerate);
     }
 
-    private ChatMessage persistAssistantMessage(ChatSession session, String content, List<Map<String, Object>> context) {
-        ChatMessage assistantMessage = new ChatMessage();
-        assistantMessage.setSessionId(session.getId());
-        assistantMessage.setRole("assistant");
+    /**
+     * Persist the answer. On a regenerate the trailing assistant message is
+     * overwritten in place (one answer per question in history); when no such
+     * message exists — the first attempt errored before any token — a new row
+     * is inserted as usual.
+     */
+    private ChatMessage persistAssistantMessage(
+            ChatSession session, String content,
+            List<Map<String, Object>> context, boolean regenerate) {
+        ChatMessage assistantMessage = null;
+        if (regenerate) {
+            List<ChatMessage> messages =
+                    chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(session.getId());
+            if (!messages.isEmpty()) {
+                ChatMessage last = messages.get(messages.size() - 1);
+                if ("assistant".equals(last.getRole())) {
+                    assistantMessage = last;
+                }
+            }
+        }
+        if (assistantMessage == null) {
+            assistantMessage = new ChatMessage();
+            assistantMessage.setSessionId(session.getId());
+            assistantMessage.setRole("assistant");
+        }
         assistantMessage.setContent(content);
 
         try {
@@ -268,8 +312,7 @@ public class ChatService {
             log.error("Failed to serialize citations", e);
         }
 
-        chatMessageRepository.save(assistantMessage);
-        return assistantMessage;
+        return chatMessageRepository.save(assistantMessage);
     }
 
     /**
@@ -288,7 +331,8 @@ public class ChatService {
         Runnable persistPartial = () -> {
             if (persisted.compareAndSet(false, true) && content.length() > 0) {
                 try {
-                    persistAssistantMessage(session, content.toString(), prepared.context());
+                    persistAssistantMessage(session, content.toString(),
+                            prepared.context(), prepared.regenerate());
                 } catch (RuntimeException e) {
                     log.error("Failed to persist partial answer for session {}", session.getId(), e);
                 }
@@ -400,7 +444,8 @@ public class ChatService {
                             if (persisted.compareAndSet(false, true) && content.length() > 0) {
                                 try {
                                     ChatMessage saved = persistAssistantMessage(
-                                            session, content.toString(), prepared.context());
+                                            session, content.toString(),
+                                            prepared.context(), prepared.regenerate());
                                     messageId = String.valueOf(saved.getId());
                                 } catch (RuntimeException e) {
                                     // Still send `done`: losing history must not

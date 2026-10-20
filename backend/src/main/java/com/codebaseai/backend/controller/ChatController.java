@@ -69,7 +69,8 @@ public class ChatController {
             @Valid @RequestBody ChatMessageRequest request) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(chatService.sendMessage(
-                sessionId, userId, request.getContent(), userMessagePersisted));
+                sessionId, userId, request.getContent(),
+                userMessagePersisted, request.isRegenerate()));
     }
 
     /**
@@ -77,6 +78,10 @@ public class ChatController {
      * (so auth/validation errors surface as normal HTTP errors); the answer
      * is then streamed to the client as Server-Sent Events and persisted
      * server-side when the stream ends.
+     * <p>
+     * With {@code regenerate} the client is re-asking the trailing question:
+     * the user message is not persisted again and the stale answer is
+     * replaced, so history keeps one copy of the question and one answer.
      */
     @PostMapping(value = "/sessions/{sessionId}/messages/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(
@@ -84,7 +89,9 @@ public class ChatController {
             @Valid @RequestBody ChatMessageRequest request) {
         UUID userId = getCurrentUserId();
 
-        ChatService.PreparedChat prepared = chatService.prepareChat(sessionId, userId, request.getContent());
+        ChatService.PreparedChat prepared = chatService.prepareChat(
+                sessionId, userId, request.getContent(),
+                !request.isRegenerate(), request.isRegenerate());
 
         SseEmitter emitter = new SseEmitter(properties.getChat().getStreamTimeoutMs());
         chatService.streamMessage(prepared, emitter);
