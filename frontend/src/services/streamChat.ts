@@ -26,6 +26,7 @@ export const streamChatMessage = async (
   content: string,
   handlers: StreamHandlers,
   signal?: AbortSignal,
+  options?: { regenerate?: boolean },
 ): Promise<void> => {
   const callStream = (authToken?: string | null) =>
     fetch(`/api/sessions/${sessionId}/messages/stream`, {
@@ -34,7 +35,11 @@ export const streamChatMessage = async (
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
-      body: JSON.stringify({ content }),
+      // `regenerate` re-asks the stored question: the backend skips the user
+      // insert and replaces the previous answer instead of appending.
+      body: JSON.stringify(
+        options?.regenerate ? { content, regenerate: true } : { content },
+      ),
       signal,
     });
 

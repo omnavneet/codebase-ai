@@ -29,6 +29,8 @@ export interface Message {
   /** Populated when the message came from a Deep investigate run. */
   investigation?: Investigation
   deep?: boolean
+  /** True when the user stopped the stream mid-answer (partial kept). */
+  stopped?: boolean
 }
 
 export type TabId = "chat" | "files" | "search" | "analyze"

@@ -68,19 +68,10 @@ const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({
   return (
     <div className="empty-chat-container">
       <div className="empty-chat-hero">
-        <div className="empty-hero-badge">
-          <span className="badge-spark">✦</span>
-          <span>Codebase Intelligence</span>
-        </div>
-        <h2 className="empty-hero-title">
-          Chat with{" "}
-          <span className="project-highlight">
-            {projectName || "this codebase"}
-          </span>
-        </h2>
+        {/* One short line: what the chat does and when to go deeper. */}
         <p className="empty-hero-subtitle">
-          Ask architecture questions, trace method flows, inspect security
-          logic, or search code semantics.
+          Ask about {projectName || "this codebase"}. Turn on Deep investigate
+          for questions that span many files.
         </p>
       </div>
 

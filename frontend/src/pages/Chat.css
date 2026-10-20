@@ -862,7 +862,8 @@
   resize: none;
   outline: none;
   min-height: 48px;
-  max-height: 180px;
+  /* About six lines; the auto-grow script enforces the same cap. */
+  max-height: 150px;
   font-family: inherit;
 }
 
@@ -1552,4 +1553,101 @@
   .ui-btn {
     min-height: 40px;
   }
+}
+
+/* ============================================================
+   10. Chat interactions: Stop, Regenerate, Retry, Jump to latest
+   ============================================================ */
+
+/* Send becomes Stop while an answer streams: same button slot, so the
+   composer row never changes height. */
+.btn-send-message.btn-stop {
+  background: var(--m3-error);
+  color: #fff;
+}
+
+.btn-send-message.btn-stop:hover {
+  background: var(--m3-error);
+  filter: brightness(1.08);
+}
+
+/* Partial answer kept after Stop — a small note in the message footer. */
+.stopped-note {
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  color: var(--m3-on-surface-variant);
+  background: var(--m3-surface-variant);
+  padding: 1px 7px;
+  border-radius: var(--m3-shape-full);
+}
+
+/* Stream error with Retry, shown under the transcript. Keeps the user's
+   question and any partial answer visible above it. */
+.chat-error-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: var(--space-2, 8px);
+  padding: 10px 14px;
+  border: 1px solid var(--m3-error);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-error-container);
+  color: var(--m3-error);
+  font-size: 13px;
+}
+
+.chat-error-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-retry-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid currentColor;
+  border-radius: var(--m3-shape-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-retry-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* Jump to latest: sticky at the viewport bottom of the transcript; the
+   wrapper is height 0 so it never adds a gap to the stream. */
+.chat-jump-wrap {
+  position: sticky;
+  bottom: 12px;
+  height: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.chat-jump {
+  pointer-events: auto;
+  transform: translateY(-100%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-full);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.chat-jump:hover {
+  background: var(--m3-surface-container);
 }

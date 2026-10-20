@@ -390,8 +390,11 @@ const ChatPage: React.FC = () => {
                 <MessageList
                   messages={chat.messages}
                   loading={chat.loading}
+                  error={chat.error}
                   onCitationClick={setSelectedCitation}
                   scrollContainerRef={chatBodyRef}
+                  onRetry={() => void chat.regenerate({ deep: deepInvestigate })}
+                  onRegenerate={() => void chat.regenerate({ deep: deepInvestigate })}
                 />
               )}
             </div>
@@ -401,6 +404,7 @@ const ChatPage: React.FC = () => {
               value={chat.input}
               onChange={chat.setInput}
               onSend={() => chat.sendQuery(chat.input, { deep: deepInvestigate })}
+              onStop={chat.stop}
               loading={chat.loading}
               deepInvestigate={deepInvestigate}
               onToggleDeep={() => setDeepInvestigate((prev) => !prev)}

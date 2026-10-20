@@ -20,6 +20,7 @@ export function useChat(projectId: string | undefined) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState("")
 
@@ -42,6 +43,7 @@ export function useChat(projectId: string | undefined) {
       setSessions([])
       setActiveSession(null)
       setMessages([])
+      setError("")
     }
   }, [projectId])
 
@@ -69,6 +71,7 @@ export function useChat(projectId: string | undefined) {
       setSessions((currentSessions) => [newSession, ...currentSessions])
       setActiveSession(newSession.id)
       setMessages([])
+      setError("")
     } catch (error) {
       console.error("Failed to create session:", error)
     }
@@ -76,6 +79,7 @@ export function useChat(projectId: string | undefined) {
 
   const selectSession = async (sessionId: string) => {
     setActiveSession(sessionId)
+    setError("")
     try {
       const response = await apiClient.get(`/sessions/${sessionId}/messages`)
       setMessages(
@@ -100,6 +104,7 @@ export function useChat(projectId: string | undefined) {
       if (activeSession === sessionId) {
         setActiveSession(null)
         setMessages([])
+        setError("")
       }
     } catch (error) {
       console.error("Failed to delete session:", error)
@@ -183,7 +188,15 @@ export function useChat(projectId: string | undefined) {
     }
   }
 
-  const sendQuery = async (queryText: string, options?: { deep?: boolean }) => {
+  // One question runs through either path: "append" adds the question plus a
+  // fresh answer slot; "regenerate" re-asks the stored question and replaces
+  // the last answer in place — no duplicate user message, in the UI or in the
+  // backend history.
+  const runQuery = async (
+    queryText: string,
+    options: { deep?: boolean } | undefined,
+    mode: "append" | "regenerate",
+  ) => {
     // Recover from an orphaned busy-lock (e.g. state preserved across a
     // hot-reload while the stream closure that owned it is gone): if no send
     // activity has been recorded for a while, the lock is stale — release it
@@ -199,26 +212,70 @@ export function useChat(projectId: string | undefined) {
     const userMessageText = queryText.trim()
     setInput("")
     setLoading(true)
+    setError("")
     lastSendActivityRef.current = Date.now()
 
-    // Optimistically add the user message plus an empty assistant message
-    // that the stream fills in token by token. While its content is empty it
-    // renders as the typing indicator — there is no separate indicator row.
-    const tempUserMessage: Message = {
-      id: "temp-user-" + Date.now(),
-      role: "user",
-      content: userMessageText,
-      createdAt: new Date().toISOString(),
+    // The answer slot the stream fills in token by token. While its content
+    // is empty it renders as the typing indicator — no separate indicator row.
+    let assistantId: string
+    // Snapshot of the answer a regenerate replaces: restored if the re-run
+    // fails before its first token, matching the backend, which only
+    // overwrites the stored answer once new content actually exists.
+    let replacedAnswer: Message | null = null
+
+    if (mode === "regenerate") {
+      const last = messages[messages.length - 1]
+      if (last?.role === "assistant") {
+        assistantId = last.id
+        replacedAnswer = last
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === last.id
+              ? {
+                  ...message,
+                  content: "",
+                  citations: undefined,
+                  investigation: undefined,
+                  stopped: false,
+                  deep: options?.deep,
+                }
+              : message,
+          ),
+        )
+      } else {
+        // The previous attempt failed before any token: only the answer slot
+        // is missing, so the question stays exactly where it is.
+        assistantId = "temp-assistant-" + Date.now()
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantId,
+            role: "assistant",
+            content: "",
+            createdAt: new Date().toISOString(),
+            deep: options?.deep,
+          },
+        ])
+      }
+    } else {
+      // Optimistically add the user message plus an empty assistant message
+      // that the stream fills in token by token.
+      const tempUserMessage: Message = {
+        id: "temp-user-" + Date.now(),
+        role: "user",
+        content: userMessageText,
+        createdAt: new Date().toISOString(),
+      }
+      assistantId = "temp-assistant-" + Date.now()
+      const assistantPlaceholder: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        createdAt: new Date().toISOString(),
+        deep: options?.deep,
+      }
+      setMessages((prev) => [...prev, tempUserMessage, assistantPlaceholder])
     }
-    const assistantId = "temp-assistant-" + Date.now()
-    const assistantPlaceholder: Message = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-      createdAt: new Date().toISOString(),
-      deep: options?.deep,
-    }
-    setMessages((prev) => [...prev, tempUserMessage, assistantPlaceholder])
 
     const updateAssistant = (update: (message: Message) => Message) => {
       setMessages((prev) =>
@@ -226,6 +283,28 @@ export function useChat(projectId: string | undefined) {
           message.id === assistantId ? update(message) : message,
         ),
       )
+    }
+
+    // Never leave an empty assistant bubble behind on abort or error; a
+    // failed regenerate restores the answer it replaced instead.
+    const finalizeAssistantBubble = () => {
+      const snapshot = replacedAnswer
+      setMessages((prev) => {
+        const target = prev.find((message) => message.id === assistantId)
+        if (!target || target.content !== "") return prev
+        // A re-run with no new text falls back to the answer it replaced —
+        // matching the backend, which only overwrites once content exists.
+        if (snapshot) {
+          return prev.map((message) =>
+            message.id === assistantId ? snapshot : message,
+          )
+        }
+        // A slot stopped before its first token stays visible (with its
+        // note) so the question keeps a Regenerate target instead of
+        // inviting a duplicate re-send from the composer.
+        if (target.stopped) return prev
+        return prev.filter((message) => message.id !== assistantId)
+      })
     }
 
     // Deep investigate uses the bounded agent loop (POST /agent/investigate)
@@ -263,8 +342,9 @@ export function useChat(projectId: string | undefined) {
             }))
           },
           onError: (message) => {
-            updateAssistant((m) => ({ ...m, content: message, deep: true }))
-            setInput((current) => (current.trim() ? current : userMessageText))
+            // The stream's own reason, shown with Retry below; the question
+            // and any partial text stay right where they are.
+            setError(message)
           },
         },
         controller.signal,
@@ -293,13 +373,7 @@ export function useChat(projectId: string | undefined) {
         if (streamAbortRef.current === controller) {
           streamAbortRef.current = null
         }
-        // Never leave an empty assistant bubble behind on abort or error.
-        setMessages((prev) => {
-          const target = prev.find((message) => message.id === assistantId)
-          return target && target.content === ""
-            ? prev.filter((message) => message.id !== assistantId)
-            : prev
-        })
+        finalizeAssistantBubble()
         setLoading(false)
       }
 
@@ -355,19 +429,13 @@ export function useChat(projectId: string | undefined) {
             }
           },
           onError: (message) => {
-            // Always show the reason carried by the error event; if a partial
-            // answer already streamed, keep it and surface the reason below.
-            updateAssistant((current) => {
-              if (!current.content) {
-                return { ...current, content: message }
-              }
-              return current.content.includes(message)
-                ? current
-                : { ...current, content: `${current.content}\n\n${message}` }
-            })
+            // The stream's own reason becomes the error bar with Retry; any
+            // partial answer already shown is kept untouched.
+            setError(message)
           },
         },
         abortController.signal,
+        { regenerate: mode === "regenerate" },
       )
       fetchSessions()
     } catch (streamError) {
@@ -387,7 +455,12 @@ export function useChat(projectId: string | undefined) {
             // The streaming prep phase already persisted the question, so
             // declare userPersisted to keep the conversation free of duplicates.
             `/sessions/${currentSessionId}/messages?userPersisted=true`,
-            { content: userMessageText },
+            {
+              content: userMessageText,
+              // A re-ask must not append a second copy of the question or a
+              // second answer to the stored history either.
+              ...(mode === "regenerate" ? { regenerate: true } : {}),
+            },
           )
           updateAssistant((message) => ({
             ...message,
@@ -415,16 +488,41 @@ export function useChat(projectId: string | undefined) {
       }
       // Self-heal: never leave an empty assistant bubble behind. If nothing
       // ever arrived for this send (and it was not reconciled to a persisted
-      // message), drop the placeholder so the stream shows no empty block.
-      setMessages((prev) => {
-        const target = prev.find((message) => message.id === assistantId)
-        return target && target.content === ""
-          ? prev.filter((message) => message.id !== assistantId)
-          : prev
-      })
+      // message), drop the placeholder — or restore the answer a failed
+      // regenerate replaced.
+      finalizeAssistantBubble()
       setLoading(false)
     }
   }
+
+  /**
+   * Stop the in-flight answer: abort the stream, unlock the composer
+   * immediately, and keep whatever already streamed — flagged "Stopped".
+   */
+  const stop = () => {
+    if (!loading) return
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    setLoading(false)
+    setMessages((prev) =>
+      prev.map((message, index) =>
+        message.role === "assistant" && index === prev.length - 1
+          ? { ...message, stopped: true }
+          : message,
+      ),
+    )
+  }
+
+  // Re-ask the last question, replacing the last answer. Backs both the
+  // Regenerate action and the stream-error Retry.
+  const regenerate = async (options?: { deep?: boolean }) => {
+    const lastUser = [...messages].reverse().find((message) => message.role === "user")
+    if (!lastUser) return
+    await runQuery(lastUser.content, options, "regenerate")
+  }
+
+  const sendQuery = async (queryText: string, options?: { deep?: boolean }) =>
+    runQuery(queryText, options, "append")
 
   return {
     sessions,
@@ -433,6 +531,7 @@ export function useChat(projectId: string | undefined) {
     input,
     setInput,
     loading,
+    error,
     renamingSessionId,
     renameTitle,
     setRenameTitle,
@@ -444,5 +543,7 @@ export function useChat(projectId: string | undefined) {
     startRenaming,
     saveSessionTitle,
     sendQuery,
+    stop,
+    regenerate,
   }
 }

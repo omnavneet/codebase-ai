@@ -333,6 +333,39 @@
   color: inherit;
 }
 
+/* Fenced block wrapper: anchors the per-block Copy control (chat + panels).
+   The button floats above the block's own scroll area, so it stays visible
+   while long code scrolls; padding reserves its spot in the first line. */
+.md-code-block {
+  position: relative;
+}
+
+.markdown-body .md-code-block pre {
+  padding-right: 72px;
+}
+
+.md-code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-xs);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface-variant);
+  font-family: inherit;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-medium, 500);
+  cursor: pointer;
+  z-index: 1;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.md-code-copy:hover {
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface);
+}
+
 .markdown-body blockquote {
   margin: 0 0 0.8em;
   padding: 0.4em 0.9em;

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import type { CitationClickHandler } from './citationUtils';
+import { copyText } from '../utils/clipboard';
 
 // `path.ext:12` or `path.ext:12-34`. Mirrors the citation forms the agent emits.
 const CITATION_SOURCE =
@@ -82,8 +83,38 @@ const BLOCK_TAGS = [
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
 ] as const;
 
+/**
+ * A fenced code block with a Copy control (the code only, never the button).
+ * Reads the text back from the rendered <pre>, so every language and quirk of
+ * the markdown pipeline is copied verbatim. "Copied" shows for ~1.5s.
+ */
+const CodeBlock: React.FC<Record<string, unknown>> = (props) => {
+  const { children, ...rest } = props as { children?: React.ReactNode } & Record<string, unknown>;
+  delete (rest as Record<string, unknown>).node;
+  const preRef = React.useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopy = async () => {
+    const code = preRef.current?.textContent ?? '';
+    if (!code || !(await copyText(code))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="md-code-block">
+      <button type="button" className="md-code-copy" onClick={handleCopy}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      <pre ref={preRef} {...(rest as object)}>{children}</pre>
+    </div>
+  );
+};
+
 const buildComponents = (onCitationClick: CitationClickHandler) => {
-  const components: Record<string, React.ComponentType<Record<string, unknown>>> = {};
+  const components: Record<string, React.ComponentType<Record<string, unknown>>> = {
+    pre: CodeBlock,
+  };
   for (const tag of BLOCK_TAGS) {
     const Tag = tag as keyof React.JSX.IntrinsicElements;
     // Strip the hast AST (`node`) so it is never spread onto the DOM.

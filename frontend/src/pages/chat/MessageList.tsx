@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { Citation, Message } from './types'
 import MarkdownAnswer from '../../components/MarkdownAnswer'
+import { copyText } from '../../utils/clipboard'
 
 interface MessageListProps {
   messages: Message[]
   loading: boolean
+  /** Terminal reason from a failed stream; rendered with a Retry action. */
+  error?: string
   onCitationClick: (citation: Citation) => void
   /**
    * Scroll container owned by the workspace. Passing it in lets auto-scroll
@@ -12,10 +15,13 @@ interface MessageListProps {
    * on every streamed token.
    */
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
+  /** Re-sends the last question — backs both Retry and Regenerate. */
+  onRetry: () => void
+  onRegenerate: () => void
 }
 
 /** How close to the bottom the user must be for auto-scroll to keep following. */
-const STICK_THRESHOLD_PX = 120
+const STICK_THRESHOLD_PX = 80
 
 const formatMessageTime = (iso: string) => {
   const date = new Date(iso)
@@ -53,16 +59,26 @@ const CheckIcon = () => (
 const MessageList: React.FC<MessageListProps> = ({
   messages,
   loading,
+  error,
   onCitationClick,
   scrollContainerRef,
+  onRetry,
+  onRegenerate,
 }) => {
   const endRef = useRef<HTMLDivElement>(null)
   // Whether the view should keep following the answer as it grows.
   const stickToBottomRef = useRef(true)
+  // True only while the "Jump to latest" control should be visible.
+  const [showJump, setShowJump] = useState(false)
+  // Watched on each message/error change so fresh content can force-follow
+  // even when the user had scrolled away earlier.
+  const prevCountRef = useRef(0)
+  const prevErrorRef = useRef(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // Track the user's scroll position: only auto-scroll while they are already
   // near the bottom, so reading back through an answer is never interrupted.
+  // Scrolling away raises the jump control instead of yanking the view down.
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
@@ -70,39 +86,55 @@ const MessageList: React.FC<MessageListProps> = ({
     const handleScroll = () => {
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight
-      stickToBottomRef.current = distanceFromBottom < STICK_THRESHOLD_PX
+      const nearBottom = distanceFromBottom < STICK_THRESHOLD_PX
+      stickToBottomRef.current = nearBottom
+      setShowJump(!nearBottom)
     }
 
+    // Listener only — never invoked synchronously here; the force-follow
+    // below establishes the initial position after content arrives.
     container.addEventListener('scroll', handleScroll, { passive: true })
-    handleScroll()
     return () => container.removeEventListener('scroll', handleScroll)
   }, [scrollContainerRef])
 
+  // Follow the newest text only while the user is near the bottom. New
+  // content (a sent message, a loaded session, a stream error) always pulls
+  // the view down; scrolling up pauses following until they jump back.
+  // Scrolling is coalesced into ONE instant jump per animation frame — a
+  // smooth animation per token queues dozens of competing scrolls and
+  // jitters. The scroll event this raises then re-syncs showJump.
   useEffect(() => {
+    const isNewContent =
+      messages.length !== prevCountRef.current ||
+      (Boolean(error) && !prevErrorRef.current)
+    prevCountRef.current = messages.length
+    prevErrorRef.current = Boolean(error)
+    if (isNewContent) {
+      stickToBottomRef.current = true
+    }
     if (!stickToBottomRef.current) return
 
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const streaming = loading && messages[messages.length - 1]?.role === 'assistant'
-
-    // Instant while tokens stream (a smooth animation per token would queue
-    // dozens of competing scrolls and stutter); smooth otherwise.
-    endRef.current?.scrollIntoView({
-      behavior: reduceMotion || streaming ? 'auto' : 'smooth',
-      block: 'end',
+    const frame = window.requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({ block: 'end' })
     })
-  }, [messages, loading])
+    return () => window.cancelAnimationFrame(frame)
+  }, [messages, error])
+
+  const jumpToLatest = () => {
+    stickToBottomRef.current = true
+    setShowJump(false)
+    endRef.current?.scrollIntoView({ block: 'end' })
+  }
 
   const copyMessage = async (message: Message) => {
-    try {
-      await navigator.clipboard.writeText(message.content)
+    // Raw markdown, via navigator.clipboard with a textarea fallback for
+    // plain-HTTP dev servers; "Copied" shows for about 1.5s.
+    if (await copyText(message.content)) {
       setCopiedId(message.id)
       window.setTimeout(
         () => setCopiedId(current => (current === message.id ? null : current)),
-        1600,
+        1500,
       )
-    } catch {
-      // Clipboard access can be blocked (insecure origin, denied permission).
-      // There is nothing to retry, so stay quiet rather than alarm the user.
     }
   }
 
@@ -119,6 +151,9 @@ const MessageList: React.FC<MessageListProps> = ({
         const isStreaming =
           loading && message.role === 'assistant' && message.content !== '' && isLast
         const canCopy = !isTyping && message.content !== ''
+        // Regenerate exists on the LAST answer only, and only at rest —
+        // re-asking while a stream is running would race it.
+        const canRegenerate = message.role === 'assistant' && isLast && !loading
 
         return (
           <div key={message.id} className={`message-row ${message.role}`}>
@@ -159,26 +194,46 @@ const MessageList: React.FC<MessageListProps> = ({
                     {formatMessageTime(message.createdAt)}
                   </span>
                 )}
+                {message.stopped && message.role === 'assistant' && !loading && (
+                  <span className="stopped-note">Stopped</span>
+                )}
 
                 {/* Contextual actions: revealed on hover or keyboard focus, so
                     a long answer is never padded out with permanent buttons.
                     The reserved row height means revealing them never shifts
                     the message. */}
-                {canCopy && (
+                {(canCopy || canRegenerate) && (
                   <div className="message-actions">
-                    <button
-                      type="button"
-                      className="message-action"
-                      onClick={() => copyMessage(message)}
-                      aria-label={
-                        copiedId === message.id
-                          ? 'Answer copied to clipboard'
-                          : 'Copy answer to clipboard'
-                      }
-                    >
-                      {copiedId === message.id ? <CheckIcon /> : <CopyIcon />}
-                      <span>{copiedId === message.id ? 'Copied' : 'Copy'}</span>
-                    </button>
+                    {canCopy && (
+                      <button
+                        type="button"
+                        className="message-action"
+                        onClick={() => copyMessage(message)}
+                        aria-label={
+                          copiedId === message.id
+                            ? 'Answer copied to clipboard'
+                            : 'Copy answer to clipboard'
+                        }
+                      >
+                        {copiedId === message.id ? <CheckIcon /> : <CopyIcon />}
+                        <span>{copiedId === message.id ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    )}
+                    {canRegenerate && (
+                      <button
+                        type="button"
+                        className="message-action"
+                        onClick={onRegenerate}
+                        aria-label="Regenerate this answer"
+                        title="Re-ask the last question"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <polyline points="23 4 23 10 17 10" />
+                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                        </svg>
+                        <span>Regenerate</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -236,6 +291,25 @@ const MessageList: React.FC<MessageListProps> = ({
           </div>
         )
       })}
+      {showJump && (
+        <div className="chat-jump-wrap">
+          <button type="button" className="chat-jump" onClick={jumpToLatest}>
+            Jump to latest
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <polyline points="19 12 12 19 5 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="chat-error-bar" role="alert">
+          <span className="chat-error-text">{error}</span>
+          <button type="button" className="chat-retry-btn" onClick={onRetry}>
+            Retry
+          </button>
+        </div>
+      )}
       <div ref={endRef} />
     </div>
   )
