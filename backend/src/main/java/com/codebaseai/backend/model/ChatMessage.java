@@ -21,8 +21,8 @@ public class ChatMessage {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
     
-    @Column(name = "session_id", nullable = false)
-    private UUID sessionId;
+    @Column(name = "session_id")
+    private UUID sessionId; // nullable: legacy session-based chats only
     
     @Column(nullable = false)
     private String role; // "user" or "assistant"
@@ -32,6 +32,9 @@ public class ChatMessage {
     
     @Column(columnDefinition = "TEXT")
     private String citations;
+
+    @Column(name = "conversation_id")
+    private UUID conversationId; // the conversation this message belongs to
     
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

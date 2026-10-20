@@ -89,7 +89,7 @@ public class AgentController {
         SseEmitter emitter = newEmitter();
         agentStreamService.stream(projectId, userId, "/agent/investigate/stream",
                 Map.of("question", request.getQuestion(), "project_id", projectId.toString()),
-                emitter);
+                emitter, request.getQuestion(), request.getConversationId());
         return emitter;
     }
 

@@ -3,6 +3,7 @@ package com.codebaseai.backend.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+import java.util.UUID;
 
 @Data
 public class ChatMessageRequest {
@@ -17,4 +18,11 @@ public class ChatMessageRequest {
      * twice.
      */
     private boolean regenerate;
+
+    /**
+     * The conversation this message belongs to. When absent the chat service
+     * uses (or creates) the project's most recent conversation, so clients
+     * that do not send a conversation keep working.
+     */
+    private UUID conversationId;
 }
