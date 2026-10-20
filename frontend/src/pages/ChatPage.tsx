@@ -21,12 +21,11 @@ import type { Citation, TabId } from "./chat/types"
 import "./Chat.css"
 
 /**
- * Modes that keep the conversation list docked. Chat and Files are both about
- * looking at something while still being one keystroke away from a chat, so the
- * sidebar earns its space. The rest are focused tasks that want the width, so
+ * Modes that keep the conversation list docked. The chat list belongs to the
+ * Chat tab only: the other tabs are focused tasks that want the full width, so
  * the sidebar folds and the workspace takes over completely.
  */
-const SIDEBAR_MODES: TabId[] = ["chat", "files"]
+const SIDEBAR_MODES: TabId[] = ["chat"]
 
 /**
  * Composition root for the chat workspace. All chat data (sessions, messages,
@@ -427,6 +426,9 @@ const ChatPage: React.FC = () => {
         <ChatSidebar
           sessions={chat.sessions}
           activeSession={chat.activeSession}
+          conversationsLoading={chat.conversationsLoading}
+          conversationsError={chat.conversationsError}
+          onRetryConversations={chat.retryConversations}
           onSelectSession={handleSelectSession}
           onCreateSession={handleCreateSession}
           onDeleteSession={chat.deleteSession}

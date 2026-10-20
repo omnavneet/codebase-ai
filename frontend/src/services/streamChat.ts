@@ -22,14 +22,15 @@ interface StreamEventPayload {
 }
 
 export const streamChatMessage = async (
-  sessionId: string,
+  projectId: string,
+  conversationId: string,
   content: string,
   handlers: StreamHandlers,
   signal?: AbortSignal,
-  options?: { regenerate?: boolean },
+  options?: { regenerate?: boolean; conversationId?: string },
 ): Promise<void> => {
   const callStream = (authToken?: string | null) =>
-    fetch(`/api/sessions/${sessionId}/messages/stream`, {
+    fetch(`/api/projects/${projectId}/conversations/${conversationId}/messages/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -37,9 +38,13 @@ export const streamChatMessage = async (
       },
       // `regenerate` re-asks the stored question: the backend skips the user
       // insert and replaces the previous answer instead of appending.
-      body: JSON.stringify(
-        options?.regenerate ? { content, regenerate: true } : { content },
-      ),
+      // The conversation id travels in the body too, so the backend can
+      // fall back to the project's most recent conversation when it is absent.
+      body: JSON.stringify({
+        content,
+        ...(options?.regenerate ? { regenerate: true } : {}),
+        ...(options?.conversationId ? { conversationId: options.conversationId } : {}),
+      }),
       signal,
     });
 

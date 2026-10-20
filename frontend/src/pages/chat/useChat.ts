@@ -9,18 +9,25 @@ import type { Citation, Investigation, Message, Session } from "./types"
 const SEND_IDLE_MS = 45000
 
 /**
- * Owns all chat data: sessions, messages, the composer input and the
+ * Owns all chat data: conversations, messages, the composer input and the
  * send/stream lifecycle (watchdog, sync fallback, orphaned-lock recovery).
  * Presentation stays in the components; debugging starts here.
+ *
+ * Conversations are project-scoped. A "new chat" is local-only until the
+ * first message is sent (no empty rows); the active conversation id then
+ * travels with every chat and Deep investigate request. The last active
+ * conversation per project is remembered in localStorage.
  */
 export function useChat(projectId: string | undefined) {
   const { toast } = useToast()
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [activeSession, setActiveSession] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<Session[]>([])
+  const [activeConversation, setActiveConversation] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [conversationsLoading, setConversationsLoading] = useState(false)
+  const [conversationsError, setConversationsError] = useState("")
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState("")
 
@@ -32,6 +39,15 @@ export function useChat(projectId: string | undefined) {
   // survive hot-reloads while the stream closure that owns it is gone, which
   // would otherwise block the composer forever.
   const lastSendActivityRef = useRef(0)
+  // Temp ("new chat") conversations vanish on project switch; only real
+  // (server-assigned, non-"new-") ids are remembered across reloads.
+  const storageKey = projectId ? `codebase-ai:conversation:${projectId}` : null
+
+  // A new chat starts life as a local row with a "new-" id: the server only
+  // hears about it when the first message is sent. Everything downstream
+  // (ensureConversation, the sends) treats a "new-" id the same way.
+  const isLocalNewChat = (id: string | null) =>
+    id != null && id.startsWith("new-")
 
   // Abort any in-flight chat stream when leaving the page or switching to a
   // different project, so streamed tokens never reach an unmounted component.
@@ -40,48 +56,66 @@ export function useChat(projectId: string | undefined) {
   useEffect(() => {
     return () => {
       streamAbortRef.current?.abort()
-      setSessions([])
-      setActiveSession(null)
+      setConversations([])
+      setActiveConversation(null)
       setMessages([])
       setError("")
     }
   }, [projectId])
 
-  const fetchSessions = async () => {
+  const parseCitations = (
+    citations: string | Citation[] | undefined,
+  ): Citation[] | undefined => {
+    if (!citations) return undefined
+    if (Array.isArray(citations)) return citations
+
     try {
-      const response = await apiClient.get(`/projects/${projectId}/sessions`)
-      setSessions(response.data)
-    } catch (error) {
-      console.error("Failed to fetch sessions:", error)
+      const parsed: unknown = JSON.parse(citations)
+      return Array.isArray(parsed) ? (parsed as Citation[]) : undefined
+    } catch {
+      return undefined
     }
   }
 
-  useEffect(() => {
-    if (!projectId) return
-    // Async fetch — setState only runs after the request resolves.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchSessions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId])
-
-  const createNewSession = async () => {
-    try {
-      const response = await apiClient.post(`/projects/${projectId}/sessions`)
-      const newSession = response.data
-      setSessions((currentSessions) => [newSession, ...currentSessions])
-      setActiveSession(newSession.id)
-      setMessages([])
-      setError("")
-    } catch (error) {
-      console.error("Failed to create session:", error)
+  const rememberConversation = (id: string) => {
+    if (storageKey && !isLocalNewChat(id)) {
+      localStorage.setItem(storageKey, id)
     }
   }
 
-  const selectSession = async (sessionId: string) => {
-    setActiveSession(sessionId)
+  // Local-only "new chat": nothing is created on the server until the first
+  // message is sent (no empty clutter). The caller must forward the id when
+  // selecting it in the list.
+  const startNewChat = (id?: string) => {
+    const localId = id ?? `new-${Date.now()}`
+    streamAbortRef.current?.abort()
+    setLoading(false)
+    setActiveConversation(localId)
+    setMessages([])
     setError("")
+    setRenamingSessionId(null)
+    return localId
+  }
+
+  const createNewSession = () => {
+    startNewChat()
+  }
+
+  const selectConversation = async (conversationId: string) => {
+    // Switching mid-stream aborts the run; whatever was saved stays saved.
+    streamAbortRef.current?.abort()
+    setLoading(false)
+    setActiveConversation(conversationId)
+    setError("")
+    rememberConversation(conversationId)
+    if (isLocalNewChat(conversationId) || !projectId) {
+      setMessages([])
+      return
+    }
     try {
-      const response = await apiClient.get(`/sessions/${sessionId}/messages`)
+      const response = await apiClient.get(
+        `/projects/${projectId}/conversations/${conversationId}/messages`,
+      )
       setMessages(
         response.data.map(
           (message: Message & { citations?: string | Citation[] }) => ({
@@ -95,16 +129,89 @@ export function useChat(projectId: string | undefined) {
     }
   }
 
-  const deleteSession = async (sessionId: string) => {
+  const selectSession = (sessionId: string) => {
+    void selectConversation(sessionId)
+  }
+
+  // Reload the list only. Never touches the active conversation: this runs
+  // after a send, a rename or a delete, where re-selecting would throw away
+  // the conversation the user is looking at.
+  const refreshConversations = async () => {
+    if (!projectId) return
     try {
-      await apiClient.delete(`/sessions/${sessionId}`)
-      setSessions((currentSessions) =>
-        currentSessions.filter((session) => session.id !== sessionId),
+      const response = await apiClient.get(`/projects/${projectId}/conversations`)
+      setConversations(response.data as Session[])
+    } catch (error) {
+      console.error("Failed to refresh conversations:", error)
+    }
+  }
+
+  const fetchConversations = async () => {
+    if (!projectId) return
+    setConversationsLoading(true)
+    setConversationsError("")
+    try {
+      const response = await apiClient.get(`/projects/${projectId}/conversations`)
+      const list: Session[] = response.data
+      setConversations(list)
+      // Resume the remembered conversation when it still exists; otherwise
+      // fall back to the newest remaining, or an empty new chat.
+      const remembered = storageKey ? localStorage.getItem(storageKey) : null
+      const stillThere = remembered && list.some((c) => c.id === remembered)
+      if (stillThere && remembered) {
+        void selectConversation(remembered)
+      } else if (list.length > 0) {
+        void selectConversation(list[0].id)
+      } else {
+        startNewChat()
+      }
+    } catch (error) {
+      console.error("Failed to fetch conversations:", error)
+      setConversationsError(
+        error instanceof Error && error.message
+          ? error.message
+          : "Could not load your chats.",
       )
-      if (activeSession === sessionId) {
-        setActiveSession(null)
-        setMessages([])
+    } finally {
+      setConversationsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!projectId) return
+    // Async fetch — setState only runs after the request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchConversations()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+
+  const deleteSession = async (sessionId: string) => {
+    if (isLocalNewChat(sessionId)) {
+      // A local "new chat" was never sent to the server: just drop it and
+      // fall back to the newest remaining, or a fresh empty chat.
+      const remaining = conversations.filter((c) => c.id !== sessionId)
+      if (activeConversation === sessionId) {
+        if (remaining.length > 0) {
+          void selectConversation(remaining[0].id)
+        } else {
+          startNewChat()
+        }
+      }
+      return
+    }
+    if (!projectId) return
+    try {
+      await apiClient.delete(`/projects/${projectId}/conversations/${sessionId}`)
+      const remaining = conversations.filter((c) => c.id !== sessionId)
+      setConversations(remaining)
+      if (activeConversation === sessionId) {
+        if (remaining.length > 0) {
+          void selectConversation(remaining[0].id)
+        } else {
+          startNewChat()
+        }
         setError("")
+        setRenamingSessionId(null)
       }
     } catch (error) {
       console.error("Failed to delete session:", error)
@@ -129,13 +236,21 @@ export function useChat(projectId: string | undefined) {
       setRenamingSessionId(null)
       return
     }
+    if (isLocalNewChat(sessionId)) {
+      // No server row yet: keep it local; the server hears the title (and
+      // the chat) when the first message is sent.
+      setRenamingSessionId(null)
+      return
+    }
+    if (!projectId) return
     try {
-      const response = await apiClient.patch(`/sessions/${sessionId}`, {
-        title,
-      })
-      setSessions((currentSessions) =>
-        currentSessions.map((session) =>
-          session.id === sessionId ? response.data : session,
+      const response = await apiClient.patch(
+        `/projects/${projectId}/conversations/${sessionId}`,
+        { title },
+      )
+      setConversations((currentConversations) =>
+        currentConversations.map((conversation) =>
+          conversation.id === sessionId ? response.data : conversation,
         ),
       )
       setRenamingSessionId(null)
@@ -150,33 +265,23 @@ export function useChat(projectId: string | undefined) {
     }
   }
 
-  const parseCitations = (
-    citations: string | Citation[] | undefined,
-  ): Citation[] | undefined => {
-    if (!citations) return undefined
-    if (Array.isArray(citations)) return citations
-
-    try {
-      const parsed: unknown = JSON.parse(citations)
-      return Array.isArray(parsed) ? (parsed as Citation[]) : undefined
-    } catch {
-      return undefined
+  // Returns the active conversation id, transparently creating the chat on
+  // the server at the first message when it is still a local "new chat".
+  // Returns null when creation fails.
+  const ensureConversation = async (): Promise<string | null> => {
+    if (activeConversation && !isLocalNewChat(activeConversation)) {
+      return activeConversation
     }
-  }
-
-  // Returns the active session id, transparently creating a session for the
-  // project when none exists yet. Returns null when creation fails.
-  const ensureSession = async (): Promise<string | null> => {
-    if (activeSession) return activeSession
     if (!projectId) return null
     try {
-      const response = await apiClient.post(`/projects/${projectId}/sessions`)
-      const newSession = response.data
-      setSessions((prev) => [newSession, ...prev])
-      setActiveSession(newSession.id)
-      return newSession.id
+      const response = await apiClient.post(`/projects/${projectId}/conversations`)
+      const created = response.data
+      setConversations((prev) => [created, ...prev])
+      setActiveConversation(created.id)
+      rememberConversation(created.id)
+      return created.id
     } catch (error) {
-      console.error("Failed to create session:", error)
+      console.error("Failed to create conversation:", error)
       // The send bails out right after this, so without a toast the user
       // would press Enter and see nothing at all happen.
       toast({
@@ -206,8 +311,8 @@ export function useChat(projectId: string | undefined) {
     if (!queryText.trim() || (loading && !lockIsStale)) return
     if (lockIsStale) setLoading(false)
 
-    const currentSessionId = await ensureSession()
-    if (!currentSessionId) return
+    const currentConversationId = await ensureConversation()
+    if (!currentConversationId) return
 
     const userMessageText = queryText.trim()
     setInput("")
@@ -320,7 +425,7 @@ export function useChat(projectId: string | undefined) {
         await streamAgent(
         projectId ?? "",
         "/investigate/stream",
-        { question: userMessageText },
+        { question: userMessageText, conversationId: currentConversationId },
         {
           onStep: (message) => {
             traceSteps.push(message)
@@ -377,7 +482,7 @@ export function useChat(projectId: string | undefined) {
         setLoading(false)
       }
 
-      fetchSessions()
+      refreshConversations()
       return
     }
 
@@ -404,7 +509,8 @@ export function useChat(projectId: string | undefined) {
 
     try {
       await streamChatMessage(
-        currentSessionId,
+        projectId ?? "",
+        currentConversationId,
         userMessageText,
         {
           onToken: (token) => {
@@ -435,9 +541,9 @@ export function useChat(projectId: string | undefined) {
           },
         },
         abortController.signal,
-        { regenerate: mode === "regenerate" },
+        { regenerate: mode === "regenerate", conversationId: currentConversationId },
       )
-      fetchSessions()
+      refreshConversations()
     } catch (streamError) {
       if (abortController.signal.aborted && !watchdogFired) {
         // Navigated away or project switched: nothing to update.
@@ -454,7 +560,7 @@ export function useChat(projectId: string | undefined) {
           const response = await apiClient.post(
             // The streaming prep phase already persisted the question, so
             // declare userPersisted to keep the conversation free of duplicates.
-            `/sessions/${currentSessionId}/messages?userPersisted=true`,
+            `/projects/${projectId}/conversations/${currentConversationId}/messages?userPersisted=true`,
             {
               content: userMessageText,
               // A re-ask must not append a second copy of the question or a
@@ -467,7 +573,7 @@ export function useChat(projectId: string | undefined) {
             content: response.data.answer,
             citations: response.data.citations,
           }))
-          fetchSessions()
+          refreshConversations()
         } catch (error) {
           console.error("Failed to send message:", error)
           updateAssistant((message) => ({
@@ -524,19 +630,28 @@ export function useChat(projectId: string | undefined) {
   const sendQuery = async (queryText: string, options?: { deep?: boolean }) =>
     runQuery(queryText, options, "append")
 
+  // Retry the conversations fetch after a load failure.
+  const retryConversations = () => {
+    void fetchConversations()
+  }
+
   return {
-    sessions,
-    activeSession,
+    // The sidebar renders conversations, not the legacy session list.
+    sessions: conversations,
+    activeSession: activeConversation,
     messages,
     input,
     setInput,
     loading,
     error,
+    conversationsLoading,
+    conversationsError,
     renamingSessionId,
     renameTitle,
     setRenameTitle,
     setRenamingSessionId,
-    fetchSessions,
+    fetchSessions: fetchConversations,
+    retryConversations,
     createNewSession,
     selectSession,
     deleteSession,

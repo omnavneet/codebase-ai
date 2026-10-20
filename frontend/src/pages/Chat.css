@@ -177,6 +177,7 @@
 .session-item {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 9px 12px;
   border-radius: var(--m3-shape-sm);
@@ -1650,4 +1651,191 @@
 
 .chat-jump:hover {
   background: var(--m3-surface-container);
+}
+
+/* ---------- Conversation sidebar states ----------
+   The chat list grew three states beyond the plain list: a filter field, a
+   loading spinner and a load error. They reuse the existing surface and
+   outline tokens so the column keeps its current look. */
+
+/* Filter input, above the chat list */
+.sidebar-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 10px 0;
+  padding: 0 8px;
+  height: 30px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-sm);
+  background: var(--m3-surface);
+  color: var(--m3-on-surface-variant);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.sidebar-filter:focus-within {
+  border-color: var(--m3-primary);
+  box-shadow: var(--ring-focus);
+}
+
+.sidebar-filter-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--m3-on-surface);
+  font-size: 12px;
+}
+
+.sidebar-filter-input::placeholder {
+  color: var(--m3-on-surface-variant);
+}
+
+/* Loading state */
+.sidebar-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 16px;
+  color: var(--m3-on-surface-variant);
+  font-size: var(--text-xs);
+}
+
+.sidebar-loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--m3-outline-variant);
+  border-top-color: var(--m3-primary);
+  border-radius: 50%;
+  animation: sidebar-spin 700ms linear infinite;
+}
+
+@keyframes sidebar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-loading-spinner {
+    animation: none;
+  }
+}
+
+.sidebar-loading-text {
+  margin: 0;
+}
+
+/* Error state */
+.sidebar-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--m3-on-surface-variant);
+}
+
+.sidebar-error-icon {
+  display: flex;
+  color: var(--m3-error);
+}
+
+.sidebar-error-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--m3-on-surface);
+}
+
+.sidebar-error-text {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--m3-on-surface-subtle);
+}
+
+.btn-retry {
+  margin-top: var(--space-2);
+  font-size: 12px;
+  font-weight: var(--font-medium);
+  color: var(--m3-primary);
+  background: transparent;
+  padding: 6px 12px;
+  border: 1px solid var(--m3-primary);
+  border-radius: var(--m3-shape-sm);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.btn-retry:hover {
+  background: var(--m3-primary-soft);
+}
+
+.btn-retry:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* Inline delete confirmation, shown under the row being deleted */
+.delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--m3-shape-sm);
+  background: var(--m3-error-container);
+}
+
+.delete-confirm-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-confirm-btn,
+.delete-confirm-cancel {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.delete-confirm-btn {
+  color: var(--m3-error);
+  background: var(--m3-surface);
+  border-color: var(--m3-error);
+}
+
+.delete-confirm-btn:hover {
+  background: var(--m3-error);
+  color: var(--m3-surface);
+}
+
+.delete-confirm-cancel {
+  color: var(--m3-on-surface-variant);
+  background: transparent;
+}
+
+.delete-confirm-cancel:hover {
+  background: var(--m3-surface-container-high);
+}
+
+.delete-confirm-btn:focus-visible,
+.delete-confirm-cancel:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }

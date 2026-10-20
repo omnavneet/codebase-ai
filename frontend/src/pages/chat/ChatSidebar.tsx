@@ -1,9 +1,12 @@
-import React from "react"
+import React, { useState } from "react"
 import type { Session } from "./types"
 
 interface ChatSidebarProps {
   sessions: Session[]
   activeSession: string | null
+  conversationsLoading: boolean
+  conversationsError: string
+  onRetryConversations: () => void
   onSelectSession: (sessionId: string) => void
   onCreateSession: () => void
   onDeleteSession: (sessionId: string) => void
@@ -20,12 +23,21 @@ interface ChatSidebarProps {
   resizeHandleRef: React.RefObject<HTMLDivElement | null>
 }
 
-const formatDate = (dateString: string) => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  })
+const formatRelativeTime = (dateString: string): string => {
+  const parsed = new Date(dateString)
+  if (Number.isNaN(parsed.getTime())) return ""
+  const now = Date.now()
+  const diffMins = Math.floor((now - parsed.getTime()) / 60_000)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffMins < 1) return "just now"
+  if (diffMins < 60) return `${diffMins} min ago`
+  if (diffHours < 24) return `${diffHours} hr ago`
+  if (diffDays < 7) return `${diffDays} day ago`
+  if (diffDays < 30) {
+    return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+  }
+  return parsed.toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
 const chatIcon = (
@@ -53,6 +65,9 @@ const trashIcon = (
 const ChatSidebar: React.FC<ChatSidebarProps> = ({
   sessions,
   activeSession,
+  conversationsLoading,
+  conversationsError,
+  onRetryConversations,
   onSelectSession,
   onCreateSession,
   onDeleteSession,
@@ -66,6 +81,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   width,
   resizeHandleRef,
 }) => {
+  const [filter, setFilter] = useState("")
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  const filteredSessions = sessions.filter((session) =>
+    session.title.toLowerCase().includes(filter.toLowerCase()),
+  )
+
   return (
     <aside
       className={`chat-sidebar ${collapsed ? "collapsed" : ""}`}
@@ -97,12 +119,36 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       </div>
 
       <div className="sidebar-content">
-        {sessions.length === 0 ? (
+        {conversationsError ? (
+          <div className="sidebar-error">
+            <span className="sidebar-error-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </span>
+            <p className="sidebar-error-title">Could not load chats</p>
+            <p className="sidebar-error-text">{conversationsError}</p>
+            <button
+              type="button"
+              className="btn-retry"
+              onClick={onRetryConversations}
+            >
+              Try again
+            </button>
+          </div>
+        ) : conversationsLoading ? (
+          <div className="sidebar-loading">
+            <span className="sidebar-loading-spinner" aria-hidden="true"></span>
+            <p className="sidebar-loading-text">Loading chats…</p>
+          </div>
+        ) : sessions.length === 0 ? (
           <div className="sidebar-empty-hint">
             <span className="sidebar-empty-icon" aria-hidden="true">
               {chatIcon}
             </span>
-            <p className="sidebar-empty-title">No conversations yet</p>
+            <p className="sidebar-empty-title">No chats yet</p>
             <p className="sidebar-empty-text">
               Ask a question to start one — it is saved here.
             </p>
@@ -115,8 +161,27 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             </button>
           </div>
         ) : (
-          <div className="session-list">
-            {sessions.map((session) => (
+          <>
+            <div className="sidebar-filter">
+              <svg
+                width="14" height="14"
+                viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                className="sidebar-filter-input"
+                type="search"
+                placeholder="Filter chats"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+              />
+            </div>
+            <div className="session-list">
+              {filteredSessions.map((session) => (
               <div
                 key={session.id}
                 className={`session-item ${session.id === activeSession ? "active" : ""}`}
@@ -141,7 +206,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                         onBlur={() => onCancelRenaming()}
                       />
                       <span className="session-date">
-                        {formatDate(session.updatedAt)}
+                        {formatRelativeTime(session.updatedAt)}
                       </span>
                     </span>
                   </div>
@@ -158,7 +223,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     <span className="session-info">
                       <span className="session-title">{session.title}</span>
                       <span className="session-date">
-                        {formatDate(session.updatedAt)}
+                        {formatRelativeTime(session.updatedAt)}
                       </span>
                     </span>
                   </button>
@@ -171,15 +236,52 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     title="Delete chat"
                     onClick={(event) => {
                       event.stopPropagation()
-                      onDeleteSession(session.id)
+                      if (deleteConfirmId === session.id) {
+                        onDeleteSession(session.id)
+                        setDeleteConfirmId(null)
+                      } else {
+                        setDeleteConfirmId(session.id)
+                      }
                     }}
                   >
-                    {trashIcon}
+                    {deleteConfirmId === session.id ? (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                        <polyline points="12 5 19 12 12 19"></polyline>
+                      </svg>
+                    ) : (
+                      trashIcon
+                    )}
                   </button>
                 </div>
+                  {deleteConfirmId === session.id && (
+                    <div className="delete-confirm">
+                      <span className="delete-confirm-text">
+                        Delete "{session.title}"?
+                      </span>
+                      <button
+                        type="button"
+                        className="delete-confirm-btn"
+                        onClick={() => {
+                          onDeleteSession(session.id)
+                          setDeleteConfirmId(null)
+                        }}
+                      >
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        className="delete-confirm-cancel"
+                        onClick={() => setDeleteConfirmId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
               </div>
             ))}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </aside>
