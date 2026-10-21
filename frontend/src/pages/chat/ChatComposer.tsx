@@ -11,6 +11,7 @@ interface ChatComposerProps {
   onToggleDeep: () => void
   /** null when unknown; otherwise estimated percentage of context budget used. */
   contextPercent: number | null
+  onOpenStyle: () => void
 }
 
 const ChatComposer: React.FC<ChatComposerProps> = ({
@@ -21,7 +22,8 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
   loading,
   deepInvestigate,
   onToggleDeep,
-  contextPercent,
+   contextPercent,
+  onOpenStyle,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const canSend = value.trim().length > 0 && !loading
@@ -161,10 +163,25 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
 
         {/* Context indicator */}
         {contextPercent !== null && (
-          <span className={`composer-context-indicator ${contextClass}`} title="Older messages are summarized automatically">
+          <span className={`composer-context-indicator composer-context-indicator-right ${contextClass}`} title="Older messages are summarized automatically">
             Context {contextPercentDisplay}
           </span>
         )}
+
+        {/* Answer style button */}
+        <button
+          type="button"
+          className="composer-style-btn"
+          onClick={onOpenStyle}
+          aria-label="Answer style"
+          title="Answer style"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            <path d="M12 12c-2 0-3-1-3-3s1-3 3-3 3 1 3 3-1 3-3 3z"></path>
+          </svg>
+        </button>
       </div>
     </div>
   )

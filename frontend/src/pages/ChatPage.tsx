@@ -14,6 +14,7 @@ import ChatHeader from "./chat/ChatHeader"
 import ChatEmptyState from "./chat/ChatEmptyState"
 import MessageList from "./chat/MessageList"
 import ChatComposer from "./chat/ChatComposer"
+import AnswerStyleEditor from "./chat/AnswerStyleEditor"
 import FilesMode from "./chat/FilesMode"
 import AnalyzeMode from "./chat/AnalyzeMode"
 import { WORKSPACE_MODES } from "./chat/workspaceModes"
@@ -65,6 +66,7 @@ const ChatPage: React.FC = () => {
     end: number
   } | null>(null)
   const highlightTimerRef = useRef<number | null>(null)
+  const [styleEditorOpen, setStyleEditorOpen] = useState(false)
 
   const clearCitationHighlight = () => {
     if (highlightTimerRef.current) {
@@ -481,6 +483,7 @@ const ChatPage: React.FC = () => {
               deepInvestigate={deepInvestigate}
               onToggleDeep={() => setDeepInvestigate((prev) => !prev)}
               contextPercent={chat.contextPercent}
+              onOpenStyle={() => setStyleEditorOpen(true)}
             />
           </>
         ) : (
@@ -516,6 +519,14 @@ const ChatPage: React.FC = () => {
           </div>
         )}
       </main>
+
+      {projectId && (
+        <AnswerStyleEditor
+          projectId={projectId}
+          isOpen={styleEditorOpen}
+          onClose={() => setStyleEditorOpen(false)}
+        />
+      )}
 
       <CitationModal
         citation={selectedCitation}
