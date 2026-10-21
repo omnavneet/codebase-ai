@@ -102,18 +102,25 @@
   background: var(--m3-surface-container);
 }
 
+.user-dropdown-item:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* Page padding matches the workspace modes (.workspace-mode) so the
+   dashboard and the workspace read as one app. */
 .dashboard-main {
   max-width: 880px;
   margin: 0 auto;
-  padding: 40px 24px;
+  padding: var(--space-8) var(--space-6) var(--space-12);
 }
 
 .dashboard-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
 }
 
 .dashboard-title {
@@ -127,48 +134,6 @@
   font-size: var(--text-sm);
   color: var(--m3-on-surface-variant);
   margin-top: 2px;
-}
-
-/* Primary button — consistent with the workspace */
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  height: 36px;
-  padding: 0 var(--space-4);
-  background: var(--m3-primary);
-  color: var(--m3-on-primary);
-  border: none;
-  border-radius: var(--m3-shape-sm);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  letter-spacing: var(--tracking-tight);
-  line-height: 1;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
-              box-shadow var(--m3-duration-short) var(--m3-ease-out),
-              transform var(--m3-duration-instant) var(--m3-ease-out);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--m3-primary-hover);
-}
-
-.btn-primary:active:not(:disabled) {
-  background: var(--m3-primary-active);
-  transform: scale(0.985);
-}
-
-.btn-primary:focus-visible {
-  outline: none;
-  box-shadow: var(--ring-focus);
-}
-
-.btn-primary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 /* Project list — scanable rows that scale from 1 to 100+ projects */
@@ -239,22 +204,6 @@
 
 .project-row-error-neutral {
   color: var(--m3-on-surface-variant);
-}
-
-/* Small re-upload action on error cards. */
-.project-row-retry {
-  padding: 2px 10px;
-  border: 1px solid var(--m3-border-strong);
-  border-radius: var(--m3-shape-full);
-  background: transparent;
-  color: var(--m3-primary);
-  font-size: 11px;
-  font-weight: var(--font-medium);
-  cursor: pointer;
-}
-
-.project-row-retry:hover {
-  background: var(--m3-primary-container);
 }
 
 .project-row:hover {
@@ -342,6 +291,11 @@
   color: var(--m3-error);
 }
 
+.project-row-menu:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
 .project-row-menu:disabled {
   opacity: 0;
   cursor: default;
@@ -356,45 +310,6 @@
   font-weight: 500;
   color: var(--m3-error);
   flex-shrink: 0;
-}
-
-.project-row-confirm .confirm,
-.project-row-confirm .cancel {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: var(--m3-shape-sm);
-  font-size: var(--text-xs);
-  font-weight: var(--font-medium);
-  cursor: pointer;
-  border: none;
-  transition: background-color var(--m3-duration-short) var(--m3-ease-out),
-              opacity var(--m3-duration-short) var(--m3-ease-out);
-}
-
-.project-row-confirm .confirm {
-  background: var(--m3-error);
-  color: var(--m3-on-error);
-}
-
-.project-row-confirm .confirm:hover:not(:disabled) {
-  background: var(--m3-error-hover);
-}
-
-/* Mid-delete: stay red so the button reads as working, not unavailable. */
-.project-row-confirm .confirm:disabled {
-  cursor: progress;
-}
-
-.project-row-confirm .cancel {
-  background: transparent;
-  color: var(--m3-on-surface-variant);
-  border: 1px solid var(--m3-outline-variant);
-}
-
-.project-row-confirm .cancel:hover {
-  background: var(--m3-surface-variant);
 }
 
 /* Status pill — only rendered for non-ready states */

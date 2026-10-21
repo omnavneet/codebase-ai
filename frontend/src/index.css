@@ -623,8 +623,11 @@ img {
 
 /* ============================================================
    Buttons
-   Three intents (primary / neutral / ghost) plus destructive.
-   Every button communicates hover, press and disabled distinctly.
+   One shape, three intents: primary (the action), neutral (the
+   way out) and danger (destructive). Ghost is the low-emphasis
+   variant for inline and toolbar actions. Every button shares the
+   same height, padding, radius and font size — only the colour
+   changes — so a row of mixed buttons still reads as one family.
    ============================================================ */
 .ui-btn {
   display: inline-flex;
@@ -657,6 +660,27 @@ img {
 .ui-btn[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.5;
+  /* A disabled button must not look pressable: it loses the fill it
+     would have had and keeps only the outline. */
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface-subtle);
+  border-color: var(--m3-outline-variant);
+  box-shadow: none;
+}
+
+/* A button that is working is disabled but not unavailable: it keeps its
+   fill so it reads as "in progress", and the cursor says so too. */
+.ui-btn[aria-busy='true'] {
+  cursor: progress;
+  opacity: 1;
+  background: var(--m3-primary);
+  color: var(--m3-on-primary);
+  border-color: transparent;
+}
+
+.ui-btn-danger[aria-busy='true'] {
+  background: var(--m3-error);
+  color: var(--m3-on-error);
 }
 
 /* Keyboard focus ring layered on top of hover styling. */

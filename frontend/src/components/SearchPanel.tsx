@@ -102,6 +102,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
           type="submit"
           className="ui-btn ui-btn-primary"
           disabled={loading || query.trim().length === 0}
+          title={
+            loading
+              ? 'Searching…'
+              : query.trim().length === 0
+                ? 'Enter something to search for'
+                : 'Search the codebase'
+          }
         >
           {loading ? (
             <>

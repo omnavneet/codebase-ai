@@ -13,10 +13,12 @@
 /* ============================================================
    1. Skeleton shared by all modes
    ============================================================ */
+/* The gap between a mode's sections — the same rhythm the workspace mode
+   frame uses between its header and its content. */
 .tool-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 /* ---------- Toolbar ----------
@@ -374,6 +376,11 @@
 .md-code-copy:hover {
   background: var(--m3-surface-container);
   color: var(--m3-on-surface);
+}
+
+.md-code-copy:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 
 .markdown-body blockquote {

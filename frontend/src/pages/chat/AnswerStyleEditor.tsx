@@ -189,17 +189,25 @@ const AnswerStyleEditor: React.FC<AnswerStyleEditorProps> = ({
             <div className="style-editor-actions">
               <button
                 type="button"
-                className="style-editor-btn style-editor-btn-secondary"
+                className="ui-btn ui-btn-neutral"
                 onClick={handleReset}
                 disabled={saving || (!hasUnsaved && !defaultInstructions)}
+                title={saving ? 'Saving…' : 'Restore the default answer style'}
               >
                 Reset
               </button>
               <button
                 type="button"
-                className="style-editor-btn style-editor-btn-primary"
+                className="ui-btn ui-btn-primary"
                 onClick={handleSave}
                 disabled={saving || charCount > MAX_CHARS}
+                title={
+                  saving
+                    ? 'Saving…'
+                    : charCount > MAX_CHARS
+                      ? `Answer style is too long (${charCount}/${MAX_CHARS} characters)`
+                      : 'Save the answer style'
+                }
               >
                 {saving ? "Saving…" : "Save"}
               </button>

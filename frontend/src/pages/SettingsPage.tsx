@@ -15,6 +15,13 @@ const SettingsPage: React.FC = () => {
   
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  // Field-level validation lives apart from the form-level error so each
+  // message can be attached to the input that produced it.
+  const [passwordFieldErrors, setPasswordFieldErrors] = useState<{
+    currentPassword?: string;
+    newPassword?: string;
+    confirmPassword?: string;
+  }>({});
   // Blocks double submission and drives the button's loading state.
   const [savingPassword, setSavingPassword] = useState(false);
   
@@ -39,10 +46,16 @@ const SettingsPage: React.FC = () => {
     setPasswordSuccess('');
     setPasswordError('');
 
-    if (newPassword !== confirmPassword) {
-      setPasswordError('New passwords do not match');
-      return;
-    }
+    const nextErrors = {
+      currentPassword: currentPassword ? undefined : 'Enter your current password.',
+      newPassword: newPassword ? undefined : 'Enter a new password.',
+      confirmPassword:
+        newPassword === confirmPassword
+          ? undefined
+          : 'Passwords do not match.',
+    };
+    setPasswordFieldErrors(nextErrors);
+    if (nextErrors.currentPassword || nextErrors.newPassword || nextErrors.confirmPassword) return;
 
     setSavingPassword(true);
     try {
@@ -121,49 +134,98 @@ const SettingsPage: React.FC = () => {
           
           <div className="settings-divider"></div>
           
-          <form className="settings-form" onSubmit={handleUpdatePassword}>
+          <form className="settings-form" onSubmit={handleUpdatePassword} noValidate>
             <div className="settings-label" style={{ marginBottom: '16px' }}>Change Password</div>
-            
+
             <div className="form-field">
               <input
                 id="currentPassword"
                 type="password"
                 placeholder=" "
                 required
+                autoComplete="current-password"
                 value={currentPassword}
-                onChange={e => setCurrentPassword(e.target.value)}
+                onChange={e => {
+                  setCurrentPassword(e.target.value);
+                  if (passwordFieldErrors.currentPassword) {
+                    setPasswordFieldErrors(prev => ({ ...prev, currentPassword: undefined }));
+                  }
+                }}
+                aria-invalid={passwordFieldErrors.currentPassword ? true : undefined}
+                aria-describedby={passwordFieldErrors.currentPassword ? 'currentPassword-error' : undefined}
               />
               <label htmlFor="currentPassword">Current Password</label>
             </div>
-            
+            {passwordFieldErrors.currentPassword && (
+              <p className="ui-field-error" id="currentPassword-error" role="alert">
+                {passwordFieldErrors.currentPassword}
+              </p>
+            )}
+
             <div className="form-field">
               <input
                 id="newPassword"
                 type="password"
                 placeholder=" "
                 required
+                autoComplete="new-password"
                 value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
+                onChange={e => {
+                  setNewPassword(e.target.value);
+                  if (passwordFieldErrors.newPassword || passwordFieldErrors.confirmPassword) {
+                    setPasswordFieldErrors(prev => ({
+                      ...prev,
+                      newPassword: undefined,
+                      confirmPassword: undefined,
+                    }));
+                  }
+                }}
+                aria-invalid={passwordFieldErrors.newPassword ? true : undefined}
+                aria-describedby={passwordFieldErrors.newPassword ? 'newPassword-error' : undefined}
               />
               <label htmlFor="newPassword">New Password</label>
             </div>
-            
+            {passwordFieldErrors.newPassword && (
+              <p className="ui-field-error" id="newPassword-error" role="alert">
+                {passwordFieldErrors.newPassword}
+              </p>
+            )}
+
             <div className="form-field">
               <input
                 id="confirmPassword"
                 type="password"
                 placeholder=" "
                 required
+                autoComplete="new-password"
                 value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
+                onChange={e => {
+                  setConfirmPassword(e.target.value);
+                  if (passwordFieldErrors.confirmPassword) {
+                    setPasswordFieldErrors(prev => ({ ...prev, confirmPassword: undefined }));
+                  }
+                }}
+                aria-invalid={passwordFieldErrors.confirmPassword ? true : undefined}
+                aria-describedby={passwordFieldErrors.confirmPassword ? 'confirmPassword-error' : undefined}
               />
               <label htmlFor="confirmPassword">Confirm New Password</label>
             </div>
-            
+            {passwordFieldErrors.confirmPassword && (
+              <p className="ui-field-error" id="confirmPassword-error" role="alert">
+                {passwordFieldErrors.confirmPassword}
+              </p>
+            )}
+
             {passwordSuccess && <div className="success-message">{passwordSuccess}</div>}
-            {passwordError && <div className="error-msg">{passwordError}</div>}
-            
-            <button type="submit" className="ui-btn ui-btn-primary" disabled={savingPassword}>
+            {passwordError && <div className="error-msg" role="alert">{passwordError}</div>}
+
+            <button
+              type="submit"
+              className="ui-btn ui-btn-primary"
+              disabled={savingPassword}
+              aria-busy={savingPassword}
+              title={savingPassword ? 'Updating…' : 'Update your password'}
+            >
               {savingPassword ? (
                 <>
                   <span className="spinner spinner-xs" aria-hidden="true" />

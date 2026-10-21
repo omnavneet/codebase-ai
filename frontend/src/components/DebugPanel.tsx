@@ -121,6 +121,13 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, fil
           type="submit"
           className="ui-btn ui-btn-primary"
           disabled={!description.trim() || loading}
+          title={
+            loading
+              ? 'Debugging…'
+              : !description.trim()
+                ? 'Describe the failure to debug it'
+                : 'Debug the described failure'
+          }
         >
           {loading ? (
             <>

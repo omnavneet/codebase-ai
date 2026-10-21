@@ -92,6 +92,13 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick,
           className="ui-btn ui-btn-primary"
           onClick={runExplain}
           disabled={!selectedFile || loading}
+          title={
+            loading
+              ? 'Explaining…'
+              : !selectedFile
+                ? 'Pick a file to explain'
+                : 'Explain the selected file'
+          }
         >
           {loading ? (
             <>

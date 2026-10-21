@@ -289,6 +289,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
                 className="auth-submit"
                 disabled={submitting !== null}
                 aria-busy={submitting === 'login'}
+                title={submitting === 'login' ? 'Signing in…' : 'Sign in'}
               >
                 {submitting === 'login' ? (
                   <>
@@ -444,6 +445,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login' }) => {
                 className="auth-submit"
                 disabled={submitting !== null}
                 aria-busy={submitting === 'register'}
+                title={submitting === 'register' ? 'Creating your account…' : 'Create your account'}
               >
                 {submitting === 'register' ? (
                   <>

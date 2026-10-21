@@ -1,4 +1,5 @@
 import React, { useState } from "react"
+import { formatRelativeTime } from "../../utils/relativeTime"
 import type { Session } from "./types"
 
 interface ChatSidebarProps {
@@ -21,23 +22,6 @@ interface ChatSidebarProps {
   collapsed: boolean
   width: number
   resizeHandleRef: React.RefObject<HTMLDivElement | null>
-}
-
-const formatRelativeTime = (dateString: string): string => {
-  const parsed = new Date(dateString)
-  if (Number.isNaN(parsed.getTime())) return ""
-  const now = Date.now()
-  const diffMins = Math.floor((now - parsed.getTime()) / 60_000)
-  const diffHours = Math.floor(diffMins / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffMins < 1) return "just now"
-  if (diffMins < 60) return `${diffMins} min ago`
-  if (diffHours < 24) return `${diffHours} hr ago`
-  if (diffDays < 7) return `${diffDays} day ago`
-  if (diffDays < 30) {
-    return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-  }
-  return parsed.toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
 const chatIcon = (

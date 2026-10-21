@@ -112,28 +112,33 @@
   border-radius: var(--m3-shape-full);
 }
 
+/* New chat — the sidebar's primary action, in the shared button style. */
 .btn-new-chat {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
+  height: 30px;
+  padding: 0 var(--space-3);
   background: var(--m3-primary);
   color: var(--m3-on-primary);
+  border: 1px solid transparent;
   border-radius: var(--m3-shape-sm);
-  font-size: 12px;
-  font-weight: 500;
-  transition: all 150ms ease;
-  border: none;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background-color var(--m3-duration-short) var(--m3-ease-out);
 }
 
-.btn-new-chat:hover {
+.btn-new-chat:hover:not(:disabled) {
   background: var(--m3-primary-hover);
-  box-shadow: 0 1px 3px rgba(26, 115, 232, 0.3);
 }
 
-.btn-new-chat:active {
-  transform: scale(0.97);
+.btn-new-chat:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 
 .sidebar-content {
@@ -155,23 +160,6 @@
   text-align: center;
   color: var(--m3-on-surface-variant);
   font-size: 13px;
-}
-
-.btn-start-chat-hint {
-  margin-top: 10px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--m3-primary);
-  background: transparent;
-  padding: 6px 12px;
-  border: 1px solid var(--m3-primary);
-  border-radius: var(--m3-shape-sm);
-  cursor: pointer;
-  transition: all 150ms ease;
-}
-
-.btn-start-chat-hint:hover {
-  background: var(--m3-primary-container);
 }
 
 .session-item {
@@ -609,7 +597,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px 20px;
+  /* Same page padding as the workspace modes and the dashboard. */
+  padding: var(--space-6) var(--space-6) var(--space-8);
 }
 
 /* Focused Empty State */
@@ -1115,39 +1104,6 @@
   border-top: 1px solid var(--m3-outline-variant);
 }
 
-.style-editor-btn {
-  padding: 6px 16px;
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: var(--m3-shape-sm);
-  border: none;
-  cursor: pointer;
-  transition: all 140ms ease;
-}
-
-.style-editor-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.style-editor-btn-secondary {
-  background: var(--m3-surface-dim);
-  color: var(--m3-on-surface-variant);
-}
-
-.style-editor-btn-secondary:hover:not(:disabled) {
-  background: var(--m3-surface-variant);
-}
-
-.style-editor-btn-primary {
-  background: var(--m3-primary);
-  color: var(--m3-on-primary);
-}
-
-.style-editor-btn-primary:hover:not(:disabled) {
-  background: var(--m3-primary-hover);
-}
-
 .chat-composer-input {
   width: 100%;
   padding: 14px 18px 8px;
@@ -1211,6 +1167,11 @@
   color: var(--m3-outline);
   cursor: not-allowed;
   transform: none;
+}
+
+.btn-send-message:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 
 .loading-spinner-tiny {
@@ -1485,16 +1446,30 @@
   color: var(--m3-on-surface-subtle);
 }
 
+/* "Start a chat" in the empty sidebar — the shared secondary style. */
 .btn-start-chat-hint {
-  margin-top: var(--space-4);
   display: inline-flex;
   align-items: center;
+  margin-top: var(--space-4);
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--m3-on-surface);
+  background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-sm);
+  cursor: pointer;
   transition: background-color var(--m3-duration-short) var(--m3-ease-out),
               color var(--m3-duration-short) var(--m3-ease-out);
 }
 
 .btn-start-chat-hint:hover {
-  background: var(--m3-primary-soft);
+  background: var(--m3-surface-container);
+  color: var(--m3-on-surface);
 }
 
 .btn-start-chat-hint:focus-visible {
@@ -1523,6 +1498,27 @@
 .btn-header-back:focus-visible,
 .btn-icon-header:focus-visible,
 .analyze-subtab:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* ---------- Focus rings ----------
+   Every control the chat owns shows a ring on keyboard focus. The ring is
+   the same one the shared buttons use, so it reads as one system. The
+   composer and the sidebar filter are exempt: their own card shows the
+   focus state through :focus-within. */
+.btn-new-chat:focus-visible,
+.btn-send-message:focus-visible,
+.btn-retry:focus-visible,
+.chat-retry-btn:focus-visible,
+.session-action-btn:focus-visible,
+.session-title-input:focus-visible,
+.delete-confirm-btn:focus-visible,
+.delete-confirm-cancel:focus-visible,
+.style-editor-close:focus-visible,
+.style-editor-preset:focus-visible,
+.chat-jump:focus-visible,
+.prompt-card:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
 }
@@ -1899,20 +1895,31 @@
   overflow-wrap: anywhere;
 }
 
+/* Retry in the transcript's error bar — shares the error bar's own colour so
+   the bar reads as one message. */
 .chat-retry-btn {
   flex-shrink: 0;
-  padding: 4px 12px;
+  height: 30px;
+  padding: 0 var(--space-3);
   border: 1px solid currentColor;
   border-radius: var(--m3-shape-sm);
   background: transparent;
   color: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .chat-retry-btn:hover {
   filter: brightness(1.1);
+}
+
+.chat-retry-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 
 /* Jump to latest: sticky at the viewport bottom of the transcript; the
@@ -2054,21 +2061,23 @@
   color: var(--m3-on-surface-subtle);
 }
 
+/* Retry in the sidebar's error state — the shared secondary style. */
 .btn-retry {
   margin-top: var(--space-2);
-  font-size: 12px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
   font-weight: var(--font-medium);
-  color: var(--m3-primary);
-  background: transparent;
-  padding: 6px 12px;
-  border: 1px solid var(--m3-primary);
+  color: var(--m3-on-surface);
+  background: var(--m3-surface);
+  border: 1px solid var(--m3-outline-variant);
   border-radius: var(--m3-shape-sm);
   cursor: pointer;
   transition: background-color 140ms ease;
 }
 
 .btn-retry:hover {
-  background: var(--m3-primary-soft);
+  background: var(--m3-surface-container);
 }
 
 .btn-retry:focus-visible {
@@ -2098,15 +2107,21 @@
   white-space: nowrap;
 }
 
+/* Inline delete confirmation in the sidebar: a small danger action and its
+   way out, in the shared button styles. */
 .delete-confirm-btn,
 .delete-confirm-cancel {
   flex-shrink: 0;
-  font-size: 11px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--m3-shape-xs);
+  font-size: var(--text-2xs);
   font-weight: var(--font-medium);
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid transparent;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
+  border: 1px solid transparent;
   transition: background-color 140ms ease;
 }
 
@@ -2124,6 +2139,7 @@
 .delete-confirm-cancel {
   color: var(--m3-on-surface-variant);
   background: transparent;
+  border-color: var(--m3-outline-variant);
 }
 
 .delete-confirm-cancel:hover {

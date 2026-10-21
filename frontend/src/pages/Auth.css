@@ -365,6 +365,14 @@
   text-decoration: none;
 }
 
+/* Text buttons still need a visible focus ring. */
+.auth-resend-link:focus-visible,
+.auth-footer-link:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--m3-shape-xs);
+}
+
 /* ---------- Small screens ----------
    The card keeps its padding rhythm rather than shrinking the tap targets. */
 @media (max-width: 480px) {

@@ -188,10 +188,23 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }
             className="ui-btn ui-btn-neutral"
             onClick={onClose}
             disabled={loading}
+            title={loading ? 'Uploading…' : 'Close without creating a project'}
           >
             Cancel
           </button>
-          <button type="submit" className="ui-btn ui-btn-primary" disabled={loading}>
+          <button
+            type="submit"
+            className="ui-btn ui-btn-primary"
+            disabled={loading}
+            aria-busy={loading}
+            title={
+              loading
+                ? 'Uploading…'
+                : file
+                  ? 'Upload the ZIP and start indexing'
+                  : 'Choose a ZIP first'
+            }
+          >
             {loading ? 'Uploading…' : 'Create project'}
           </button>
         </div>

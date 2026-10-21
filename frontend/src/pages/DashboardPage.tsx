@@ -7,6 +7,7 @@ import { getApiErrorMessage } from '../utils/apiError';
 import NewProjectModal from '../components/NewProjectModal';
 import IndexingProgressModal from '../components/IndexingProgressModal';
 import { StateView } from '../components/PanelKit';
+import { formatRelativeTime, projectTimestamp } from '../utils/relativeTime';
 import './Dashboard.css';
 
 interface Project {
@@ -18,6 +19,7 @@ interface Project {
   latestJobId?: string | null;
   indexingProgressPercent?: number | null;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface InFlightProgress {
@@ -25,6 +27,27 @@ interface InFlightProgress {
   projectName: string;
   jobId: string;
 }
+
+/**
+ * Order the list by what needs attention, not by recency alone: projects that
+ * are indexing or failed come first, because they are the ones waiting on
+ * something. Everything else follows, most recently touched first.
+ */
+const sortProjects = (list: Project[]): Project[] => {
+  const needsAttention = (project: Project) =>
+    project.status === 'pending' ||
+    project.status === 'processing' ||
+    project.status === 'error';
+
+  const touchedAt = (project: Project) =>
+    new Date(projectTimestamp(project.updatedAt, project.createdAt)).getTime() || 0;
+
+  return [...list].sort((a, b) => {
+    const attention = Number(needsAttention(b)) - Number(needsAttention(a));
+    if (attention !== 0) return attention;
+    return touchedAt(b) - touchedAt(a);
+  });
+};
 
 const DashboardPage: React.FC = () => {
   const { user, logout } = useAuth();
@@ -60,7 +83,7 @@ const DashboardPage: React.FC = () => {
     if (!options?.silent) setLoading(true);
     try {
       const res = await apiClient.get('/projects');
-      setProjects(res.data);
+      setProjects(sortProjects(res.data));
       hasProjectsRef.current = true;
       setLoadError(null);
     } catch (err) {
@@ -187,14 +210,6 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
   return (
     <div className="dashboard-page">
       <header className="dashboard-header">
@@ -250,7 +265,7 @@ const DashboardPage: React.FC = () => {
             <h1 className="dashboard-title">Projects</h1>
             <p className="dashboard-subtitle">Manage and explore your codebases</p>
           </div>
-          <button className="btn-primary" onClick={() => setShowModal(true)}>
+          <button className="ui-btn ui-btn-primary" onClick={() => setShowModal(true)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -321,6 +336,13 @@ const DashboardPage: React.FC = () => {
                       event.stopPropagation();
                       openProject(project);
                     }}
+                    title={
+                      isIndexing
+                        ? 'Project is still indexing — click to see progress'
+                        : project.status === 'error'
+                          ? 'Indexing failed — click to upload the project again'
+                          : 'Open the project'
+                    }
                   >
                     {project.name}
                   </button>
@@ -343,7 +365,7 @@ const DashboardPage: React.FC = () => {
                         </span>
                         <button
                           type="button"
-                          className="project-row-retry"
+                          className="ui-btn ui-btn-neutral ui-btn-sm"
                           onClick={event => {
                             event.stopPropagation();
                             setShowModal(true);
@@ -355,7 +377,12 @@ const DashboardPage: React.FC = () => {
                     ) : (
                       <>
                         <span>{project.fileCount || 0} files</span>
-                        <span>Created {formatDate(project.createdAt)}</span>
+                        <span>
+                          Updated{' '}
+                          {formatRelativeTime(
+                            projectTimestamp(project.updatedAt, project.createdAt),
+                          )}
+                        </span>
                       </>
                     )}
                   </div>
@@ -371,7 +398,7 @@ const DashboardPage: React.FC = () => {
                     <span>Delete permanently?</span>
                     <button
                       type="button"
-                      className="confirm"
+                      className="ui-btn ui-btn-danger ui-btn-sm"
                       disabled={deletingProjectId === project.id}
                       aria-busy={deletingProjectId === project.id}
                       onClick={() => deleteProject(project)}
@@ -387,7 +414,7 @@ const DashboardPage: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      className="cancel"
+                      className="ui-btn ui-btn-neutral ui-btn-sm"
                       onClick={() => setDeleteProjectId(null)}
                     >
                       Cancel
