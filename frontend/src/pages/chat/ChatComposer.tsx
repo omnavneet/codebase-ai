@@ -14,18 +14,26 @@ interface ChatComposerProps {
   onOpenStyle: () => void
 }
 
-const ChatComposer: React.FC<ChatComposerProps> = ({
-  value,
-  onChange,
-  onSend,
-  onStop,
-  loading,
-  deepInvestigate,
-  onToggleDeep,
-   contextPercent,
-  onOpenStyle,
-}) => {
+const ChatComposer = React.forwardRef<HTMLTextAreaElement, ChatComposerProps>((props, ref) => {
+  const {
+    value,
+    onChange,
+    onSend,
+    onStop,
+    loading,
+    deepInvestigate,
+    onToggleDeep,
+    contextPercent,
+    onOpenStyle,
+  } = props
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Exposes the textarea to the page so the "/" shortcut can focus it. The
+  // node is written to both refs, so the internal one keeps working.
+  const setTextareaRef = (node: HTMLTextAreaElement | null) => {
+    textareaRef.current = node
+    if (typeof ref === 'function') ref(node)
+    else if (ref) ref.current = node
+  }
   const canSend = value.trim().length > 0 && !loading
   // Tracks the loading edge so focus can follow the conversation: typing
   // resumes in the textarea as soon as a send starts (and after Stop).
@@ -83,7 +91,7 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
     <div className="chat-composer-wrapper">
       <div className="chat-composer-card">
         <textarea
-          ref={textareaRef}
+          ref={setTextareaRef}
           className="chat-composer-input"
           value={value}
           onChange={(event) => onChange(event.target.value)}
@@ -185,6 +193,6 @@ const ChatComposer: React.FC<ChatComposerProps> = ({
       </div>
     </div>
   )
-}
+})
 
 export default ChatComposer

@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useEffect, useRef } from "react"
 import type { TabId } from "./types"
 
 interface ChatHeaderProps {
@@ -11,6 +11,9 @@ interface ChatHeaderProps {
   /** False in modes that have no sidebar to show or hide. */
   showSidebarToggle: boolean
   onBack: () => void
+  /** Whether the keyboard-shortcuts popover is open. */
+  shortcutsOpen: boolean
+  onToggleShortcuts: () => void
 }
 
 /** Human labels for the indexing states the API reports. */
@@ -19,6 +22,13 @@ const PROJECT_STATUS_LABELS: Record<string, string> = {
   processing: "Indexing",
   error: "Indexing failed",
 }
+
+/** The shortcuts the workspace answers to, in the order they are listed. */
+const SHORTCUTS: { keys: string; label: string }[] = [
+  { keys: "1 – 4", label: "Switch to Chat / Files / Search / Analyze" },
+  { keys: "/", label: "Focus the chat input" },
+  { keys: "Esc", label: "Close the open modal, popover or drawer" },
+]
 
 const ChatHeader: React.FC<ChatHeaderProps> = ({
   projectName,
@@ -29,7 +39,23 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   onToggleSidebar,
   showSidebarToggle,
   onBack,
+  shortcutsOpen,
+  onToggleShortcuts,
 }) => {
+  const shortcutsRef = useRef<HTMLDivElement>(null)
+
+  // A click anywhere else dismisses the popover. The keydown case is handled
+  // by the workspace shortcut hook, which closes the topmost layer on Esc.
+  useEffect(() => {
+    if (!shortcutsOpen) return
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!shortcutsRef.current?.contains(event.target as Node)) {
+        onToggleShortcuts()
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [shortcutsOpen, onToggleShortcuts])
 
   return (
     <header className="chat-header">
@@ -152,6 +178,44 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
             </svg>
           </button>
         )}
+
+        <div className="header-shortcuts" ref={shortcutsRef}>
+          <button
+            type="button"
+            className="btn-icon-header"
+            onClick={onToggleShortcuts}
+            aria-expanded={shortcutsOpen}
+            aria-haspopup="dialog"
+            title="Keyboard shortcuts"
+            aria-label="Keyboard shortcuts"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 1 1 5.83 1c0 1.5-.76 2.5-1.5 3-.5.3-1 .5-1.5.5h-.1"></path>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </button>
+
+          {shortcutsOpen && (
+            <div
+              className="header-shortcuts-popover"
+              role="dialog"
+              aria-label="Keyboard shortcuts"
+            >
+              <p className="header-shortcuts-title">Keyboard shortcuts</p>
+              <ul className="header-shortcuts-list">
+                {SHORTCUTS.map((shortcut) => (
+                  <li key={shortcut.keys} className="header-shortcuts-row">
+                    <kbd className="ui-kbd">{shortcut.keys}</kbd>
+                    <span className="header-shortcuts-label">
+                      {shortcut.label}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   )

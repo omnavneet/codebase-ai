@@ -68,8 +68,12 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* One route, optional tab segment: /projects/:id stays valid
+                (it opens on Chat) and /projects/:id/:tab keeps the active tab
+                in the URL. A single route means switching tabs never
+                remounts the workspace, so the conversation survives. */}
             <Route
-              path="/projects/:projectId"
+              path="/projects/:projectId/:tab?"
               element={
                 <ProtectedRoute>
                   <ChatPage />

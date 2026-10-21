@@ -533,6 +533,53 @@
   gap: 8px;
 }
 
+/* Keyboard-shortcuts popover, anchored to its "?" button. */
+.header-shortcuts {
+  position: relative;
+}
+
+.header-shortcuts-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 280px;
+  padding: 12px 14px;
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: var(--m3-shape-md);
+  background: var(--m3-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.header-shortcuts-title {
+  margin: 0 0 8px;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--m3-on-surface-variant);
+}
+
+.header-shortcuts-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.header-shortcuts-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-shortcuts-label {
+  font-size: var(--text-xs);
+  color: var(--m3-on-surface);
+}
+
 .btn-icon-header {
   display: inline-flex;
   align-items: center;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import apiClient from "../services/apiClient"
 import CitationModal from "../components/CitationModal"
@@ -12,12 +12,13 @@ import { useChat } from "./chat/useChat"
 import ChatSidebar from "./chat/ChatSidebar"
 import ChatHeader from "./chat/ChatHeader"
 import ChatEmptyState from "./chat/ChatEmptyState"
-import MessageList from "./chat/MessageList"
 import ChatComposer from "./chat/ChatComposer"
+import MessageList from "./chat/MessageList"
 import AnswerStyleEditor from "./chat/AnswerStyleEditor"
 import FilesMode from "./chat/FilesMode"
 import AnalyzeMode from "./chat/AnalyzeMode"
 import { WORKSPACE_MODES } from "./chat/workspaceModes"
+import { useKeyboardShortcuts } from "./chat/useKeyboardShortcuts"
 import type { Citation, TabId } from "./chat/types"
 import "./Chat.css"
 
@@ -29,6 +30,24 @@ import "./Chat.css"
 const SIDEBAR_MODES: TabId[] = ["chat"]
 
 /**
+ * The URL segment that addresses each tab. An unknown segment falls back to
+ * Chat, so a stale or hand-edited link still opens something sensible.
+ */
+const TAB_SEGMENTS: Record<TabId, string> = {
+  chat: "chat",
+  files: "files",
+  search: "search",
+  analyze: "analyze",
+}
+
+const TAB_IDS = Object.keys(TAB_SEGMENTS) as TabId[]
+
+const tabFromSegment = (segment: string | undefined): TabId =>
+  segment && (TAB_IDS as string[]).includes(segment)
+    ? (segment as TabId)
+    : "chat"
+
+/**
  * Composition root for the chat workspace. All chat data (sessions, messages,
  * streaming, optimistic updates) lives in the useChat hook; this component
  * owns page-level concerns only: project identity, the file tree and file
@@ -36,14 +55,19 @@ const SIDEBAR_MODES: TabId[] = ["chat"]
  * + drag-to-resize). Layout is delegated to the Chat* components in ./chat.
  */
 const ChatPage: React.FC = () => {
-  const { projectId } = useParams<{ projectId: string }>()
+  const { projectId, tab: tabSegment } = useParams<{
+    projectId: string
+    tab?: string
+  }>()
   const navigate = useNavigate()
 
   const chat = useChat(projectId)
 
   const [projectName, setProjectName] = useState("")
   const [projectStatus, setProjectStatus] = useState("")
-  const [activeTab, setActiveTab] = useState<TabId>("chat")
+  // The URL is the source of truth for the active tab, so a reload and the
+  // browser back button both land on the same view.
+  const activeTab = tabFromSegment(tabSegment)
   const [fileTree, setFileTree] = useState<FileNode[]>([])
   const [filesLoading, setFilesLoading] = useState(false)
   const [filesError, setFilesError] = useState("")
@@ -67,6 +91,9 @@ const ChatPage: React.FC = () => {
   } | null>(null)
   const highlightTimerRef = useRef<number | null>(null)
   const [styleEditorOpen, setStyleEditorOpen] = useState(false)
+  // The keyboard-shortcuts popover in the header. It is a layer of its own,
+  // so Esc has to be able to close it.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   const clearCitationHighlight = () => {
     if (highlightTimerRef.current) {
@@ -91,6 +118,8 @@ const ChatPage: React.FC = () => {
   // The scrollable conversation region. Owned here so MessageList can read the
   // user's scroll position when deciding whether to follow the answer.
   const chatBodyRef = useRef<HTMLDivElement>(null)
+  // The composer's textarea, so the "/" shortcut can put the caret in it.
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
 
   // Flat list of every indexed file path. Inline citations in answers (chat
   // and analyze alike) are only linked when they resolve against it, so it
@@ -116,16 +145,50 @@ const ChatPage: React.FC = () => {
     if (isCompact) setSidebarCollapsed(true)
   }
 
-  // Escape dismisses the overlay drawer. On desktop this is a no-op because
-  // the sidebar is docked and always visible.
+  const toggleShortcuts = useCallback(() => {
+    setShortcutsOpen((open) => !open)
+  }, [])
+
+  /**
+   * Switching tabs is a navigation: the tab lives in the URL, so the browser
+   * back button and a reload both land on the same mode. The sidebar follows
+   * the workspace instead of fighting it — it stays for the modes that use
+   * it, folds for the ones that want the width, and on compact layouts
+   * choosing a mode also dismisses the drawer it was opened from.
+   */
+  const goToTab = useCallback(
+    (tab: TabId) => {
+      if (!projectId) return
+      const segment = TAB_SEGMENTS[tab]
+      if (tabSegment === segment) return
+      navigate(`/projects/${projectId}/${segment}`)
+    },
+    [navigate, projectId, tabSegment],
+  )
+
+  /**
+   * An unknown tab segment falls back to Chat. The URL is rewritten to the
+   * canonical segment so the address bar always names the tab on screen.
+   */
   useEffect(() => {
-    if (!isCompact || sidebarCollapsed) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSidebarCollapsed(true)
-    }
-    document.addEventListener("keydown", handleKeyDown)
-    return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [isCompact, sidebarCollapsed])
+    if (!projectId) return
+    if (tabSegment === TAB_SEGMENTS.chat) return
+    if (tabSegment && (TAB_IDS as string[]).includes(tabSegment)) return
+    navigate(`/projects/${projectId}/${TAB_SEGMENTS.chat}`, { replace: true })
+  }, [projectId, tabSegment, navigate])
+
+  /**
+   * The sidebar belongs to the Chat tab. When the tab changes (by click, by
+   * shortcut or by the browser back button) the sidebar has to follow, so
+   * this effect owns that adjustment rather than the click handler — a
+   * history navigation never goes through one.
+   */
+  const previousTabRef = useRef(activeTab)
+  useEffect(() => {
+    if (previousTabRef.current === activeTab) return
+    previousTabRef.current = activeTab
+    setSidebarCollapsed(isCompact || !SIDEBAR_MODES.includes(activeTab))
+  }, [activeTab, isCompact])
 
   // Ctrl/Cmd+K opens search from anywhere. It is the gesture people already
   // know from Linear, Notion and VS Code, and search is the one mode worth
@@ -134,14 +197,12 @@ const ChatPage: React.FC = () => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault()
-        setActiveTab("search")
-        // Search wants the full width, so the sidebar folds out of its way.
-        setSidebarCollapsed(true)
+        goToTab("search")
       }
     }
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [])
+  }, [goToTab])
 
   const fetchProjectInfo = async () => {
     try {
@@ -180,6 +241,16 @@ const ChatPage: React.FC = () => {
     fetchProjectInfo()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
+
+  // A project that is still queued or indexing has nothing to show yet, so
+  // its workspace URL sends the user back to the dashboard, where the
+  // progress is visible. The status arrives after the first render, so the
+  // redirect happens once it is known.
+  useEffect(() => {
+    if (!projectId) return
+    if (projectStatus !== "pending" && projectStatus !== "processing") return
+    navigate("/dashboard", { replace: true })
+  }, [projectId, projectStatus, navigate])
 
   useEffect(() => {
     // Citations in answers resolve against the real file list, so the tree
@@ -336,15 +407,19 @@ const ChatPage: React.FC = () => {
   }
 
   /**
-   * Switching modes. The sidebar follows the workspace instead of fighting it:
-   * it stays for the modes that use it, folds for the ones that want the width,
-   * and on compact layouts choosing a mode also dismisses the drawer it was
-   * opened from.
+   * Switching modes. The tab is part of the URL, so this is a navigation —
+   * the browser back button and a reload both land on the same mode. The
+   * sidebar follows the workspace instead of fighting it: it stays for the
+   * modes that use it, folds for the ones that want the width, and on
+   * compact layouts choosing a mode also dismisses the drawer it was opened
+   * from.
    */
-  const handleSelectTab = (tab: TabId) => {
-    setActiveTab(tab)
-    setSidebarCollapsed(isCompact || !SIDEBAR_MODES.includes(tab))
-  }
+  const handleSelectTab = useCallback(
+    (tab: TabId) => {
+      goToTab(tab)
+    },
+    [goToTab],
+  )
 
   /**
    * Click on an inline citation in any answer (chat or analyze panels):
@@ -364,7 +439,7 @@ const ChatPage: React.FC = () => {
 
   const handleSelectSession = (sessionId: string) => {
     chat.selectSession(sessionId)
-    setActiveTab("chat")
+    handleSelectTab("chat")
     // On phones the drawer would otherwise stay open over the conversation the
     // user just chose.
     closeDrawerIfCompact()
@@ -372,9 +447,47 @@ const ChatPage: React.FC = () => {
 
   const handleCreateSession = () => {
     chat.createNewSession()
-    setActiveTab("chat")
+    handleSelectTab("chat")
     if (sidebarCollapsed) setSidebarCollapsed(false)
   }
+
+  /**
+   * Esc dismisses the topmost transient layer: the file and citation viewers
+   * first (the Dialog component closes those itself, so they are only
+   * detected here), then the answer-style panel and the shortcuts popover,
+   * then the overlay drawer on small screens.
+   */
+  const closeTopLayer = useCallback((): boolean => {
+    // The Dialog owns these two — leave them to it.
+    if (selectedFile || selectedCitation) return false
+    if (styleEditorOpen) {
+      setStyleEditorOpen(false)
+      return true
+    }
+    if (shortcutsOpen) {
+      setShortcutsOpen(false)
+      return true
+    }
+    if (isCompact && !sidebarCollapsed) {
+      setSidebarCollapsed(true)
+      return true
+    }
+    return false
+  }, [
+    selectedFile,
+    selectedCitation,
+    styleEditorOpen,
+    shortcutsOpen,
+    isCompact,
+    sidebarCollapsed,
+  ])
+
+  useKeyboardShortcuts({
+    activeTab,
+    onTabChange: handleSelectTab,
+    chatInputRef,
+    onCloseTopLayer: closeTopLayer,
+  })
 
   // Guard AFTER all hooks so hook ordering stays stable across renders.
   if (!projectId) {
@@ -412,6 +525,8 @@ const ChatPage: React.FC = () => {
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         showSidebarToggle={showSidebar}
         onBack={() => navigate("/dashboard")}
+        shortcutsOpen={shortcutsOpen}
+        onToggleShortcuts={toggleShortcuts}
       />
 
       {/* Drawer scrim: only exists while the sidebar overlays the workspace. */}
@@ -475,6 +590,7 @@ const ChatPage: React.FC = () => {
 
             {/* Modern AI Chat Composer */}
             <ChatComposer
+              ref={chatInputRef}
               value={chat.input}
               onChange={chat.setInput}
               onSend={() => chat.sendQuery(chat.input, { deep: deepInvestigate })}
