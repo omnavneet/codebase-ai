@@ -79,6 +79,16 @@
   animation: fadeSlideUp var(--m3-duration-medium) var(--m3-ease-out) both;
 }
 
+/* A one-line hint for the blank area before the first run. */
+.panel-hint {
+  margin: 0;
+  padding: var(--space-6) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  text-align: center;
+  color: var(--m3-on-surface-variant);
+}
+
 /* ---------- Card ---------- */
 .panel-card {
   border: 1px solid var(--m3-outline-variant);
@@ -486,26 +496,6 @@
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
   color: var(--m3-on-surface-subtle);
-}
-
-.search-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.search-skeleton span {
-  display: block;
-  height: 74px;
-  border-radius: var(--m3-shape-md);
-  background: linear-gradient(
-    90deg,
-    var(--m3-surface-container) 25%,
-    var(--m3-surface-container-high) 50%,
-    var(--m3-surface-container) 75%
-  );
-  background-size: 800px 100%;
-  animation: shimmer 1.5s infinite ease-in-out;
 }
 
 /* ============================================================

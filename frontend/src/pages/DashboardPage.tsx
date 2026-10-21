@@ -6,6 +6,7 @@ import apiClient from '../services/apiClient';
 import { getApiErrorMessage } from '../utils/apiError';
 import NewProjectModal from '../components/NewProjectModal';
 import IndexingProgressModal from '../components/IndexingProgressModal';
+import { StateView } from '../components/PanelKit';
 import './Dashboard.css';
 
 interface Project {
@@ -259,41 +260,22 @@ const DashboardPage: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="project-list">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="skeleton-row" />
-            ))}
-          </div>
+          <StateView variant="loading" message="Loading projects…" />
         ) : loadError ? (
-          <div className="empty-state" role="alert">
-            <svg className="empty-state-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-              <line x1="12" y1="9" x2="12" y2="13"></line>
-              <line x1="12" y1="17" x2="12.01" y2="17"></line>
-            </svg>
-            <h2 className="empty-state-title">Couldn’t load your projects</h2>
-            <p className="empty-state-text">{loadError}</p>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => fetchProjects()}
-            >
-              Try again
-            </button>
-          </div>
+          <StateView
+            variant="error"
+            message={loadError}
+            onRetry={() => void fetchProjects()}
+          />
         ) : projects.length === 0 ? (
-          <div className="empty-state">
-            <svg className="empty-state-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-            </svg>
-            <h2 className="empty-state-title">No projects yet</h2>
-            <p className="empty-state-text">
-              Create a project and upload your codebase to start asking questions about it.
-            </p>
-            <button className="btn-primary" onClick={() => setShowModal(true)}>
-              Create Project
-            </button>
-          </div>
+          <StateView
+            variant="empty"
+            message="No projects yet. Upload a ZIP to start."
+            action={{
+              label: 'Create Project',
+              onClick: () => setShowModal(true),
+            }}
+          />
         ) : (
           <div className="project-list">
             {projects.map((project, index) => {

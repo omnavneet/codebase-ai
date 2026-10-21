@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import FileTree, { type FileNode } from '../../components/FileTree';
-import { PanelEmpty, PanelError } from '../../components/PanelKit';
+import { StateView } from '../../components/PanelKit';
 import { collectDirectoryPaths, collectFiles } from '../../utils/fileTree';
 
 interface FilesModeProps {
@@ -25,12 +25,6 @@ const refreshIcon = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polyline points="23 4 23 10 17 10" />
     <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-  </svg>
-);
-
-const emptyIcon = (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
   </svg>
 );
 
@@ -137,27 +131,15 @@ const FilesMode: React.FC<FilesModeProps> = ({
       </div>
 
       {loading ? (
-        <div className="files-skeleton" aria-hidden="true">
-          {Array.from({ length: 10 }, (_, index) => (
-            <span key={index} style={{ width: `${34 + ((index * 29) % 55)}%` }} />
-          ))}
-        </div>
+        <StateView variant="loading" message="Loading files…" />
       ) : error ? (
-        <PanelError message={error} onRetry={onRetry} retryLabel="Check again" />
+        <StateView variant="error" message={error} onRetry={onRetry} />
       ) : allFiles.length === 0 ? (
-        <PanelEmpty
-          icon={emptyIcon}
-          title="No files yet"
-          hint="This project has not been indexed yet. Extracted source appears here as soon as indexing finishes."
-        >
-          <button
-            type="button"
-            className="ui-btn ui-btn-neutral ui-btn-sm"
-            onClick={onRetry}
-          >
-            Check again
-          </button>
-        </PanelEmpty>
+        <StateView
+          variant="empty"
+          message="No files found."
+          action={{ label: 'Check again', onClick: onRetry }}
+        />
       ) : isFiltering ? (
         matches.length === 0 ? (
           <p className="files-no-match">

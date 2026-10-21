@@ -3,7 +3,7 @@ import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { useAgentRun } from '../hooks/useAgentRun';
-import { CopyButton, FilePicker, PanelEmpty, PanelError, ProgressBar } from './PanelKit';
+import { CopyButton, FilePicker, PanelError, ProgressBar, StateView } from './PanelKit';
 
 interface ExplainPanelProps {
   projectId: string;
@@ -11,14 +11,6 @@ interface ExplainPanelProps {
   /** Project file paths — citations only link when they resolve against it. */
   filePaths: string[];
 }
-
-const explainIcon = (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-    <line x1="12" y1="17" x2="12.01" y2="17" />
-  </svg>
-);
 
 /**
  * Explain one file — or one symbol inside it. The form is the whole
@@ -79,7 +71,6 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick,
           files={files}
           loading={filesLoading}
           error={filesError}
-          onReload={() => void reload()}
         />
 
         <div className="panel-field panel-field-fixed">
@@ -115,6 +106,26 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick,
 
       {error && <PanelError message={error} onRetry={retry} />}
 
+      {filesLoading && (
+        <StateView variant="loading" message="Loading files…" />
+      )}
+
+      {filesError && (
+        <StateView
+          variant="error"
+          message={filesError}
+          onRetry={() => void reload()}
+        />
+      )}
+
+      {!filesLoading && !filesError && files.length === 0 && (
+        <StateView
+          variant="empty"
+          message="No files to analyze."
+          action={{ label: 'Check again', onClick: () => void reload() }}
+        />
+      )}
+
       {loading && (
         <ProgressBar
           stage="running"
@@ -145,12 +156,8 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick,
         />
       )}
 
-      {!loading && !error && !displayResult && (
-        <PanelEmpty
-          icon={explainIcon}
-          title="Walk through a file"
-          hint="Pick a file to get a grounded summary of what it does, how it is called, and what it depends on."
-        />
+      {!loading && !error && !displayResult && !filesLoading && !filesError && files.length > 0 && (
+        <p className="panel-hint">Pick a file and click Explain.</p>
       )}
 
       {displayResult && (

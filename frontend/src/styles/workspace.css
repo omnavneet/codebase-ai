@@ -146,32 +146,6 @@
   white-space: nowrap;
 }
 
-/* ---------- Skeleton ---------- */
-.files-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-1) 0;
-}
-
-.files-skeleton span {
-  height: 12px;
-  border-radius: var(--m3-shape-full);
-  background: linear-gradient(
-    90deg,
-    var(--m3-surface-container) 25%,
-    var(--m3-surface-container-high) 50%,
-    var(--m3-surface-container) 75%
-  );
-  background-size: 800px 100%;
-  animation: shimmer 1.5s infinite ease-in-out;
-}
-
-/* Indent every placeholder line slightly differently so the block
-   reads as a tree waiting to load, not as a list of bars. */
-.files-skeleton span:nth-child(3n + 2) { margin-left: 16px; }
-.files-skeleton span:nth-child(3n + 3) { margin-left: 8px; }
-
 /* ---------- Filtered results (flat list) ---------- */
 .files-results {
   list-style: none;

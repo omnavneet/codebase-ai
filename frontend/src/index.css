@@ -593,6 +593,35 @@ img {
 }
 
 /* ============================================================
+   Data states
+   One shared pattern for the three states a data screen can be
+   in: waiting, nothing to show, or the request failed. The
+   message is one line; the error and the empty state each add
+   the one action that gets the user moving again.
+   ============================================================ */
+.state-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+}
+
+.state-view-message {
+  margin: 0;
+  max-width: 52ch;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--m3-on-surface-variant);
+}
+
+.state-view-error .state-view-message {
+  color: var(--m3-error);
+}
+
+/* ============================================================
    Buttons
    Three intents (primary / neutral / ghost) plus destructive.
    Every button communicates hover, press and disabled distinctly.

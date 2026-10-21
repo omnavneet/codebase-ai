@@ -440,38 +440,6 @@
   animation: fadeIn 300ms var(--m3-easing-standard) both;
 }
 
-/* Empty state */
-.empty-state {
-  text-align: center;
-  padding: var(--space-16) var(--space-6);
-  background: var(--m3-surface);
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--m3-shape-md);
-  animation: viewEnter var(--m3-duration-long) var(--m3-ease-out) both;
-}
-
-.empty-state-icon {
-  display: inline-block;
-  color: var(--m3-outline);
-  margin-bottom: var(--space-4);
-}
-
-.empty-state-title {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  letter-spacing: var(--tracking-tight);
-  margin-bottom: 6px;
-  color: var(--m3-on-surface);
-}
-
-.empty-state-text {
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  color: var(--m3-on-surface-variant);
-  margin: 0 auto var(--space-6);
-  max-width: 44ch;
-}
-
 @media (max-width: 640px) {
   .dashboard-main {
     padding: var(--space-6) var(--space-4);
@@ -486,9 +454,5 @@
   .project-row-meta {
     flex-wrap: wrap;
     row-gap: 2px;
-  }
-
-  .empty-state {
-    padding: var(--space-10) var(--space-4);
   }
 }

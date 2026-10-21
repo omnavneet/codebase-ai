@@ -205,6 +205,59 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
 };
 
 /**
+ * The three states every data screen can be in, in one place: waiting for
+ * the request, nothing to show, or the request failed.
+ *
+ * The screens that show a list (projects, files, search hits, the files an
+ * agent can pick) all had their own version of these three, and a failure
+ * that had nowhere to go — a blank panel, or a spinner that never stopped.
+ * One component means they now say the same thing and behave the same way:
+ * a failed load always ends in an error with a Retry that re-runs the same
+ * request.
+ */
+type StateViewVariant = 'loading' | 'empty' | 'error';
+
+interface StateViewProps {
+  variant: StateViewVariant;
+  /** The one line that says what is happening, or what to do next. */
+  message: string;
+  /** Empty only: the way out of an empty screen. */
+  action?: { label: string; onClick: () => void };
+  /** Error only: re-runs the request that failed. */
+  onRetry?: () => void;
+}
+export const StateView: React.FC<StateViewProps> = ({
+  variant,
+  message,
+  action,
+  onRetry,
+}) => (
+  <div
+    className={`state-view state-view-${variant}`}
+    role={variant === 'error' ? 'alert' : variant === 'loading' ? 'status' : undefined}
+  >
+    {variant === 'loading' && (
+      <span className="spinner spinner-sm" aria-hidden="true" />
+    )}
+    <p className="state-view-message">{message}</p>
+    {variant === 'error' && onRetry && (
+      <button type="button" className="ui-btn ui-btn-primary ui-btn-sm" onClick={onRetry}>
+        Retry
+      </button>
+    )}
+    {variant === 'empty' && action && (
+      <button
+        type="button"
+        className="ui-btn ui-btn-primary ui-btn-sm"
+        onClick={action.onClick}
+      >
+        {action.label}
+      </button>
+    )}
+  </div>
+);
+
+/**
  * First-run state for a mode. `examples` turns the empty state into a
  * starting point instead of a dead end — one click fills the form and runs it.
  */
@@ -386,7 +439,9 @@ export const FindingsList: React.FC<{ findings: Finding[] }> = ({ findings }) =>
  * File picker shared by the modes that operate on one file (Explain, Docs,
  * Review). Having one control means the three modes agree on what loading,
  * failure and "nothing indexed yet" look like — the states used to be an
- * empty dropdown with no explanation.
+ * empty dropdown with no explanation. The failure itself is reported by the
+ * mode through the shared state view, so the control only has to say why it
+ * is disabled.
  */
 export const FilePicker: React.FC<{
   id: string;
@@ -396,9 +451,10 @@ export const FilePicker: React.FC<{
   files: string[];
   loading: boolean;
   error: string;
-  onReload: () => void;
-}> = ({ id, label, value, onChange, files, loading, error, onReload }) => (
-  <div className="panel-field panel-field-grow">
+  /** The field wrapper. Defaults to the growing field; a fixed one is narrower. */
+  fieldClassName?: string;
+}> = ({ id, label, value, onChange, files, loading, error, fieldClassName }) => (
+  <div className={fieldClassName ?? 'panel-field panel-field-grow'}>
     <label className="panel-field-label" htmlFor={id}>
       {label}
     </label>
@@ -407,14 +463,16 @@ export const FilePicker: React.FC<{
       className="ui-input ui-select"
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      disabled={loading || files.length === 0}
+      disabled={loading || error !== '' || files.length === 0}
     >
       <option value="">
         {loading
           ? 'Loading files…'
-          : files.length === 0
-            ? 'No indexed files yet'
-            : 'Select a file…'}
+          : error
+            ? 'Could not load files…'
+            : files.length === 0
+              ? 'No files to analyze.'
+              : 'Select a file…'}
       </option>
       {files.map((file) => (
         <option key={file} value={file}>
@@ -422,14 +480,6 @@ export const FilePicker: React.FC<{
         </option>
       ))}
     </select>
-    {error && (
-      <p className="ui-field-error" role="alert">
-        {error}
-        <button type="button" className="panel-inline-action" onClick={onReload}>
-          Retry
-        </button>
-      </p>
-    )}
   </div>
 );
 

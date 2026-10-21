@@ -69,7 +69,9 @@ const ChatPage: React.FC = () => {
   // browser back button both land on the same view.
   const activeTab = tabFromSegment(tabSegment)
   const [fileTree, setFileTree] = useState<FileNode[]>([])
-  const [filesLoading, setFilesLoading] = useState(false)
+  // Starts true: the file list is requested as the page loads, so showing
+  // "no files" before the request lands would be a lie.
+  const [filesLoading, setFilesLoading] = useState(true)
   const [filesError, setFilesError] = useState("")
   // The id is kept alongside the content so the viewer can retry the exact
   // same request when the fetch fails.
@@ -253,8 +255,10 @@ const ChatPage: React.FC = () => {
   }, [projectId, projectStatus, navigate])
 
   useEffect(() => {
-    // Citations in answers resolve against the real file list, so the tree
-    // loads with the page — not only when the Files tab is first opened.
+    // The tree loads with the page, because citations in answers resolve
+    // against the real file list. One effect, so a late failure cannot wipe
+    // out a list that had already loaded — and a failed load keeps its error
+    // on screen, where the Files tab's Retry can re-run the request.
     if (projectId && fileTree.length === 0) {
       // Async fetch — setState only runs after the request resolves.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -262,17 +266,6 @@ const ChatPage: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
-
-  useEffect(() => {
-    // Files are only worth fetching for the mode that shows them, and only
-    // once — the toolbar's Refresh button re-fetches on demand.
-    if (activeTab === "files" && projectId && fileTree.length === 0) {
-      // Async fetch — setState only runs after the request resolves.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      fetchFileTree()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, projectId])
 
   // Sidebar drag-to-resize, attached once on mount. The handle lives inside
   // the <aside> it resizes (rendered by ChatSidebar).

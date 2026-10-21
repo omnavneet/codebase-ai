@@ -2,8 +2,9 @@ import React, { useCallback, useState } from 'react';
 import { type AgentInvestigation } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { type Finding } from './findings';
+import { useProjectFiles } from '../hooks/useProjectFiles';
 import { useAgentRun } from '../hooks/useAgentRun';
-import { AgentStepList, CopyButton, FindingsList, PanelEmpty, PanelError, ProgressBar } from './PanelKit';
+import { AgentStepList, CopyButton, FilePicker, FindingsList, PanelError, ProgressBar, StateView } from './PanelKit';
 
 interface StackFrame {
   file?: string | null;
@@ -30,12 +31,6 @@ interface DebugPanelProps {
   filePaths: string[];
 }
 
-const debugIcon = (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-  </svg>
-);
-
 /**
  * Debug: describe the failure, optionally paste the trace, let the agent walk
  * the code. The stack trace is the most useful thing a user can hand over, so
@@ -43,6 +38,7 @@ const debugIcon = (
  * the mode still works from a description alone.
  */
 const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, filePaths }) => {
+  const { files, loading: filesLoading, error: filesError, reload } = useProjectFiles(projectId);
   const [description, setDescription] = useState('');
   const [stackTrace, setStackTrace] = useState('');
   const [filePath, setFilePath] = useState('');
@@ -110,20 +106,16 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, fil
           />
         </div>
 
-        <div className="panel-field panel-field-fixed">
-          <label className="panel-field-label" htmlFor="debug-file">
-            Suspected file (optional)
-          </label>
-          <input
-            id="debug-file"
-            className="ui-input"
-            type="text"
-            value={filePath}
-            onChange={(event) => setFilePath(event.target.value)}
-            placeholder="src/auth/AuthService.java"
-            spellCheck={false}
-          />
-        </div>
+        <FilePicker
+          id="debug-file"
+          label="Suspected file (optional)"
+          value={filePath}
+          onChange={setFilePath}
+          files={files}
+          loading={filesLoading}
+          error={filesError}
+          fieldClassName="panel-field panel-field-fixed"
+        />
 
         <button
           type="submit"
@@ -143,6 +135,26 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, fil
 
       {error && <PanelError message={error} onRetry={retry} />}
 
+      {filesLoading && (
+        <StateView variant="loading" message="Loading files…" />
+      )}
+
+      {filesError && (
+        <StateView
+          variant="error"
+          message={filesError}
+          onRetry={() => void reload()}
+        />
+      )}
+
+      {!filesLoading && !filesError && files.length === 0 && (
+        <StateView
+          variant="empty"
+          message="No files to analyze."
+          action={{ label: 'Check again', onClick: () => void reload() }}
+        />
+      )}
+
       {loading && (
         <ProgressBar
           stage="running"
@@ -153,12 +165,8 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, fil
       )}
       <AgentStepList steps={steps} loading={loading} />
 
-      {!loading && !error && !result && (
-        <PanelEmpty
-          icon={debugIcon}
-          title="Describe a failure to get a root cause"
-          hint="A description alone is enough. Adding the stack trace, or the file you suspect, makes the answer sharper."
-        />
+      {!loading && !error && !result && !filesLoading && !filesError && files.length > 0 && (
+        <p className="panel-hint">Describe the failure and click Debug issue.</p>
       )}
 
       {result && (

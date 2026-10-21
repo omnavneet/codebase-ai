@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { isAxiosError } from 'axios';
 import apiClient from '../services/apiClient';
 import { getApiErrorMessage } from '../utils/apiError';
-import { PanelEmpty, PanelError } from './PanelKit';
+import { PanelEmpty, StateView } from './PanelKit';
 
 interface SearchResult {
   fileId: string;
@@ -115,13 +115,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
       </form>
 
       {error ? (
-        <PanelError message={error} onRetry={() => void runSearch(lastQuery)} />
+        <StateView
+          variant="error"
+          message={error}
+          onRetry={() => void runSearch(lastQuery)}
+        />
       ) : loading ? (
-        <div className="search-skeleton" aria-hidden="true">
-          {Array.from({ length: 4 }, (_, index) => (
-            <span key={index} />
-          ))}
-        </div>
+        <StateView variant="loading" message="Searching…" />
       ) : !searched ? (
         <PanelEmpty
           icon={searchIcon}
@@ -134,10 +134,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ projectId, onFileClick }) => 
           }}
         />
       ) : results.length === 0 ? (
-        <PanelEmpty
-          icon={searchIcon}
-          title={`No matches for “${lastQuery}”`}
-          hint="Semantic search needs the meaning to overlap. Try describing what the code does, or simplify the phrasing."
+        <StateView
+          variant="empty"
+          message="No results. Try different words or a symbol name."
         />
       ) : (
         <div className="panel-result">
