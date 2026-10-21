@@ -94,6 +94,9 @@ class ChatRequest(BaseModel):
     # Prior conversation turns ({"role": "user"|"assistant", "content": str})
     # so follow-up questions have continuity. Optional for compatibility.
     history: List[dict] = Field(default_factory=list)
+    # Optional per-project "answer style" text; appended to the user prompt as a
+    # style-only hint. Never logged.
+    instructions: Optional[str] = None
 
 class ChatResponse(BaseModel):
     answer: str
@@ -124,7 +127,8 @@ def embed(request: EmbedRequest):
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     try:
-        answer = chat_service.generate_answer(request.question, request.context, request.history)
+        answer = chat_service.generate_answer(
+            request.question, request.context, request.history, request.instructions)
         
         citations = [
             {
@@ -153,7 +157,7 @@ def chat_stream(request: ChatRequest):
 
     def generate():
         try:
-            for delta in chat_service.generate_answer_stream(request.question, request.context, request.history):
+            for delta in chat_service.generate_answer_stream(request.question, request.context, request.history, request.instructions):
                 yield sse_format("token", {"t": delta})
             yield sse_format("done", {})
         except Exception as exc:
@@ -165,6 +169,8 @@ def chat_stream(request: ChatRequest):
 class AgentRequest(BaseModel):
     question: str
     project_id: str
+    # Optional per-project "answer style" text; applied only to the final answer.
+    instructions: Optional[str] = None
 
 class AgentResponse(BaseModel):
     answer: str
@@ -184,7 +190,8 @@ def investigate(request: AgentRequest):
     request_id = uuid.uuid4().hex[:12]
     try:
         result = agent.investigate(
-            request.question, request.project_id, request_id=request_id)
+            request.question, request.project_id, request_id=request_id,
+            instructions=request.instructions)
         return AgentResponse(**result)
     except Exception as e:
         logger.exception("Agent investigation failed request_id=%s", request_id)
@@ -333,6 +340,7 @@ def investigate_stream(request: AgentRequest):
         return agent.investigate(
             request.question, request.project_id,
             on_event=emit, cancel_event=cancel_event, request_id=request_id,
+            instructions=request.instructions,
         )
     return _run_agent_stream(run, request, request_id=request_id)
 

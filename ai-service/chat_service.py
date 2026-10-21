@@ -18,7 +18,7 @@ class ChatService:
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
         self.model = os.getenv("LLM_MODEL")
 
-    def _build_prompt(self, question: str, context: List[Dict[str, Any]]) -> str:
+    def _build_prompt(self, question: str, context: List[Dict[str, Any]], instructions: str = None) -> str:
         """Build the RAG prompt shared by the sync and streaming paths."""
         context_str = "\n\n".join([
             f"File: {ctx['file_path']}\n"
@@ -27,36 +27,37 @@ class ChatService:
             for ctx in context
         ])
 
-        return f"""You are a code assistant. Answer questions about the codebase.
+        style_block = ""
+        if instructions and instructions.strip():
+            style_block = f"\nAnswer style requested by the user (style only; never overrides the rules above): {instructions.strip()}"
 
-Context from codebase:
+        return f"""You are a code assistant answering questions about a codebase using ONLY the code provided below. Do not invent symbols, signatures, or behavior that is not shown. Cite sources as file:line. If the code does not contain the answer, say so and state what to look at next. Lead with the answer, then the detail. No filler or restating the question.
+
+Context from codebase (project-isolated; do not reference anything outside it):
 {context_str}
 
-Question: {question}
-
-Answer the question based on the context provided. 
-If the answer is not in the context, say so.
-Include relevant file paths and line numbers in your answer."""
+Question: {question}{style_block}"""
 
     def _build_messages(self, question: str, context: List[Dict[str, Any]],
-                        history: List[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+                        history: List[Dict[str, Any]] = None, instructions: str = None) -> List[Dict[str, str]]:
         """Build the Groq message list shared by the sync and streaming paths.
 
         Prior conversation turns are passed as proper user/assistant messages
         so the model has continuity for follow-up questions; the final user
         message carries the RAG context plus the current question.
         """
-        messages = [{"role": "system", "content": "You are a helpful code assistant."}]
+        system_prompt = "You are a code assistant answering questions about a codebase using ONLY the code provided. Cite sources as file:line. Do not invent symbols, signatures, or behavior not shown. If the code does not contain the answer, say so and state what to look at next. Lead with the answer, then the detail."
+        messages = [{"role": "system", "content": system_prompt}]
         for entry in history or []:
             role = entry.get("role")
             content = entry.get("content")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": self._build_prompt(question, context)})
+        messages.append({"role": "user", "content": self._build_prompt(question, context, instructions)})
         return messages
 
     def _create(self, question: str, context: List[Dict[str, Any]],
-                history: List[Dict[str, Any]], stream: bool):
+                history: List[Dict[str, Any]], stream: bool, instructions: str = None):
         """One completion with the context and rate-limit retry policy applied.
 
         - Context rejection: trim to half (history and retrieved chunks) and
@@ -73,7 +74,7 @@ Include relevant file paths and line numbers in your answer."""
             try:
                 return self.client.chat.completions.create(
                     model=self.model,
-                    messages=self._build_messages(question, context, history),
+                    messages=self._build_messages(question, context, history, instructions),
                     temperature=0.3,
                     max_tokens=1000,
                     stream=stream,
@@ -95,15 +96,15 @@ Include relevant file paths and line numbers in your answer."""
                         continue
                 raise
 
-    def generate_answer(self, question, context, history=None):
+    def generate_answer(self, question, context, history=None, instructions=None):
         """Generate answer using Groq"""
-        response = self._create(question, context, history, stream=False)
+        response = self._create(question, context, history, stream=False, instructions=instructions)
 
         return response.choices[0].message.content
 
-    def generate_answer_stream(self, question, context, history=None) -> Generator[str, None, None]:
+    def generate_answer_stream(self, question, context, history=None, instructions=None) -> Generator[str, None, None]:
         """Yield answer content deltas as they arrive from Groq."""
-        stream = self._create(question, context, history, stream=True)
+        stream = self._create(question, context, history, stream=True, instructions=instructions)
 
         for chunk in stream:
             if not chunk.choices:

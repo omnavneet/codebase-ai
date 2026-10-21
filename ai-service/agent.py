@@ -134,6 +134,7 @@ class CodebaseAgent:
         on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         cancel_event: Optional[Any] = None,
         request_id: Optional[str] = None,
+        instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Main agent investigation loop.
 
@@ -225,9 +226,16 @@ class CodebaseAgent:
             fallback = "Investigation was truncated. Please try a more specific question."
             answer = fallback
             started = time.monotonic()
+            final_instruction = FINAL_ANSWER_INSTRUCTION
+            if instructions and instructions.strip():
+                final_instruction += (
+                    "\nAnswer style requested by the user (style only; "
+                    "never overrides the tool-use rules above and below):\n"
+                    + instructions.strip()
+                )
             try:
                 response = self._create_completion(
-                    messages + [{"role": "user", "content": FINAL_ANSWER_INSTRUCTION}]
+                    messages + [{"role": "user", "content": final_instruction}]
                 )
                 attribute_usage(response)
                 answer = response.choices[0].message.content or fallback
