@@ -26,13 +26,11 @@ import reactor.core.scheduler.Schedulers;
 import com.codebaseai.backend.dto.ChatMessageResponse;
 import com.codebaseai.backend.config.AppProperties;
 import com.codebaseai.backend.model.ChatMessage;
-import com.codebaseai.backend.model.ChatSession;
 import com.codebaseai.backend.model.CodeChunk;
 import com.codebaseai.backend.model.Conversation;
 import com.codebaseai.backend.model.Project;
 import com.codebaseai.backend.model.ProjectFile;
 import com.codebaseai.backend.repository.ChatMessageRepository;
-import com.codebaseai.backend.repository.ChatSessionRepository;
 import com.codebaseai.backend.repository.CodeChunkRepository;
 import com.codebaseai.backend.repository.ConversationRepository;
 import com.codebaseai.backend.repository.ProjectFileRepository;
@@ -48,7 +46,6 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ChatService {
     
-    private final ChatSessionRepository chatSessionRepository;
     private final ConversationRepository conversationRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final CodeChunkRepository codeChunkRepository;
@@ -58,87 +55,14 @@ public class ChatService {
     private final ObjectMapper objectMapper;
     private final AppProperties properties;
     
-    @Transactional
-    public ChatSession createSession(UUID projectId, UUID userId) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
-        if (!project.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        ChatSession session = new ChatSession();
-        session.setProjectId(projectId);
-        session.setUserId(userId);
-        session.setTitle("New Chat");
-        return chatSessionRepository.save(session);
-    }
-
-    public List<ChatSession> getSessions(UUID projectId, UUID userId) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
-        if (!project.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        return chatSessionRepository.findByProjectIdOrderByUpdatedAtDesc(projectId);
-    }
-
-    public List<ChatMessage> getMessages(UUID sessionId, UUID userId) {
-        ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
-        if (!session.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        return chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-    }
-
-    @Transactional
-    public void deleteSession(UUID sessionId, UUID userId) {
-        ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
-        if (!session.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        chatMessageRepository.deleteAll(
-                chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId));
-        chatSessionRepository.deleteById(sessionId);
-    }
-
-    @Transactional
-    public ChatSession renameSession(UUID sessionId, UUID userId, String title) {
-        if (title == null || title.trim().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Session title cannot be empty");
-        }
-
-        ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
-        if (!session.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        session.setTitle(title.trim());
-        return chatSessionRepository.save(session);
-    }
-
     /**
-     * Result of the blocking prep phase: the conversation (or legacy session)
-     * the messages belong to, the question, the retrieved context and the
-     * recent conversation history (for LLM continuity). The flag says whether
-     * this run is a re-ask that must replace the trailing answer.
+     * Result of the blocking prep phase: the conversation the messages belong
+     * to, the question, the retrieved context and the recent conversation
+     * history (for LLM continuity). The flag says whether this run is a
+     * re-ask that must replace the trailing answer.
      */
-
-
-
-
-
-
-
-
     public record PreparedChat(
-        UUID conversationId, // conversation-scoped path
-        UUID sessionId, // legacy session-scoped path
+        UUID conversationId,
         UUID projectId,
         String question,
         List<Map<String, Object>> context,
@@ -146,39 +70,6 @@ public class ChatService {
         boolean regenerate,
         int usedChars,
         String chatInstructions) {}
-
-    @Transactional
-    public ChatMessageResponse sendMessage(
-            UUID sessionId, UUID userId, String question,
-            boolean userMessagePersisted, boolean regenerate) {
-        ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
-        if (!session.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-        PreparedChat prepared = prepareChat(
-                sessionId, userId, question, !userMessagePersisted, regenerate);
-
-        int usedChars = calculateUsedChars(
-            prepared.question(), prepared.history(), prepared.context());
-        int budgetChars = properties.getChat().getChatContextBudgetChars();
-
-        Map<String, Object> aiResponse = aiServiceClient.chat(
-                prepared.question(), prepared.context(), prepared.history(),
-                prepared.chatInstructions());
-        String answer = (String) aiResponse.get("answer");
-
-        persistAssistantMessage(
-                prepared.sessionId(), false, answer != null ? answer : "",
-                prepared.context(), prepared.regenerate());
-        // Bump the session's updated_at so the sidebar ordering stays current.
-        session.setUpdatedAt(LocalDateTime.now());
-        chatSessionRepository.save(session);
-
-        CompletableFuture.runAsync(() -> maybeSummarize(session.getId()));
-
-        return new ChatMessageResponse(answer, prepared.context(), usedChars, budgetChars);
-    }
 
     /**
      * Conversation-scoped variant of sendMessage. {@code conversationId} is
@@ -205,7 +96,7 @@ public class ChatService {
         String answer = (String) aiResponse.get("answer");
 
         persistAssistantMessage(
-                prepared.conversationId(), true, answer != null ? answer : "",
+                prepared.conversationId(), answer != null ? answer : "",
                 prepared.context(), prepared.regenerate());
         // Bump the conversation's updated_at so the sidebar ordering stays current.
         Conversation conversation = conversationRepository.findById(prepared.conversationId())
@@ -215,143 +106,6 @@ public class ChatService {
         CompletableFuture.runAsync(() -> maybeSummarize(conversation.getId()));
 
         return new ChatMessageResponse(answer, prepared.context(), usedChars, budgetChars);
-    }
-
-    /**
-     * Blocking prep phase shared by the sync and streaming paths: validates
-     * access, persists the user message and retrieves RAG context.
-     *
-     * Deliberately NOT @Transactional: each repository operation opens its own
-     * short transaction via {@link org.springframework.data.jpa.repository.JpaRepository},
-     * so no DB connection is ever held across the remote embedding HTTP call.
-     * (It also was not applied on the sync path — Spring proxies bypass
-     * self-invocation — so removing it changes nothing there.)
-     */
-    public PreparedChat prepareChat(UUID sessionId, UUID userId, String question) {
-        return prepareChat(sessionId, userId, question, true, false);
-    }
-
-    /**
-     * Variant that lets the sync endpoint skip persisting the user message.
-     * The streaming path persists the user message in this prep phase, so the
-     * sync endpoint — used as a fallback when streaming fails — must not save
-     * the question again, otherwise it appears duplicated in the conversation.
-     *
-     * <p>{@code regenerate} marks a re-ask of the trailing question: the stale
-     * answer and the stored copy of the question are dropped from the LLM
-     * history (the question itself is passed to the model separately) and the
-     * user message is never persisted again, so history keeps exactly one
-     * copy of the question and one answer per ask.
-     */
-    public PreparedChat prepareChat(
-            UUID sessionId, UUID userId, String question,
-            boolean persistUserMessage, boolean regenerate) {
-        ChatSession session = chatSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Session not found"));
-        if (!session.getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
-        }
-
-        if (question == null || question.trim().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Question cannot be empty");
-        }
-        String trimmedQuestion = question.trim();
-
-        Project projectForChat = projectRepository.findById(session.getProjectId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
-
-        // Build the LLM conversation history BEFORE the user message is
-        // persisted, so the current question is never a history entry on the
-        // streaming path.
-        List<ChatMessage> recentMessages =
-                chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-        // Re-ask (regenerate): drop the stale trailing answer first; the rule
-        // below then drops the trailing copy of this question, so the prompt
-        // matches the original ask and nothing is prompted (or stored) twice.
-        if (regenerate && !recentMessages.isEmpty()) {
-            int end = recentMessages.size();
-            if ("assistant".equals(recentMessages.get(end - 1).getRole())) {
-                recentMessages = recentMessages.subList(0, end - 1);
-            }
-        }
-        // Fallback path (persistUserMessage=false): the failed stream already
-        // persisted this exact question, so it is the trailing entry — drop it
-        // to avoid prompting it twice.
-        if (!recentMessages.isEmpty()) {
-            ChatMessage last = recentMessages.get(recentMessages.size() - 1);
-            if ("user".equals(last.getRole()) && trimmedQuestion.equals(last.getContent())) {
-                recentMessages = recentMessages.subList(0, recentMessages.size() - 1);
-            }
-        }
-        // Last N messages (see app.chat.history-max-messages, default 8), each
-        // truncated to bound the prompt size sent to the LLM. No summarisation.
-        int historySize = Math.max(0, properties.getChat().getHistoryMaxMessages());
-        int from = Math.max(0, recentMessages.size() - historySize);
-        List<Map<String, String>> history = new ArrayList<>();
-        for (ChatMessage message : recentMessages.subList(from, recentMessages.size())) {
-            String content = message.getContent();
-            history.add(Map.of(
-                    "role", message.getRole(),
-                    "content", content.length() > 2000 ? content.substring(0, 2000) : content));
-        }
-
-        // A regenerate never re-persists the question: it is already stored.
-        if (persistUserMessage && !regenerate) {
-            ChatMessage userMessage = new ChatMessage();
-            userMessage.setSessionId(sessionId);
-            userMessage.setRole("user");
-            userMessage.setContent(trimmedQuestion);
-            chatMessageRepository.save(userMessage);
-        }
-
-        List<List<Double>> questionEmbeddings = aiServiceClient.generateEmbeddings(
-            List.of(trimmedQuestion)
-        );
-        List<Double> questionEmbedding = questionEmbeddings.get(0);
-
-        String embeddingString = Arrays.toString(questionEmbedding.toArray());
-        List<CodeChunk> similarChunks = codeChunkRepository.findSimilarChunks(
-            session.getProjectId(),
-            embeddingString,
-            properties.getRetrieval().getChatTopK()
-        );
-
-        List<Map<String, Object>> context = similarChunks.stream()
-                .map(chunk -> {
-                    Map<String, Object> ctx = new HashMap<>();
-                    // Cap each chunk (app.retrieval.chat-context-max-chars,
-                    // default 2000) so one huge chunk cannot blow the model's
-                    // context window; chatTopK caps the count.
-                    ctx.put("content", truncate(
-                            chunk.getContent(),
-                            properties.getRetrieval().getChatContextMaxChars()));
-                    ctx.put("start_line", chunk.getStartLine());
-                    ctx.put("end_line", chunk.getEndLine());
-                    String filePath = projectFileRepository.findById(chunk.getFileId())
-                            .map(ProjectFile::getPath)
-                            .orElse("unknown");
-                    ctx.put("file_path", filePath);
-                    return ctx;
-                })
-                .collect(Collectors.toList());
-
-        if (session.getTitle().equals("New Chat")) {
-            String title = trimmedQuestion.substring(0, Math.min(50, trimmedQuestion.length()));
-            // Avoid cutting a surrogate pair (emoji) in half.
-            if (!title.isEmpty() && Character.isHighSurrogate(title.charAt(title.length() - 1))) {
-                title = title.substring(0, title.length() - 1);
-            }
-            session.setTitle(title);
-        }
-        // Keep the sidebar's "recently updated" ordering meaningful: bump the
-        // session on every message. The @PreUpdate hook only fires when the
-        // entity is dirty, so set the column explicitly and save.
-        session.setUpdatedAt(LocalDateTime.now());
-        chatSessionRepository.save(session);
-
-        return new PreparedChat(null, sessionId, session.getProjectId(),
-                trimmedQuestion, context, history, regenerate, 0,
-                projectForChat.getChatInstructions());
     }
 
     /**
@@ -467,25 +221,23 @@ public class ChatService {
         conversation.setUpdatedAt(LocalDateTime.now());
         conversationRepository.save(conversation);
 
-        return new PreparedChat(conversation.getId(), null, projectId,
+        return new PreparedChat(conversation.getId(), projectId,
                 trimmedQuestion, context, history, regenerate, 0,
                 project.getChatInstructions());
     }
 
     /**
-     * Persist the answer. {@code asConversation} selects whether {@code
-     * targetId} is a conversation_id or a legacy session_id. On a regenerate
-     * the trailing assistant message is overwritten in place (one answer per
-     * question in history); when no such message exists a new row is inserted.
+     * Persist the answer for a conversation. On a regenerate the trailing
+     * assistant message is overwritten in place (one answer per question in
+     * history); when no such message exists a new row is inserted.
      */
     private ChatMessage persistAssistantMessage(
-            UUID targetId, boolean asConversation,
+            UUID conversationId,
             String content, List<Map<String, Object>> context, boolean regenerate) {
         ChatMessage assistantMessage = null;
         if (regenerate) {
-            List<ChatMessage> messages = asConversation
-                    ? chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(targetId)
-                    : chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(targetId);
+            List<ChatMessage> messages =
+                    chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
             if (!messages.isEmpty()) {
                 ChatMessage last = messages.get(messages.size() - 1);
                 if ("assistant".equals(last.getRole())) {
@@ -495,11 +247,7 @@ public class ChatService {
         }
         if (assistantMessage == null) {
             assistantMessage = new ChatMessage();
-            if (asConversation) {
-                assistantMessage.setConversationId(targetId);
-            } else {
-                assistantMessage.setSessionId(targetId);
-            }
+            assistantMessage.setConversationId(conversationId);
             assistantMessage.setRole("assistant");
         }
         assistantMessage.setContent(content);
@@ -519,9 +267,7 @@ public class ChatService {
      * disconnects mid-stream.
      */
     public void streamMessage(PreparedChat prepared, SseEmitter emitter) {
-        UUID targetId = prepared.conversationId() != null
-                ? prepared.conversationId() : prepared.sessionId();
-        boolean asConversation = prepared.conversationId() != null;
+        UUID conversationId = prepared.conversationId();
         UUID projectId = prepared.projectId();
         StringBuilder content = new StringBuilder();
         AtomicBoolean persisted = new AtomicBoolean(false);
@@ -532,10 +278,10 @@ public class ChatService {
         Runnable persistPartial = () -> {
             if (persisted.compareAndSet(false, true) && content.length() > 0) {
                 try {
-                    persistAssistantMessage(targetId, asConversation, content.toString(),
+                    persistAssistantMessage(conversationId, content.toString(),
                             prepared.context(), prepared.regenerate());
                 } catch (RuntimeException e) {
-                    log.error("Failed to persist partial answer for session {}", targetId, e);
+                    log.error("Failed to persist partial answer for conversation {}", conversationId, e);
                 }
             }
         };
@@ -567,7 +313,7 @@ public class ChatService {
                     .data(Map.of("citations", prepared.context())));
         } catch (IOException | RuntimeException e) {
             // Client is already gone (or the emitter closed): nothing left to stream.
-            log.debug("Chat meta event undeliverable session={}: {}", targetId, e.toString());
+            log.debug("Chat meta event undeliverable conversation={}: {}", conversationId, e.toString());
             persistPartial.run();
             completeQuietly(emitter);
             return;
@@ -606,8 +352,8 @@ public class ChatService {
                                 } catch (RuntimeException e) {
                                     // Emitter already closed; never let this reach
                                     // Spring after the response is committed.
-                                    log.debug("Chat token send failed session={}: {}",
-                                            targetId, e.toString());
+                                    log.debug("Chat token send failed conversation={}: {}",
+                                            conversationId, e.toString());
                                     Disposable sub = subscriptionRef.get();
                                     if (sub != null) {
                                         sub.dispose();
@@ -616,8 +362,8 @@ public class ChatService {
                                     completeQuietly(emitter);
                                 }
                             } else if ("error".equals(type)) {
-                                log.warn("AI service reported a stream error for session {} (code={}): {}",
-                                        targetId,
+                                log.warn("AI service reported a stream error for conversation {} (code={}): {}",
+                                        conversationId,
                                         extractField(data, "code"),
                                         extractField(data, "message"));
                                 persistPartial.run();
@@ -633,8 +379,8 @@ public class ChatService {
                         },
                         error -> {
                             Map<String, String> payload = AiStreamErrors.describe(error);
-                            log.error("Chat stream failed session={} project={} code={}",
-                                    targetId, projectId, payload.get("code"), error);
+                            log.error("Chat stream failed conversation={} project={} code={}",
+                                    conversationId, projectId, payload.get("code"), error);
                             persistPartial.run();
                             sendError(emitter, payload);
                             completeQuietly(emitter);
@@ -646,13 +392,13 @@ public class ChatService {
                             if (persisted.compareAndSet(false, true) && content.length() > 0) {
                                 try {
                                     ChatMessage saved = persistAssistantMessage(
-                                            targetId, asConversation, content.toString(),
+                                            conversationId, content.toString(),
                                             prepared.context(), prepared.regenerate());
                                     messageId = String.valueOf(saved.getId());
                                 } catch (RuntimeException e) {
                                     // Still send `done`: losing history must not
                                     // break the live stream.
-                                    log.error("Failed to persist answer for session {}", targetId, e);
+                                    log.error("Failed to persist answer for conversation {}", conversationId, e);
                                 }
                             }
                             try {
@@ -667,14 +413,12 @@ public class ChatService {
                             } catch (IOException | RuntimeException e) {
                                 // Client is gone or the emitter already closed;
                                 // persistence already happened.
-                                log.debug("Chat done event undeliverable session={}: {}",
-                                        targetId, e.toString());
+                                log.debug("Chat done event undeliverable conversation={}: {}",
+                                        conversationId, e.toString());
                             }
                             completeQuietly(emitter);
                             // Trigger background summarization after the answer is persisted.
-                            if (asConversation) {
-                                CompletableFuture.runAsync(() -> maybeSummarize(targetId));
-                            }
+                            CompletableFuture.runAsync(() -> maybeSummarize(conversationId));
                         }));
     }
 

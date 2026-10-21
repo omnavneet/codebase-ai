@@ -28,5 +28,3 @@ export async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
-
-export default copyText;

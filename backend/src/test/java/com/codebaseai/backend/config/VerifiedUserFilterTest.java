@@ -78,15 +78,14 @@ class VerifiedUserFilterTest {
             "/api/projects",
             "/api/projects/11111111-1111-1111-1111-111111111111/upload",
             "/api/projects/11111111-1111-1111-1111-111111111111/search",
-            "/api/projects/11111111-1111-1111-1111-111111111111/generated",
-            "/api/projects/11111111-1111-1111-1111-111111111111/sessions",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/investigate",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/generate-docs",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/explain-code",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/debug",
             "/api/projects/11111111-1111-1111-1111-111111111111/agent/improve-code",
-            "/api/sessions/22222222-2222-2222-2222-222222222222/messages",
-            "/api/sessions/22222222-2222-2222-2222-222222222222/messages/stream"})
+            "/api/projects/11111111-1111-1111-1111-111111111111/conversations",
+            "/api/projects/11111111-1111-1111-1111-111111111111/conversations/22222222-2222-2222-2222-222222222222/messages",
+            "/api/projects/11111111-1111-1111-1111-111111111111/conversations/22222222-2222-2222-2222-222222222222/messages/stream"})
     void blocksUnverifiedUser(String path) throws Exception {
         authenticateAs(USER_ID);
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user(false)));

@@ -335,98 +335,12 @@ public class ProjectService {
         }
     }
 
-    // ---- Generated artefacts ------------------------------------------------
-    //
-    // Generated content is written ONLY to <project>/__generated__ and never
-    // replaces a source file. Generated files have no `files` row, so they are
-    // never chunked, embedded or returned by search.
-
-    public Map<String, String> exportGeneratedDoc(
-            UUID projectId, UUID userId, String sourcePath, String symbol, String content) {
-        requireOwnedProject(projectId, userId);
-
-        String fileName = uniqueGeneratedName(projectId, generatedFileName(sourcePath, symbol));
-        String relativePath = StorageService.GENERATED_DIRECTORY + "/" + fileName;
-        try {
-            storageService.writeText(projectId, relativePath, content);
-            return Map.of("path", relativePath);
-        } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to save generated document", e);
-        }
-    }
-
-    public List<Map<String, Object>> getGeneratedFiles(UUID projectId, UUID userId) {
-        requireOwnedProject(projectId, userId);
-
-        try {
-            return storageService.listGeneratedFiles(projectId).stream()
-                    .map(file -> Map.<String, Object>of(
-                            "name", file.name(),
-                            "sizeBytes", file.sizeBytes()))
-                    .toList();
-        } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to list generated files", e);
-        }
-    }
-
-    public Map<String, String> getGeneratedFile(UUID projectId, String name, UUID userId) {
-        requireOwnedProject(projectId, userId);
-
-        String relativePath;
-        try {
-            relativePath = StorageService.GENERATED_DIRECTORY + "/" + StoragePaths.requireRelative(name);
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Generated file not found: " + name);
-        }
-
-        if (!storageService.exists(projectId, relativePath)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Generated file not found: " + name);
-        }
-        try {
-            return Map.of("path", relativePath, "content", storageService.readText(projectId, relativePath));
-        } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read generated file", e);
-        }
-    }
-
     private void requireOwnedProject(UUID projectId, UUID userId) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
         if (!project.getUserId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
         }
-    }
-
-    private String generatedFileName(String sourcePath, String symbol) {
-        String normalized = sourcePath == null ? "" : sourcePath.replace('\\', '/');
-        if (normalized.isBlank() || normalized.startsWith("/") || normalized.contains("..") || normalized.contains(":")) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid file path");
-        }
-        int dot = normalized.lastIndexOf('.');
-        String stem = dot > 0 ? normalized.substring(0, dot) : normalized;
-        String suffix = symbol != null && !symbol.isBlank() ? "_" + symbol : "";
-        String base = (stem + suffix).replaceAll("[^A-Za-z0-9]+", "_").replaceAll("_+", "_");
-        if (base.length() > 100) {
-            base = base.substring(base.length() - 100);
-        }
-        return base + ".docs.md";
-    }
-
-    private String uniqueGeneratedName(UUID projectId, String fileName) {
-        String prefix = StorageService.GENERATED_DIRECTORY + "/";
-        if (!storageService.exists(projectId, prefix + fileName)) {
-            return fileName;
-        }
-        int dot = fileName.lastIndexOf('.');
-        String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
-        String extension = dot > 0 ? fileName.substring(dot) : "";
-        for (int attempt = 1; attempt < 1000; attempt++) {
-            String candidate = stem + "-" + attempt + extension;
-            if (!storageService.exists(projectId, prefix + candidate)) {
-                return candidate;
-            }
-        }
-        throw new ResponseStatusException(HttpStatus.CONFLICT, "Too many generated files with this name");
     }
 
     private ProjectResponse mapToResponse(Project project, IndexingJob latestJob) {

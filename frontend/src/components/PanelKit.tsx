@@ -349,56 +349,6 @@ export const AgentStepList: React.FC<{ steps: string[]; loading: boolean }> = ({
   );
 };
 
-/** Placeholder cards that stand in for results while a request is running. */
-export const PanelSkeleton: React.FC<{ cards?: number }> = ({ cards = 3 }) => (
-  <div className="panel-skeleton" aria-hidden="true">
-    {Array.from({ length: cards }, (_, index) => (
-      <div key={index} className="panel-skeleton-card">
-        <span style={{ width: '46%' }} />
-        <span style={{ width: '88%' }} />
-        <span style={{ width: '72%' }} />
-      </div>
-    ))}
-  </div>
-);
-
-/**
- * Long-running operations (agent runs, README generation) can take the best
- * part of a minute. A ticking counter is the cheapest proof that the request
- * is alive, so the wait doesn't read as a freeze.
- */
-export const PanelRun: React.FC<{ label: string; hint?: string }> = ({
-  label,
-  hint,
-}) => {
-  // Stamped inside the effect rather than during render: `Date.now()` is not a
-  // pure value to read while rendering.
-  const startedAt = useRef(0);
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    startedAt.current = Date.now();
-    const id = window.setInterval(
-      () => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)),
-      1000
-    );
-    return () => window.clearInterval(id);
-  }, []);
-
-  return (
-    <div className="panel-run" role="status">
-      <span className="spinner spinner-sm panel-run-spinner" aria-hidden="true" />
-      <div className="panel-run-text">
-        <span className="panel-run-label">{label}</span>
-        {hint && <span className="panel-run-hint">{hint}</span>}
-      </div>
-      <span className="panel-run-elapsed" aria-hidden="true">
-        {elapsed}s
-      </span>
-    </div>
-  );
-};
-
 /**
  * Shared renderer for review/debug findings. Both modes produce the same
  * shape, so they render the same card: severity, category, location, the

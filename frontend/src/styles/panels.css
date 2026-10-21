@@ -173,26 +173,8 @@
   margin-top: var(--space-3);
 }
 
-/* ---------- Code ---------- */
-.panel-code {
-  margin: 0;
-  padding: var(--space-4);
-  max-height: 46vh;
-  overflow: auto;
-  border: 1px solid var(--m3-outline-variant);
-  border-radius: var(--m3-shape-md);
-  background: var(--m3-surface-container-low);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 1.65;
-  color: var(--m3-on-surface);
-  tab-size: 2;
-  white-space: pre;
-}
-
 /* ---------- Notices ---------- */
-.panel-warning,
-.panel-success {
+.panel-warning {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
@@ -200,18 +182,9 @@
   border-radius: var(--m3-shape-sm);
   font-size: var(--text-sm);
   line-height: 1.5;
-}
-
-.panel-warning {
   border: 1px solid color-mix(in srgb, var(--m3-warning) 32%, transparent);
   background: var(--m3-warning-container);
   color: #6b3b00;
-}
-
-.panel-success {
-  border: 1px solid color-mix(in srgb, var(--m3-success) 30%, transparent);
-  background: var(--m3-success-container);
-  color: #10612b;
 }
 
 /* Inline citation inside an answer: a quiet monospace link (only rendered
@@ -639,52 +612,6 @@
    progress component is a later step). */
 .agent-steps .panel-trace-step {
   animation: fadeSlideUp var(--m3-duration-medium) var(--m3-ease-out) both;
-}
-
-.generated-file-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 2px 0;
-}
-
-.generated-file-row .ui-btn {
-  justify-content: flex-start;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-}
-
-.docs-note {
-  font-size: var(--text-xs);
-  line-height: 1.55;
-  color: var(--m3-on-surface-subtle);
-}
-
-.docs-note code {
-  padding: 1px 5px;
-  border-radius: var(--m3-shape-xs);
-  background: var(--m3-surface-container);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  color: var(--m3-on-surface-variant);
-}
-
-/* Action row under a generated document, and the preview block for a
-   document reopened from the saved list. */
-.docs-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  margin-top: var(--space-3);
-}
-
-.docs-generated-preview {
-  margin-top: var(--space-4);
 }
 
 /* ============================================================

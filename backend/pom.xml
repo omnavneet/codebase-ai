@@ -152,6 +152,21 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Mockito's inline mock maker runs on Byte Buddy, which
+                         refuses class files newer than the JDK it was built
+                         for ("Java 25 (69) is not supported ... which
+                         officially supports Java 24"). The property makes
+                         Byte Buddy parse the unknown version instead of
+                         failing, so the suite runs on a newer JDK than CI's.
+                         It is a plain system property, not a -XX flag, so it
+                         is a no-op on the JDK CI builds with. -->
+                    <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>

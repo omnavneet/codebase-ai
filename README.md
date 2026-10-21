@@ -4,8 +4,8 @@
 
 **Ask questions of a codebase, then show your work.**
 
-Upload a repository as a ZIP, search it semantically, and chat with answers
-grounded in real file and line citations.
+Upload a repository as a ZIP, and it is indexed into pgvector so that every
+answer can cite the file and line it came from.
 
 [![CI](https://github.com/omnavneet/codebase-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/omnavneet/codebase-ai/actions/workflows/ci.yml)
 ![Java 17](https://img.shields.io/badge/Java-17-ED8B00?logo=openjdk&logoColor=white)
@@ -13,93 +13,89 @@ grounded in real file and line citations.
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 
-[Features](#features) · [Architecture](#architecture) · [Quick start](#quick-start) · [Configuration](#configuration) · [Testing](#testing)
-
 </div>
 
----
+## What it is
 
-## Why this project
-
-Most code-chat demos stop at a prompt and a response. This one keeps the whole path
-inspectable: files are indexed, retrieval returns source locations, agent tools are
-scoped to a single project, and the backend owns authentication, authorization, and
-chat persistence.
-
-## Features
-
-| | |
-| --- | --- |
-| **Understand** | ZIP ingestion, language-aware chunking, embeddings, pgvector search |
-| **Answer** | Streaming chat with file and line citations, plus conversation history |
-| **Investigate** | Semantic search, file reading, dependency inspection, symbol and call-graph analysis |
-| **Review** | Deterministic code review with LLM-assisted explanations |
-| **Generate** | Per-file docstrings (saved separately from sources); agent folded into chat as Deep investigate |
-| **Protect** | JWT sessions, rotating refresh cookies, email verification, ownership checks, path-traversal guards |
+A React workspace over a Spring Boot API that indexes an uploaded codebase into
+PostgreSQL + pgvector. Browse the extracted files, search them semantically,
+and ask questions in a chat that answers with `file:line` citations. An agent
+mode ("Deep investigate") can search, read and follow dependencies on its own.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Browser[React SPA] -->|HTTP / SSE| API[Spring Boot API]
-    API --> DB[(PostgreSQL + pgvector)]
-    API --> Store[(Local storage or private S3)]
-    API -->|Internal HTTP| AI[FastAPI AI service]
-    AI --> DB
-    AI --> Store
-    AI -->|Internal HTTP + Bearer| MCP[MCP tool server]
+    Browser[React SPA<br/>:5173] -->|HTTP / SSE| API[Spring Boot API<br/>:8080]
+    API --> DB[(Postgres + pgvector<br/>:5432)]
+    API --> Store[(Storage<br/>local dir or S3)]
+    API -->|internal HTTP| AI[FastAPI AI service<br/>:8000]
+    AI -->|Bearer token| MCP[MCP tool server<br/>:8001]
     MCP --> DB
     MCP --> Store
     AI --> LLM[Groq LLM]
+    Worker[Indexing worker] --> DB
+    API -.->|claims job| Worker
 ```
 
-| Service | Responsibility | Local URL |
-| --- | --- | --- |
-| `frontend/` | React 19, TypeScript, Vite, browser UX | `http://localhost:5173` |
-| `backend/` | Auth, project ownership, uploads, indexing, retrieval, chat | `http://localhost:8080` |
-| `ai-service/` | Embeddings, LLM calls, SSE responses, agent orchestration, code review | `http://localhost:8000` |
-| `ai-service/` MCP tool server | Read-only agent tools (`search_code`, `read_file`, `list_files`, `grep`, `find_dependencies`, `analyze_symbol`) over Streamable HTTP | `http://localhost:8001` |
-| PostgreSQL | Users, projects, files, chunks, symbols, references, chat history | `localhost:5432` |
+The browser talks **only** to the backend. The AI service is server-to-server
+and is protected by an internal token. Indexing is not a request handler: the
+backend writes a row to `indexing_jobs` and a background worker picks it up.
 
-The browser talks **only** to the backend. The AI service is server-to-server and is
-protected by an internal token. The investigation agent holds no tools of its own:
-it discovers the MCP tool server's read-only tools on first use and executes every
-call through it, with the investigation's `project_id` injected server-side so the
-model can never choose which project it reads.
+## Key design decisions
 
-<details>
-<summary><b>How a question is answered</b></summary>
+**Agent tools live behind an MCP server, and `project_id` is injected
+server-side.** The agent discovers the tool server's read-only tools and calls
+them over Streamable HTTP; the server adds the project id, so the model can
+never choose which project it reads.
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Web as React
-    participant API as Spring Boot
-    participant DB as pgvector
-    participant AI as FastAPI
+**Indexing is a Postgres job queue, not a request thread.** A worker claims a
+row with `FOR UPDATE SKIP LOCKED`, transactions stay short, the lease is
+refreshed by a heartbeat, a job can be cancelled, and a job whose lease went
+stale (crashed worker) is requeued automatically.
 
-    User->>Web: Ask a question
-    Web->>API: POST /api/sessions/{id}/messages/stream
-    API->>API: Authenticate and verify project ownership
-    API->>DB: Retrieve relevant code chunks
-    API->>AI: POST /chat/stream with grounded context
-    AI-->>API: SSE meta / token / done events
-    API-->>Web: Relay the stream
-    API->>DB: Persist answer and citations
-```
+**Explain and Debug are fixed pipelines; only Deep investigate is an agent
+loop.** Explain and Debug run one retrieval and one model call, so they are
+fast and reproducible; only Deep investigate lets the model call tools for
+several iterations, because only that kind of question needs a plan.
 
-</details>
+**The prompt has a budget, and long conversations roll up into a summary.**
+Retrieval contributes the top 5 chunks (2 000 characters each) and only the
+last 8 messages travel as history; past 6 messages the older turns are
+replaced by a running summary, against a ~60 000 character prompt budget.
 
-## Quick start
+**Every project is isolated, and an upload cannot escape its directory.**
+Requests are ownership-checked against the project in the path, storage paths
+are validated before use, and ZIP extraction rejects absolute and `..` entries
+while capping the archive (5 000 files, 1 MB per file).
+
+## Evals
+
+Two suites, in `eval/`, over pinned snapshots of two repositories:
+`python -m eval.run --suite retrieval` (the stack running, no LLM),
+`--suite agent` (needs `GROQ_API_KEY`) or `--suite all`. `--gate` runs the
+retrieval suite and exits non-zero when a threshold in `eval/config.json` is
+breached — that is what the `retrieval-eval` CI job runs. Fetch the pinned
+datasets first (`python -m eval.fetch_datasets`), then start Postgres, the
+backend and the AI service, then run the suites.
+
+| Metric | Value |
+| --- | --- |
+| precision@5, recall@5, MRR, hit-rate@5 | _run `python -m eval.run --suite retrieval`_ |
+| citation accuracy, answer accuracy | _run `python -m eval.run --suite agent`_ |
+| latency, tool calls, cost | _run `python -m eval.run --suite agent`_ |
+
+The full generated report (per-question results and failures) is written to
+`docs/eval/report.md`. The table above is intentionally empty: the numbers are
+produced by a run, not written by hand.
+
+## Run it locally
 
 **Prerequisites:** JDK 17+, Docker, Node 20+, Python 3.10+, and a
 [Groq API key](https://console.groq.com/).
 
-Before the first run, create the two git-ignored config files described in
-[Configuration](#configuration). Then start each piece:
-
 ```bash
-# 1. Database (Postgres 16 + pgvector) and MailHog for verification emails
+# 1. Postgres (16 + pgvector) and MailHog for verification emails
 docker compose up -d
 
 # 2. AI service → http://localhost:8000
@@ -118,127 +114,50 @@ npm install
 npm run dev
 ```
 
-Verification emails are caught by MailHog at <http://localhost:8025>.
+Verification emails are caught by MailHog at <http://localhost:8025>. The MCP
+tool server (`python -m uvicorn mcp_server:create_app --factory --host
+127.0.0.1 --port 8001`) is only needed for the agent.
 
-## Configuration
+### Configuration
 
-Both config files hold secrets, so they are **git-ignored** and a fresh clone must
-create them. Environment variables override the matching property
-(for example `SPRING_DATASOURCE_URL`).
+Both config files hold secrets, so they are **git-ignored** and a fresh clone
+must create them. Environment variables override the matching property.
 
-### Backend: `backend/src/main/resources/application.properties`
+**Backend** — `backend/src/main/resources/application.properties` (copy
+`application.properties.example`):
 
-A minimal local setup:
+- `SPRING_DATASOURCE_PASSWORD` — the database password.
+- `APP_JWT_SECRET` — session signing key, 32+ random bytes.
+- `APP_AI_SERVICE_INTERNAL_TOKEN` — the shared service-to-service token.
+- `SPRING_MAIL_HOST` / `SPRING_MAIL_PORT` — verification mail (MailHog
+  locally); `APP_PUBLIC_URL` is the base of the verification link.
+- `APP_STORAGE_PROVIDER` — `local` (default) or `s3`; with S3 also set
+  `APP_S3_BUCKET`, `APP_S3_PREFIX` and `APP_S3_REGION`.
 
-```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/codebase_ai
-spring.datasource.username=admin
-spring.datasource.password=<your-dev-password>
-spring.jpa.hibernate.ddl-auto=validate
+**AI service** — `ai-service/.env`:
 
-app.jwt.secret=<random-string-of-32+-bytes>
-app.upload.directory=./uploads
-app.ai-service.url=http://localhost:8000
-```
+- `GROQ_API_KEY` and `LLM_MODEL` — the model.
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — the tool server
+  reads chunks straight from pgvector.
+- `AI_SERVICE_INTERNAL_TOKEN` — the token the agent sends to the tool server.
+- `MCP_SERVER_URL` — where the agent reaches the tool server.
+- `UPLOAD_DIR` — the upload directory, with the **local** provider only, where
+  the tree lives under `backend/uploads/<projectId>/`. With **S3** nothing is
+  written locally: set `APP_STORAGE_PROVIDER`, `APP_S3_BUCKET`,
+  `APP_S3_PREFIX` and `APP_S3_REGION` instead, and credentials come from the
+  AWS default provider chain (the task role in production), so no key ever
+  appears in configuration.
 
-<details>
-<summary><b>Full backend reference</b></summary>
+## Limitations
 
-| Key | Default | Notes |
-| --- | --- | --- |
-| `spring.datasource.url` | `jdbc:postgresql://localhost:5432/codebase_ai` | Must match `docker-compose.yml` |
-| `spring.datasource.username` / `.password` | `admin` / dev password | Use env vars in production |
-| `spring.jpa.hibernate.ddl-auto` | `validate` | Flyway owns the schema, so keep this as `validate` |
-| `spring.flyway.enabled` / `.locations` | `true` / `classpath:db/migration` | |
-| `server.port` | `8080` | |
-| `app.jwt.secret` | dev string | **Must** be a private, random 32+ byte value in production |
-| `app.jwt.access-token-validity-ms` | `900000` (15 min) | |
-| `app.jwt.refresh-token-validity-ms` | `604800000` (7 days) | Also sets the refresh cookie lifetime |
-| `app.upload.directory` | `./uploads` | Must be writable; the AI service needs to read it |
-| `app.storage.provider` | `local` | `local` stores projects under `<upload-dir>/<projectId>/`. `s3` stores nothing locally (everything lives under `s3://<bucket>/<prefix>/<projectId>/`), so the AI service needs bucket access instead of `UPLOAD_DIR` |
-| `app.s3.bucket` | empty | Required when the provider is `s3`; startup fails without it |
-| `app.s3.prefix` | `projects` | Key prefix inside the bucket, and the natural scope for an IAM policy |
-| `app.s3.region` | empty | Blank falls back to the AWS default region chain (`AWS_REGION`). Credentials always come from the default provider chain (the ECS task role in production), so no access keys live in config |
-| `app.ai-service.url` | `http://localhost:8000` | |
-| `spring.servlet.multipart.max-file-size` / `.max-request-size` | `50MB` | Keep in sync with the frontend upload check |
-| `app.cookie.secure` | `false` | **Set to `true`** whenever the app is served over HTTPS |
-| `spring.mail.host` / `.port` | `localhost` / `1025` | MailHog locally; `mailhog:1025` inside Compose; a real SMTP host in production via `SPRING_MAIL_*` |
-| `spring.mail.properties.mail.smtp.auth` / `.starttls.enable` | `false` / `false` | **Set both to `true`** for a production provider |
-| `app.public-url` | `http://localhost:5173` | Public SPA URL used to build verification links (`http://localhost:3000` in Compose) |
-| `app.mail.from` | `no-reply@codebase-ai.local` | Sender address; providers such as SES require a verified `from` |
-| `app.verification.token-ttl-hours` | `24` | Lifetime of a verification link |
-| `app.verification.resend-cooldown-seconds` | `60` | Minimum gap between verification emails for one address |
-
-</details>
-
-### AI service: `ai-service/.env`
-
-| Key | Required | Notes |
-| --- | :---: | --- |
-| `GROQ_API_KEY` | ✅ | Your Groq API key |
-| `LLM_MODEL` | ✅ | For example `openai/gpt-oss-20b` |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | ✅ | The MCP tool server reads chunks directly from pgvector |
-| `AI_SERVICE_INTERNAL_TOKEN` | ✅ | Shared service-to-service bearer token: the agent's MCP client sends it to the tool server, and the backend sends it as `X-Internal-Token` to the AI service |
-| `MCP_SERVER_URL` | | Where the agent reaches the tool server: `http://mcp:8001/mcp` in Compose, `http://127.0.0.1:8001/mcp` for host-run dev (this default) |
-| `UPLOAD_DIR` | ✅ (local storage) | Absolute path to the backend upload directory (`backend/uploads`), used by the file tools |
-| `EMBEDDING_MODEL` | | Defaults to `all-MiniLM-L6-v2`. Must stay 384-dimensional to match `chunks.embedding vector(384)` |
-
-## Security
-
-- **Email verification.** Registration creates an *unverified* account and mails a
-  single-use link. No access or refresh token is issued until it is opened.
-  `VerifiedUserFilter` re-checks verification on every data-creating or AI endpoint
-  (project creation, ZIP upload, search, docs export, chat, and all agent tools).
-- **Safe verification tokens.** Only the SHA-256 hash of a token is stored, tokens are
-  never logged, and links point at the SPA route `/auth/verify-email` rather than the
-  API, so mail scanners that prefetch links cannot consume them.
-- **No account probing.** `resend-verification` always answers identically, so it
-  cannot be used to discover which addresses exist.
-- **Scoped access.** Ownership is checked on every project request, agent tools are
-  limited to a single project, and file access is guarded against path traversal.
-
-| Endpoint | Behaviour |
-| --- | --- |
-| `POST /api/auth/register` | Creates the account, mails the link, returns `{ message, email }` (no session) |
-| `GET /api/auth/verify-email?token=...` | Consumes the token (single use, 24 h TTL) and marks the account verified |
-| `POST /api/auth/resend-verification` | Mails a fresh link and invalidates the old one |
-
-**Going to production?** Set `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`,
-`SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`, `APP_MAIL_FROM` and `APP_PUBLIC_URL`;
-enable SMTP auth and STARTTLS; set `app.cookie.secure=true`; use a strong
-`app.jwt.secret`; and serve everything over HTTPS.
-
-## Health check
-
-`GET /api/health` is unauthenticated and built for load balancers and orchestrators
-(ECS/ALB target groups, `docker compose --wait`). It runs a trivial `SELECT 1`:
-
-| Database | Response |
-| --- | --- |
-| Reachable | `200 {"status":"UP","database":"UP"}` |
-| Unreachable | `503 {"status":"DOWN","database":"DOWN"}` |
-
-A process that is up but cannot serve requests is never reported healthy. The endpoint
-is available directly (`http://backend:8080/api/health`) and through the frontend's
-nginx proxy (`http://<host>/api/health`).
-
-## Testing
-
-| Suite | Command |
-| --- | --- |
-| Backend | `cd backend && ./mvnw test` |
-| AI service | `cd ai-service && python -m pytest` (needs `requirements-dev.txt` alongside `requirements.txt`) |
-| Frontend | `cd frontend && npm run build` (type-check + Vite build) |
-
-The backend suite needs no database, SMTP server, or AWS credentials, and the S3 tests
-use an in-memory client. The AI-service tests do the same.
-
-**CI** (`.github/workflows/ci.yml`) runs all three suites, then a **compose smoke
-test**: it brings up the full `docker-compose.prod.yml` stack with `--wait` and checks
-that:
-
-- the frontend serves the SPA shell,
-- `/api/health` reports `UP` through the nginx proxy,
-- the AI service `/health` responds,
-- the MCP tool server `/health` responds, and
-- Flyway migrations applied cleanly to a fresh database volume.
+- **Indexing is the slow part and it is not incremental.** A ZIP is
+  re-indexed from scratch; there is no watch mode.
+- **Retrieval is embedding-based, so exact identifiers are a weak spot.**
+  Asking for a symbol by name works better in the Analyze modes, which look
+  symbols up directly, than in plain semantic search.
+- **The agent can only read what the tool server exposes.** It cannot run
+  builds, tests or linters, so it cannot verify a change it proposes.
+- **The MCP tool server is the agent's trust boundary, and it is read-only.**
+  Anything that must be able to write is not available to it yet.
+- **Evaluation is small and pinned.** Two repositories and a few dozen
+  questions, so the numbers say little about a codebase of a different shape.

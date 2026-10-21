@@ -51,5 +51,3 @@ export function useProjectFiles(projectId: string): ProjectFiles {
 
   return { files, loading, error, reload };
 }
-
-export default useProjectFiles;

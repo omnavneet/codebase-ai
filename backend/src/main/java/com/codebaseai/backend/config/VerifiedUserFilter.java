@@ -81,7 +81,7 @@ public class VerifiedUserFilter extends OncePerRequestFilter {
 
     /**
      * Endpoints that create or transform data ("at minimum" set from the plan): project
-     * creation, ZIP upload, semantic search, docs export, chat and every agent tool.
+     * creation, ZIP upload, semantic search, chat and every agent tool.
      * Plain reads stay open - they are ownership-checked anyway, and are not what an
      * unverified account could be used to abuse.
      */
@@ -95,7 +95,10 @@ public class VerifiedUserFilter extends OncePerRequestFilter {
             return true;
         }
 
-        return path.matches("/api/projects/[^/]+/(upload|search|generated|sessions|agent/.*)")
-                || path.matches("/api/sessions/[^/]+/messages(/stream)?");
+        // Chat lives under /projects/{id}/conversations/{id?}/messages, with an
+        // optional conversation id; the trailing /stream variant is the same
+        // endpoint.
+        return path.matches("/api/projects/[^/]+/(upload|search|conversations|agent/.*)")
+                || path.matches("/api/projects/[^/]+/conversations(/[^/]+)?/messages(/stream)?");
     }
 }

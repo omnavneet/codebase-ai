@@ -250,16 +250,8 @@ img {
   border-radius: var(--m3-shape-xs);
 }
 
-.skeleton-text.short {
-  width: 40%;
-}
-
 .skeleton-text.medium {
   width: 70%;
-}
-
-.skeleton-text.long {
-  width: 100%;
 }
 
 .skeleton-heading {
@@ -270,17 +262,6 @@ img {
 }
 
 .skeleton-circle {
-  border-radius: var(--m3-shape-full);
-}
-
-.skeleton-card {
-  height: 120px;
-  border-radius: var(--m3-shape-md);
-}
-
-.skeleton-badge {
-  height: 24px;
-  width: 64px;
   border-radius: var(--m3-shape-full);
 }
 

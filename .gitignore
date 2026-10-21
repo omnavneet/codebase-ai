@@ -50,10 +50,14 @@ run_output*.txt
 boot_check*.txt
 *_output.txt
 
-# ---- IDE ----
+# ---- IDE / agent tooling ----
 .idea/
 .vscode/
 *.iml
+.continue/
+.cursor/
+.aider*
+.claude/
 
 # ---- Evaluation harness: fetched sources + scratch (never committed) ----
 eval/datasets/
