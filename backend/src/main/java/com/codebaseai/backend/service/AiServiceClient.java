@@ -89,20 +89,23 @@ public class AiServiceClient {
     }
     
     public Map<String, Object> chat(
-            String question, List<Map<String, Object>> context, List<Map<String, String>> history) {
-        Map<String, Object> request = Map.of(
-            "question", question,
-            "context", context,
-            "history", history
-        );
+            String question, List<Map<String, Object>> context, List<Map<String, String>> history,
+            String instructions) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("question", question);
+        request.put("context", context);
+        request.put("history", history);
+        if (instructions != null && !instructions.trim().isEmpty()) {
+            request.put("instructions", instructions.trim());
+        }
 
         return block(
                 webClient.post()
                         .uri(baseUrl() + "/chat")
                     .header("X-Internal-Token", internalToken())
-                        .bodyValue(request)
-                        .retrieve()
-                        .bodyToMono(Map.class),
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(Map.class),
                 Duration.ofSeconds(properties.getAiService().getTimeoutSeconds()),
                 "chat");
     }
@@ -113,11 +116,15 @@ public class AiServiceClient {
      * "error" (emitted by the Python service).
      */
     public Flux<ServerSentEvent<String>> chatStream(
-            String question, List<Map<String, Object>> context, List<Map<String, String>> history) {
-        Map<String, Object> request = Map.of(
-                "question", question,
-                "context", context,
-                "history", history);
+            String question, List<Map<String, Object>> context, List<Map<String, String>> history,
+            String instructions) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("question", question);
+        request.put("context", context);
+        request.put("history", history);
+        if (instructions != null && !instructions.trim().isEmpty()) {
+            request.put("instructions", instructions.trim());
+        }
 
         return webClient.post()
                 .uri(baseUrl() + "/chat/stream")
@@ -149,10 +156,14 @@ public class AiServiceClient {
      * Run a bounded agent investigation for a project. The agent can take
      * multiple LLM round-trips, so this uses a generous timeout.
      */
-    public Map<String, Object> investigate(String question, String projectId) {
-        return callAgent("/agent/investigate", Map.of(
-                "question", question,
-                "project_id", projectId));
+    public Map<String, Object> investigate(String question, String projectId, String instructions) {
+        Map<String, Object> request = new HashMap<>();
+        request.put("question", question);
+        request.put("project_id", projectId);
+        if (instructions != null && !instructions.trim().isEmpty()) {
+            request.put("instructions", instructions.trim());
+        }
+        return callAgent("/agent/investigate", request);
     }
 
     /** Explain a file (or symbol) with the fixed pipeline (one model call). */

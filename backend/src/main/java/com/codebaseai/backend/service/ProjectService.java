@@ -19,6 +19,8 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codebaseai.backend.dto.ProjectResponse;
+import com.codebaseai.backend.dto.ProjectSettingsRequest;
+import com.codebaseai.backend.dto.ProjectSettingsResponse;
 import com.codebaseai.backend.model.CodeChunk;
 import com.codebaseai.backend.model.CodeReference;
 import com.codebaseai.backend.model.CodeSymbol;
@@ -93,6 +95,39 @@ public class ProjectService {
 
         IndexingJob latestJob = indexingJobService.latestJobsFor(List.of(projectId)).get(projectId);
         return mapToResponse(project, latestJob);
+    }
+
+    public ProjectSettingsResponse getSettings(UUID projectId, UUID userId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+        if (!project.getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
+        }
+        return new ProjectSettingsResponse(project.getChatInstructions());
+    }
+
+    @Transactional
+    public ProjectSettingsResponse updateSettings(UUID projectId, UUID userId, ProjectSettingsRequest request) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+        if (!project.getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
+        }
+
+        int maxChars = properties.getChat().getChatInstructionsMaxChars();
+        String instructions = request.getChatInstructions() == null ? null : request.getChatInstructions().trim();
+        if (instructions != null && !instructions.isEmpty()) {
+            if (instructions.length() > maxChars) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Chat instructions must be at most " + maxChars + " characters");
+            }
+        } else {
+            instructions = null;
+        }
+
+        project.setChatInstructions(instructions);
+        projectRepository.save(project);
+        return new ProjectSettingsResponse(instructions);
     }
 
     @Transactional

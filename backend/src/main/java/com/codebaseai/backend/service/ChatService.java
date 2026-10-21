@@ -136,15 +136,16 @@ public class ChatService {
 
 
 
-        public record PreparedChat(
-            UUID conversationId, // conversation-scoped path
-            UUID sessionId, // legacy session-scoped path
-            UUID projectId,
-            String question,
-            List<Map<String, Object>> context,
-            List<Map<String, String>> history,
-            boolean regenerate,
-            int usedChars) {}
+    public record PreparedChat(
+        UUID conversationId, // conversation-scoped path
+        UUID sessionId, // legacy session-scoped path
+        UUID projectId,
+        String question,
+        List<Map<String, Object>> context,
+        List<Map<String, String>> history,
+        boolean regenerate,
+        int usedChars,
+        String chatInstructions) {}
 
     @Transactional
     public ChatMessageResponse sendMessage(
@@ -163,7 +164,8 @@ public class ChatService {
         int budgetChars = properties.getChat().getChatContextBudgetChars();
 
         Map<String, Object> aiResponse = aiServiceClient.chat(
-                prepared.question(), prepared.context(), prepared.history());
+                prepared.question(), prepared.context(), prepared.history(),
+                prepared.chatInstructions());
         String answer = (String) aiResponse.get("answer");
 
         persistAssistantMessage(
@@ -198,7 +200,8 @@ public class ChatService {
         int budgetChars = properties.getChat().getChatContextBudgetChars();
 
         Map<String, Object> aiResponse = aiServiceClient.chat(
-                prepared.question(), prepared.context(), prepared.history());
+                prepared.question(), prepared.context(), prepared.history(),
+                prepared.chatInstructions());
         String answer = (String) aiResponse.get("answer");
 
         persistAssistantMessage(
@@ -253,6 +256,9 @@ public class ChatService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Question cannot be empty");
         }
         String trimmedQuestion = question.trim();
+
+        Project projectForChat = projectRepository.findById(session.getProjectId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
 
         // Build the LLM conversation history BEFORE the user message is
         // persisted, so the current question is never a history entry on the
@@ -344,7 +350,8 @@ public class ChatService {
         chatSessionRepository.save(session);
 
         return new PreparedChat(null, sessionId, session.getProjectId(),
-                trimmedQuestion, context, history, regenerate, 0);
+                trimmedQuestion, context, history, regenerate, 0,
+                projectForChat.getChatInstructions());
     }
 
     /**
@@ -461,7 +468,8 @@ public class ChatService {
         conversationRepository.save(conversation);
 
         return new PreparedChat(conversation.getId(), null, projectId,
-                trimmedQuestion, context, history, regenerate, 0);
+                trimmedQuestion, context, history, regenerate, 0,
+                project.getChatInstructions());
     }
 
     /**
@@ -569,7 +577,8 @@ public class ChatService {
         // on boundedElastic instead of the WebClient's event-loop threads,
         // which must never be blocked.
         subscriptionRef.set(aiServiceClient
-                .chatStream(prepared.question(), prepared.context(), prepared.history())
+                .chatStream(prepared.question(), prepared.context(), prepared.history(),
+                        prepared.chatInstructions())
                 .publishOn(Schedulers.boundedElastic())
                 .subscribe(
                         event -> {
@@ -837,7 +846,7 @@ public class ChatService {
                     + "names, and any open question. Drop pleasantries and repeated content.";
             try {
                 Map<String, Object> summaryResp = aiServiceClient.chat(
-                        instruction, new ArrayList<>(), sumHistory);
+                        instruction, new ArrayList<>(), sumHistory, null);
                 String summaryText = (String) summaryResp.get("answer");
                 if (summaryText == null || summaryText.isBlank()) {
                     log.warn("Summarization returned empty answer for conversation {}", conversationId);

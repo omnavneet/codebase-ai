@@ -110,6 +110,8 @@ public class AppProperties {
          * Defaults to about 6 messages.
          */
         private int chatHistorySummaryThreshold = 6;
+        /** Maximum characters of per-project chat instructions (enforced in the API). */
+        private int chatInstructionsMaxChars = 1500;
     }
 
     @Data

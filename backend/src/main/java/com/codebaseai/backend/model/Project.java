@@ -39,7 +39,10 @@ public class Project {
     
     @Column(name = "error_message")
     private String errorMessage;
-    
+
+    @Column(name = "chat_instructions", columnDefinition = "TEXT")
+    private String chatInstructions;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     

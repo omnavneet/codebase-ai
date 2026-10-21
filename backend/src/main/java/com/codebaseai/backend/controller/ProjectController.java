@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,6 +23,8 @@ import com.codebaseai.backend.dto.CreateProjectRequest;
 import com.codebaseai.backend.dto.IndexingJobResponse;
 import com.codebaseai.backend.dto.ProjectResponse;
 import com.codebaseai.backend.dto.SearchRequest;
+import com.codebaseai.backend.dto.ProjectSettingsRequest;
+import com.codebaseai.backend.dto.ProjectSettingsResponse;
 import com.codebaseai.backend.model.IndexingJob;
 import com.codebaseai.backend.service.IndexingJobService;
 import com.codebaseai.backend.service.ProjectService;
@@ -55,6 +58,20 @@ public class ProjectController {
     public ResponseEntity<ProjectResponse> getProject(@PathVariable UUID projectId) {
         UUID userId = getCurrentUserId();
         return ResponseEntity.ok(projectService.getProject(projectId, userId));
+    }
+
+    @GetMapping("/{projectId}/settings")
+    public ResponseEntity<ProjectSettingsResponse> getSettings(@PathVariable UUID projectId) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.getSettings(projectId, userId));
+    }
+
+    @PutMapping("/{projectId}/settings")
+    public ResponseEntity<ProjectSettingsResponse> updateSettings(
+            @PathVariable UUID projectId,
+            @Valid @RequestBody ProjectSettingsRequest request) {
+        UUID userId = getCurrentUserId();
+        return ResponseEntity.ok(projectService.updateSettings(projectId, userId, request));
     }
 
     @DeleteMapping("/{projectId}")

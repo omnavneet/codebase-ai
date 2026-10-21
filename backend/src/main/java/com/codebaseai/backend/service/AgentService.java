@@ -24,7 +24,7 @@ public class AgentService {
     private final AiServiceClient aiServiceClient;
 
     public AgentInvestigateResponse investigate(UUID projectId, UUID userId, String question) {
-        requireReadyProject(projectId, userId);
+        Project project = requireReadyProject(projectId, userId);
 
         if (question == null || question.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Question is required");
@@ -32,10 +32,10 @@ public class AgentService {
 
         log.info("Starting agent investigation for project {}", projectId);
 
-        // Call AI service
         Map<String, Object> response = aiServiceClient.investigate(
             question.trim(),
-            projectId.toString()
+            projectId.toString(),
+            project.getChatInstructions()
         );
 
         // Parse response (AI service returns snake_case keys)
@@ -84,7 +84,7 @@ public class AgentService {
         return aiServiceClient.debug(issueDescription.trim(), projectId.toString(), stackTrace, filePath);
     }
 
-    private void requireReadyProject(UUID projectId, UUID userId) {
+    private Project requireReadyProject(UUID projectId, UUID userId) {
         // Verify project ownership
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
@@ -97,6 +97,7 @@ public class AgentService {
         if (!"ready".equals(project.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Project is not ready for investigation");
         }
+        return project;
     }
 
     @SuppressWarnings("unchecked")

@@ -65,8 +65,13 @@ public class AgentStreamService {
      * @param request  JSON body to POST to the AI service
      */
     public void stream(UUID projectId, UUID userId, String aiPath, Map<String, Object> request, SseEmitter emitter,
-            String question, UUID conversationId) {
-        requireReadyProject(projectId, userId);
+               String question, UUID conversationId) {
+        Project project = requireReadyProject(projectId, userId);
+
+        String instructions = project.getChatInstructions();
+        if (instructions != null && !instructions.trim().isEmpty()) {
+            request.put("instructions", instructions.trim());
+        }
 
         // Correlates every log line for this stream with what the client saw.
         String requestId = UUID.randomUUID().toString().substring(0, 8);
@@ -243,7 +248,7 @@ public class AgentStreamService {
         }
     }
 
-    private void requireReadyProject(UUID projectId, UUID userId) {
+    private Project requireReadyProject(UUID projectId, UUID userId) {
         Project project = projectRepository.findById(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
         if (!project.getUserId().equals(userId)) {
@@ -252,5 +257,6 @@ public class AgentStreamService {
         if (!"ready".equals(project.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Project is not ready for investigation");
         }
+        return project;
     }
 }
