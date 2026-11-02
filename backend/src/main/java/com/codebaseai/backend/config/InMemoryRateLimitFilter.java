@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -34,6 +35,24 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
             "/api/auth/register",
             "/api/auth/resend-verification");
 
+    /** Mirrors the chat message routes accepted by VerifiedUserFilter; keep them in sync. */
+    private static final Pattern CHAT_MESSAGE_PATH = Pattern.compile(
+            "/api/projects/[^/]+/conversations(/[^/]+)?/messages(/stream)?");
+
+    /**
+     * One quota per route family. The key deliberately omits the request URI so that
+     * opening more projects or conversations does not multiply the quota.
+     */
+    private enum Bucket {
+        AUTH(AUTH_LIMIT), CHAT(AI_LIMIT), AGENT(AI_LIMIT), SEARCH(AI_LIMIT);
+
+        final int limit;
+
+        Bucket(int limit) {
+            this.limit = limit;
+        }
+    }
+
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
     @Override
@@ -41,9 +60,9 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
             HttpServletRequest request,
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
-        int limit = limitFor(request.getRequestURI());
+        Bucket bucket = bucketFor(request);
         long[] retryAfterSeconds = new long[] {0};
-        if (limit == 0 || allow(request, limit, retryAfterSeconds)) {
+        if (bucket == null || allow(request, bucket, retryAfterSeconds)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -58,19 +77,25 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
                 + seconds + " seconds.\"}");
     }
 
-    private int limitFor(String path) {
+    private Bucket bucketFor(HttpServletRequest request) {
+        String path = request.getRequestURI();
         if (AUTH_PATHS.contains(path)) {
-            return AUTH_LIMIT;
+            return Bucket.AUTH;
         }
-        if (path.matches("/api/projects/[^/]+/agent/.*")
-                || path.matches("/api/projects/[^/]+/search")) {
-            return AI_LIMIT;
+        if ("POST".equals(request.getMethod()) && CHAT_MESSAGE_PATH.matcher(path).matches()) {
+            return Bucket.CHAT;
         }
-        return 0;
+        if (path.matches("/api/projects/[^/]+/agent/.*")) {
+            return Bucket.AGENT;
+        }
+        if (path.matches("/api/projects/[^/]+/search")) {
+            return Bucket.SEARCH;
+        }
+        return null;
     }
 
-    private boolean allow(HttpServletRequest request, int limit, long[] retryAfterSecondsOut) {
-        String key = keyFor(request);
+    private boolean allow(HttpServletRequest request, Bucket bucket, long[] retryAfterSecondsOut) {
+        String key = keyFor(request, bucket);
         long now = Instant.now().toEpochMilli();
         Window window = windows.compute(key, (ignored, current) -> {
             if (current == null || now - current.startedAt >= WINDOW_MILLIS) {
@@ -83,7 +108,7 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
             windows.entrySet().removeIf(entry -> now - entry.getValue().startedAt >= WINDOW_MILLIS);
         }
 
-        if (window.count > limit) {
+        if (window.count > bucket.limit) {
             // Seconds until this fixed window resets, so the caller can tell
             // the client exactly how long to wait.
             long elapsed = now - window.startedAt;
@@ -93,13 +118,13 @@ public class InMemoryRateLimitFilter extends OncePerRequestFilter {
         return true;
     }
 
-    private String keyFor(HttpServletRequest request) {
+    private String keyFor(HttpServletRequest request, Bucket bucket) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.isAuthenticated()
                 && authentication.getName() != null && !authentication.getName().isBlank()) {
-            return "user:" + authentication.getName() + ":" + request.getRequestURI();
+            return "user:" + authentication.getName() + ":" + bucket.name();
         }
-        return "ip:" + request.getRemoteAddr() + ":" + request.getRequestURI();
+        return "ip:" + request.getRemoteAddr() + ":" + bucket.name();
     }
 
     private record Window(long startedAt, int count) {

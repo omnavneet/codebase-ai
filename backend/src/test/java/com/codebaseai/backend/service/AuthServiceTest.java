@@ -61,9 +61,11 @@ class AuthServiceTest {
 
     private AuthService authService;
 
+    private JwtService jwtService;
+
     @BeforeEach
     void setUp() {
-        JwtService jwtService = new JwtService();
+        jwtService = new JwtService();
         ReflectionTestUtils.setField(jwtService, "secret", "test-secret-that-is-long-enough-for-hmac");
         ReflectionTestUtils.setField(jwtService, "accessTokenValidity", 60_000L);
         ReflectionTestUtils.setField(jwtService, "refreshTokenValidity", 60_000L);
@@ -80,6 +82,14 @@ class AuthServiceTest {
                 jwtService,
                 new CookieService(),
                 emailVerificationService);
+    }
+
+    @Test
+    void refreshRejectsAnAccessTokenBeforeTouchingStoredTokens() {
+        String accessToken = jwtService.generateAccessToken(user(true));
+
+        assertThrows(ResponseStatusException.class, () -> authService.refresh(accessToken, response));
+        verify(refreshTokenRepository, never()).findByTokenHash(any());
     }
 
     private static User user(boolean verified) {

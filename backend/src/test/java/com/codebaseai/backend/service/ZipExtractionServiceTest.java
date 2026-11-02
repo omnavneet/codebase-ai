@@ -1,14 +1,17 @@
 package com.codebaseai.backend.service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 import com.codebaseai.backend.config.AppProperties;
@@ -59,6 +62,93 @@ class ZipExtractionServiceTest {
             deleteTree(destination);
             Files.deleteIfExists(outside);
         }
+    }
+
+    @Test
+    void skipsSecretFilesAndKeepsSourceFiles() throws IOException {
+        Path zip = Files.createTempFile("secrets", ".zip");
+        Path destination = Files.createTempDirectory("extracted");
+        try {
+            writeZip(zip,
+                "src/App.java",
+                ".env",
+                "config/.env.production",
+                "certs/server.pem",
+                "keys/private.key",
+                ".ssh/id_rsa",
+                "infra/terraform.tfstate",
+                "app/.npmrc");
+
+            List<ZipExtractionService.ExtractedFile> extracted =
+                    new ZipExtractionService(new AppProperties()).extractZip(zip, destination);
+
+            assertEquals(List.of("src/App.java"), paths(extracted));
+            assertTrue(Files.exists(destination.resolve("src/App.java")));
+            assertFalse(Files.exists(destination.resolve(".env")));
+            assertFalse(Files.exists(destination.resolve("config/.env.production")));
+            assertFalse(Files.exists(destination.resolve("certs/server.pem")));
+            assertFalse(Files.exists(destination.resolve("keys/private.key")));
+            assertFalse(Files.exists(destination.resolve(".ssh/id_rsa")));
+            assertFalse(Files.exists(destination.resolve("infra/terraform.tfstate")));
+            assertFalse(Files.exists(destination.resolve("app/.npmrc")));
+        } finally {
+            deleteTree(zip);
+            deleteTree(destination);
+        }
+    }
+
+    @Test
+    void secretFileMatchingIgnoresCaseAndPathSeparator() throws IOException {
+        Path zip = Files.createTempFile("secret-case", ".zip");
+        Path destination = Files.createTempDirectory("extracted");
+        try {
+            writeZip(zip, ".ENV", "certs/SERVER.PEM", "config\\.env", "deploy\\id_rsa");
+
+            List<ZipExtractionService.ExtractedFile> extracted =
+                    new ZipExtractionService(new AppProperties()).extractZip(zip, destination);
+
+            assertEquals(List.of(), paths(extracted));
+        } finally {
+            deleteTree(zip);
+            deleteTree(destination);
+        }
+    }
+
+    @Test
+    void keepsFilesWhoseNamesOnlyResembleSecrets() throws IOException {
+        Path zip = Files.createTempFile("look-alike", ".zip");
+        Path destination = Files.createTempDirectory("extracted");
+        try {
+            writeZip(zip,
+                "src/Keyboard.java",
+                "src/environment.ts",
+                "src/env.config.ts",
+                "src/key.ts",
+                "docs/keys.md");
+
+            List<ZipExtractionService.ExtractedFile> extracted =
+                    new ZipExtractionService(new AppProperties()).extractZip(zip, destination);
+
+            assertEquals(List.of("src/Keyboard.java", "src/environment.ts", "src/env.config.ts",
+                    "src/key.ts", "docs/keys.md"), paths(extracted));
+        } finally {
+            deleteTree(zip);
+            deleteTree(destination);
+        }
+    }
+
+    private void writeZip(Path zip, String... entryNames) throws IOException {
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(zip))) {
+            for (String entryName : entryNames) {
+                output.putNextEntry(new ZipEntry(entryName));
+                output.write("content".getBytes(StandardCharsets.UTF_8));
+                output.closeEntry();
+            }
+        }
+    }
+
+    private List<String> paths(List<ZipExtractionService.ExtractedFile> extracted) {
+        return extracted.stream().map(ZipExtractionService.ExtractedFile::getPath).toList();
     }
 
     private void deleteTree(Path path) throws IOException {

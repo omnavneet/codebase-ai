@@ -12,11 +12,13 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codebaseai.backend.dto.UpdatePasswordRequest;
 import com.codebaseai.backend.model.User;
+import com.codebaseai.backend.repository.RefreshTokenRepository;
 import com.codebaseai.backend.repository.UserRepository;
 import jakarta.validation.Valid;
 
@@ -28,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 public class UserController {
 
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
 
     @GetMapping("/me")
@@ -41,6 +44,7 @@ public class UserController {
     }
 
     @PutMapping("/password")
+    @Transactional
     public ResponseEntity<Void> updatePassword(@Valid @RequestBody UpdatePasswordRequest request) {
         User user = getCurrentUserEntity();
 
@@ -54,6 +58,10 @@ public class UserController {
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+
+        // Ends every refresh session. Access tokens issued before this change stop
+        // matching the new password hash (see JwtService).
+        refreshTokenRepository.deleteByUserId(user.getId());
 
         return ResponseEntity.ok().build();
     }

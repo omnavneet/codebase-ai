@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -41,6 +42,22 @@ public class ZipExtractionService {
         ".class", ".jar", ".war",
         ".mp3", ".mp4", ".avi", ".mov",
         ".woff", ".woff2", ".ttf", ".eot"
+    );
+
+    // Secret-bearing files are matched by base name. Their contents would otherwise be
+    // stored, embedded and sent to the model provider as chat or agent context.
+    private static final List<String> IGNORED_SECRET_FILE_NAMES = List.of(
+        ".env", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
+        "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+        "credentials", "credentials.json",
+        "secrets.json", "secrets.yml", "secrets.yaml"
+    );
+
+    private static final List<String> IGNORED_SECRET_FILE_PREFIXES = List.of(".env.");
+
+    private static final List<String> IGNORED_SECRET_EXTENSIONS = List.of(
+        ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
+        ".tfvars", ".tfstate", ".tfstate.backup"
     );
     
     private static final long MAX_FILE_SIZE = 1_000_000; // 1MB per file
@@ -146,6 +163,27 @@ public class ZipExtractionService {
             }
         }
         
+        return isSecretFile(fileName);
+    }
+
+    private boolean isSecretFile(String fileName) {
+        // ZIP entries use '/', but archives written on Windows may use '\'.
+        String baseName = fileName.substring(
+                Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\')) + 1)
+            .toLowerCase(Locale.ROOT);
+        if (IGNORED_SECRET_FILE_NAMES.contains(baseName)) {
+            return true;
+        }
+        for (String prefix : IGNORED_SECRET_FILE_PREFIXES) {
+            if (baseName.startsWith(prefix)) {
+                return true;
+            }
+        }
+        for (String ext : IGNORED_SECRET_EXTENSIONS) {
+            if (baseName.endsWith(ext)) {
+                return true;
+            }
+        }
         return false;
     }
     

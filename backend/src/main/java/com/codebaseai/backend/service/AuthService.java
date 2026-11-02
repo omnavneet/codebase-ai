@@ -98,7 +98,7 @@ public class AuthService {
     }
 
     public AuthResponse refresh(String refreshToken, HttpServletResponse response) {
-        if (!jwtService.isTokenValid(refreshToken)) {
+        if (!jwtService.isValidRefreshToken(refreshToken)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token");
         }
 
@@ -141,7 +141,7 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, VERIFICATION_REQUIRED);
         }
 
-        String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail());
+        String accessToken = jwtService.generateAccessToken(user);
         String refreshToken = jwtService.generateRefreshToken(user.getId());
 
         refreshTokenRepository.deleteByUserId(user.getId());

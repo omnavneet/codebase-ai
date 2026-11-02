@@ -2,6 +2,8 @@ package com.codebaseai.backend.config;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Optional;
+import java.util.UUID;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -9,6 +11,8 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.codebaseai.backend.model.User;
+import com.codebaseai.backend.repository.UserRepository;
 import com.codebaseai.backend.service.JwtService;
 
 import jakarta.servlet.FilterChain;
@@ -22,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     
     private final JwtService jwtService;
+    private final UserRepository userRepository;
     
     @Override
     protected void doFilterInternal(
@@ -43,23 +48,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         
         try {
             // Validate token
-            if (jwtService.isTokenValid(token)) {
+            if (jwtService.isValidAccessToken(token)) {
                 String userId = jwtService.extractUserId(token);
-                
-                // Create authentication object
-                UsernamePasswordAuthenticationToken authentication = 
-                    new UsernamePasswordAuthenticationToken(
-                        userId,
-                        null,
-                        new ArrayList<>()
+
+                // A valid signature is not enough: the account must still exist and the
+                // token must have been issued under its current password (see JwtService).
+                Optional<User> user = userRepository.findById(UUID.fromString(userId));
+                if (user.isPresent() && jwtService.hasCurrentPasswordFingerprint(token, user.get())) {
+                    // Create authentication object
+                    UsernamePasswordAuthenticationToken authentication = 
+                        new UsernamePasswordAuthenticationToken(
+                            userId,
+                            null,
+                            new ArrayList<>()
+                        );
+                    
+                    authentication.setDetails(
+                        new WebAuthenticationDetailsSource().buildDetails(request)
                     );
-                
-                authentication.setDetails(
-                    new WebAuthenticationDetailsSource().buildDetails(request)
-                );
-                
-                // Set authentication in context
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                    
+                    // Set authentication in context
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
             }
         } catch (Exception e) {
             // Token invalid, continue without authentication
