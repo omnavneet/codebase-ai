@@ -5,13 +5,14 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 import json
 import os
+import asyncio
 import logging
 import queue
 import secrets
 import threading
-import time
 import uuid
 from dotenv import load_dotenv
+from disconnect import watch_disconnect
 from embedding_service import EmbeddingService
 from chat_service import ChatService
 from agent import CodebaseAgent
@@ -264,7 +265,8 @@ def _friendly_ai_error(exc: Exception) -> dict:
     return {"message": GENERIC_MESSAGE, "code": "internal"}
 
 
-def _run_agent_stream(fn, request: Request, request_id: Optional[str] = None):
+def _run_agent_stream(fn, request: Request, request_id: Optional[str] = None,
+                      project_id: Optional[str] = None):
     """Turn a blocking agent call into an SSE stream of step events.
 
     ``fn(on_event, cancel_event)`` runs the bounded agent loop on a worker
@@ -273,9 +275,11 @@ def _run_agent_stream(fn, request: Request, request_id: Optional[str] = None):
     payload) or `error` event. The worker is a daemon so a client disconnect
     can never leak a thread.
 
-    A disconnect-monitor thread checks ``request.is_disconnected()`` and sets
-    ``cancel_event``, which is threaded to the agent so a cancelled run really
-    stops the AI work instead of just hiding the UI.
+    A disconnect-monitor task (``disconnect.watch_disconnect``) runs on the event
+    loop, awaits ``request.is_disconnected()`` and sets ``cancel_event``, which is
+    threaded to the agent so a cancelled run really stops the AI work instead of
+    just hiding the UI. ``request`` must be the Starlette ``Request``, and this
+    function must be called from an async endpoint.
 
     ``request_id`` (optional) lets the caller pick the id used in the logs so
     its own lines correlate with the agent's per-iteration timing lines.
@@ -288,49 +292,46 @@ def _run_agent_stream(fn, request: Request, request_id: Optional[str] = None):
 
     emit = events.put
 
-    def monitor():
-        while not request.is_disconnected():
-            time.sleep(0.2)
-        cancel_event.set()
-        logger.info("Client disconnected — signalling cancel to the AI agent")
-
     def worker():
         try:
             result_box["value"] = fn(emit, cancel_event)
         except Exception as exc:  # surfaced as an SSE error event below
             logger.exception(
                 "Streaming agent run failed project_id=%s request_id=%s",
-                getattr(request, "project_id", "?"), request_id)
+                project_id or "?", request_id)
             result_box["error"] = _friendly_ai_error(exc)
         finally:
             events.put(None)  # sentinel: the worker is finished
 
-    def generate():
+    async def generate():
         threading.Thread(target=worker, daemon=True).start()
-        threading.Thread(target=monitor, daemon=True).start()
-        while True:
-            item = events.get()
-            if item is None:
-                break
-            etype = item.get("type")
-            if etype == "answer":
-                # The final answer text is delivered in `done` with the whole
-                # payload, so don't emit it twice here.
-                continue
-            yield _sse(etype if etype in ("status", "step") else "step", item)
+        monitor = asyncio.create_task(watch_disconnect(request, cancel_event))
+        try:
+            while True:
+                item = await asyncio.to_thread(events.get)
+                if item is None:
+                    break
+                etype = item.get("type")
+                if etype == "answer":
+                    # The final answer text is delivered in `done` with the whole
+                    # payload, so don't emit it twice here.
+                    continue
+                yield _sse(etype if etype in ("status", "step") else "step", item)
 
-        if "error" in result_box:
-            # Carries both the user-safe message and its machine-readable code.
-            yield _sse("error", result_box["error"])
-        else:
-            payload = result_box.get("value", {})
-            yield _sse("done", payload)
+            if "error" in result_box:
+                # Carries both the user-safe message and its machine-readable code.
+                yield _sse("error", result_box["error"])
+            else:
+                payload = result_box.get("value", {})
+                yield _sse("done", payload)
+        finally:
+            monitor.cancel()
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @app.post("/agent/investigate/stream")
-def investigate_stream(request: AgentRequest):
+async def investigate_stream(request: AgentRequest, http_request: Request):
     """Streaming twin of POST /agent/investigate (same loop, step events)."""
     # One id per run, shared with the agent's own per-iteration timing logs
     # so a slow run can be diagnosed from the ai-service logs.
@@ -342,7 +343,8 @@ def investigate_stream(request: AgentRequest):
             on_event=emit, cancel_event=cancel_event, request_id=request_id,
             instructions=request.instructions,
         )
-    return _run_agent_stream(run, request, request_id=request_id)
+    return _run_agent_stream(run, http_request, request_id=request_id,
+                             project_id=request.project_id)
 
 class ExplainCodeRequest(BaseModel):
     file_path: str
@@ -370,7 +372,7 @@ def explain_code(request: ExplainCodeRequest):
 
 
 @app.post("/agent/explain-code/stream")
-def explain_code_stream(request: ExplainCodeRequest):
+async def explain_code_stream(request: ExplainCodeRequest, http_request: Request):
     """Streaming twin of POST /agent/explain-code (fixed pipeline, step events)."""
     def run(emit, cancel_event):
         try:
@@ -383,7 +385,7 @@ def explain_code_stream(request: ExplainCodeRequest):
             raise McpUnavailableError(
                 exc.detail if isinstance(exc.detail, str)
                 else "That file or symbol could not be found.")
-    return _run_agent_stream(run, request)
+    return _run_agent_stream(run, http_request, project_id=request.project_id)
 
 class DebugFinding(BaseModel):
     severity: str
@@ -439,7 +441,7 @@ def debug(request: DebugRequest):
 
 
 @app.post("/agent/debug/stream")
-def debug_stream(request: DebugRequest):
+async def debug_stream(request: DebugRequest, http_request: Request):
     """Streaming twin of POST /agent/debug (same pipeline, step events)."""
     def run(emit, cancel_event):
         return debug_service.debug(
@@ -450,7 +452,7 @@ def debug_stream(request: DebugRequest):
             on_event=emit,
             cancel_event=cancel_event,
         )
-    return _run_agent_stream(run, request)
+    return _run_agent_stream(run, http_request, project_id=request.project_id)
 
 
 if __name__ == "__main__":

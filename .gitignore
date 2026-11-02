@@ -70,3 +70,14 @@ Thumbs.db
 *.zip
 test-project/
 test.zip
+# ---- Agent working notes (plans, logs, issues; local only) ----
+.ai/
+.aiignore
+.continueignore
+nul
+
+# ---- Markdown: only the published READMEs and docs/ are committed ----
+# Tracked files are unaffected by these rules. AGENTS.md files match *.md.
+*.md
+!README.md
+!docs/**/*.md
