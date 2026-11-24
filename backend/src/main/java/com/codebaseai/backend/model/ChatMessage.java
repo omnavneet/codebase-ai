@@ -35,6 +35,12 @@ public class ChatMessage {
 
     @Column(name = "conversation_id")
     private UUID conversationId; // the conversation this message belongs to
+
+    @Column(name = "reply_to_message_id")
+    private UUID replyToMessageId;
+
+    @Column(name = "run_metadata", columnDefinition = "TEXT")
+    private String runMetadata;
     
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

@@ -37,6 +37,9 @@ public class Conversation {
     @Column(name = "summary_through_message_id")
     private UUID summaryThroughMessageId;
 
+    @Column(name = "history_revision", nullable = false)
+    private long historyRevision;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

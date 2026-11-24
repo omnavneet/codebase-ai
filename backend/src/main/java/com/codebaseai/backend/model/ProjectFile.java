@@ -23,6 +23,9 @@ public class ProjectFile {
     
     @Column(name = "project_id", nullable = false)
     private UUID projectId;
+
+    @Column(name = "generation_id")
+    private UUID generationId;
     
     @Column(nullable = false)
     private String path;

@@ -43,6 +43,9 @@ public class Project {
     @Column(name = "chat_instructions", columnDefinition = "TEXT")
     private String chatInstructions;
 
+    @Column(name = "active_generation_id")
+    private UUID activeGenerationId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
     
