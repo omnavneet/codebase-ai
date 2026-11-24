@@ -28,6 +28,6 @@ WITH new_conversations AS (
 UPDATE chat_messages m
 SET conversation_id = new_conversations.id
 FROM new_conversations
-JOIN chat_sessions s ON m.session_id = s.id
-WHERE s.project_id = new_conversations.project_id
+JOIN chat_sessions s ON s.project_id = new_conversations.project_id
+WHERE m.session_id = s.id
   AND m.conversation_id IS NULL;
