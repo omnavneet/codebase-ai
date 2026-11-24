@@ -26,6 +26,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -74,6 +75,128 @@ public class S3StorageService implements StorageService {
 
     private String key(UUID projectId, String relativePath) {
         return keyPrefix(projectId) + "/" + StoragePaths.requireRelative(relativePath);
+    }
+
+    private String jobUploadKey(UUID projectId, UUID uploadId) {
+        return properties.getS3().getPrefix() + "/.job-uploads/" + projectId + "/" + uploadId + ".zip";
+    }
+
+    private String generationPrefix(UUID projectId, UUID generationId) {
+        return properties.getS3().getPrefix() + "/.generations/" + projectId + "/" + generationId;
+    }
+
+    private String generationKey(UUID projectId, UUID generationId, String relativePath) {
+        return generationPrefix(projectId, generationId) + "/" + StoragePaths.requireRelative(relativePath);
+    }
+
+    @Override
+    public Path generationExtractionDirectory(UUID projectId, UUID generationId) throws IOException {
+        return Files.createTempDirectory("codebase-ai-generation-");
+    }
+
+    @Override
+    public void persistGeneration(UUID projectId, UUID generationId, Path extractionDirectory,
+                                  List<ZipExtractionService.ExtractedFile> files) throws IOException {
+        try {
+            for (ZipExtractionService.ExtractedFile file : files) {
+                s3Client.putObject(PutObjectRequest.builder().bucket(bucket())
+                                .key(generationKey(projectId, generationId, file.getPath()))
+                                .serverSideEncryption(ServerSideEncryption.AES256).build(),
+                        RequestBody.fromFile(file.getFilePath()));
+            }
+        } finally {
+            deleteTree(extractionDirectory);
+        }
+    }
+
+    @Override
+    public void discardGenerationExtraction(Path extractionDirectory) {
+        deleteTree(extractionDirectory);
+    }
+
+    @Override
+    public boolean generationFileExists(UUID projectId, UUID generationId, String relativePath) {
+        if (generationId == null) {
+            return exists(projectId, relativePath);
+        }
+        try {
+            s3Client.headObject(HeadObjectRequest.builder().bucket(bucket())
+                    .key(generationKey(projectId, generationId, relativePath)).build());
+            return true;
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) return false;
+            throw e;
+        }
+    }
+
+    @Override
+    public String readGenerationText(UUID projectId, UUID generationId, String relativePath) throws IOException {
+        if (generationId == null) return readText(projectId, relativePath);
+        try {
+            byte[] bytes = s3Client.getObjectAsBytes(GetObjectRequest.builder().bucket(bucket())
+                    .key(generationKey(projectId, generationId, relativePath)).build()).asByteArray();
+            return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+        } catch (NoSuchKeyException e) {
+            throw new NoSuchFileException(relativePath);
+        }
+    }
+
+    @Override
+    public void deleteGeneration(UUID projectId, UUID generationId) {
+        deletePrefix(generationPrefix(projectId, generationId) + "/");
+    }
+
+    @Override
+    public void deleteProjectGenerations(UUID projectId) {
+        deletePrefix(properties.getS3().getPrefix() + "/.generations/" + projectId + "/");
+    }
+
+    private void deletePrefix(String prefix) {
+        List<ObjectIdentifier> identifiers = listObjects(prefix).stream()
+                .map(object -> ObjectIdentifier.builder().key(object.key()).build()).toList();
+        for (int start = 0; start < identifiers.size(); start += 1000) {
+            var batch = identifiers.subList(start, Math.min(start + 1000, identifiers.size()));
+            var result = s3Client.deleteObjects(DeleteObjectsRequest.builder().bucket(bucket())
+                    .delete(Delete.builder().objects(batch).build()).build());
+            if (!result.errors().isEmpty()) {
+                throw new IllegalStateException("S3 did not delete all objects for generation prefix " + prefix);
+            }
+        }
+    }
+
+    @Override
+    public void storeJobUpload(MultipartFile file, UUID projectId, UUID uploadId) throws IOException {
+        try (var stream = file.getInputStream()) {
+            s3Client.putObject(PutObjectRequest.builder()
+                    .bucket(bucket()).key(jobUploadKey(projectId, uploadId))
+                    .serverSideEncryption(ServerSideEncryption.AES256).build(),
+                    RequestBody.fromInputStream(stream, file.getSize()));
+        }
+    }
+
+    @Override
+    public Path materializeJobUpload(UUID projectId, UUID uploadId) throws IOException {
+        Path copy = Files.createTempFile("codebase-ai-job-", ".zip");
+        try {
+            byte[] bytes = s3Client.getObjectAsBytes(GetObjectRequest.builder()
+                    .bucket(bucket()).key(jobUploadKey(projectId, uploadId)).build()).asByteArray();
+            Files.write(copy, bytes);
+            return copy;
+        } catch (RuntimeException | IOException e) {
+            Files.deleteIfExists(copy);
+            throw e;
+        }
+    }
+
+    @Override
+    public void releaseJobUpload(Path localCopy) {
+        discardStagingFile(localCopy);
+    }
+
+    @Override
+    public void deleteJobUpload(UUID projectId, UUID uploadId) {
+        s3Client.deleteObject(DeleteObjectRequest.builder()
+                .bucket(bucket()).key(jobUploadKey(projectId, uploadId)).build());
     }
 
     @Override

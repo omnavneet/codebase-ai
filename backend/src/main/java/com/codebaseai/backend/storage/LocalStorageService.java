@@ -46,6 +46,108 @@ public class LocalStorageService implements StorageService {
         return StoragePaths.resolveWithin(projectDirectory(projectId), relativePath);
     }
 
+    private Path jobUploadPath(UUID projectId, UUID uploadId) {
+        return Paths.get(properties.getUpload().getDirectory(), ".job-uploads",
+                projectId.toString(), uploadId + ".zip");
+    }
+
+    private Path generationDirectory(UUID projectId, UUID generationId) {
+        return Paths.get(properties.getUpload().getDirectory(), ".generations",
+                projectId.toString(), generationId.toString());
+    }
+
+    @Override
+    public Path generationExtractionDirectory(UUID projectId, UUID generationId) throws IOException {
+        Path directory = generationDirectory(projectId, generationId);
+        Files.createDirectories(directory);
+        return directory;
+    }
+
+    @Override
+    public void persistGeneration(UUID projectId, UUID generationId, Path extractionDirectory,
+                                  List<ZipExtractionService.ExtractedFile> files) {
+        // Files were extracted into their immutable generation directory.
+    }
+
+    @Override
+    public void discardGenerationExtraction(Path extractionDirectory) {
+        // The extraction directory is the generation and is cleaned separately.
+    }
+
+    @Override
+    public boolean generationFileExists(UUID projectId, UUID generationId, String relativePath) {
+        if (generationId == null) {
+            return exists(projectId, relativePath);
+        }
+        try {
+            return Files.isRegularFile(StoragePaths.resolveWithin(generationDirectory(projectId, generationId), relativePath));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public String readGenerationText(UUID projectId, UUID generationId, String relativePath) throws IOException {
+        if (generationId == null) {
+            return readText(projectId, relativePath);
+        }
+        return Files.readString(StoragePaths.resolveWithin(generationDirectory(projectId, generationId), relativePath),
+                StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public void deleteGeneration(UUID projectId, UUID generationId) throws IOException {
+        deleteTree(generationDirectory(projectId, generationId));
+    }
+
+    @Override
+    public void deleteProjectGenerations(UUID projectId) throws IOException {
+        deleteTree(Paths.get(properties.getUpload().getDirectory(), ".generations", projectId.toString()));
+    }
+
+    private void deleteTree(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(directory)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+
+    @Override
+    public void storeJobUpload(MultipartFile file, UUID projectId, UUID uploadId) throws IOException {
+        Path destination = jobUploadPath(projectId, uploadId);
+        Files.createDirectories(destination.getParent());
+        Path temporary = Files.createTempFile(destination.getParent(), "upload-", ".tmp");
+        try {
+            file.transferTo(temporary.toAbsolutePath());
+            Files.move(temporary, destination, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    @Override
+    public Path materializeJobUpload(UUID projectId, UUID uploadId) throws IOException {
+        Path path = jobUploadPath(projectId, uploadId);
+        if (!Files.isRegularFile(path)) {
+            throw new java.nio.file.NoSuchFileException(path.toString());
+        }
+        return path;
+    }
+
+    @Override
+    public void releaseJobUpload(Path localCopy) {
+        // The durable file itself is directly readable on local storage.
+    }
+
+    @Override
+    public void deleteJobUpload(UUID projectId, UUID uploadId) throws IOException {
+        Files.deleteIfExists(jobUploadPath(projectId, uploadId));
+    }
+
     @Override
     public Path storeZip(MultipartFile file, UUID projectId) throws IOException {
         // Stage OUTSIDE the project directory, with the projectId in the name so

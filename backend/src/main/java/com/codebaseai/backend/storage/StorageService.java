@@ -34,6 +34,33 @@ public interface StorageService {
     /** Stages an uploaded ZIP for extraction and returns a readable local file. */
     Path storeZip(MultipartFile file, UUID projectId) throws IOException;
 
+    /** Persist one immutable queue input outside the published project tree. */
+    void storeJobUpload(MultipartFile file, UUID projectId, UUID uploadId) throws IOException;
+
+    /** Provide a local, readable copy of the exact queued input. */
+    Path materializeJobUpload(UUID projectId, UUID uploadId) throws IOException;
+
+    /** Release a local materialized copy without deleting the durable input. */
+    void releaseJobUpload(Path localCopy);
+
+    /** Remove the durable input after its job has reached a terminal state. */
+    void deleteJobUpload(UUID projectId, UUID uploadId) throws IOException;
+
+    Path generationExtractionDirectory(UUID projectId, UUID generationId) throws IOException;
+
+    void persistGeneration(UUID projectId, UUID generationId, Path extractionDirectory,
+                           List<ZipExtractionService.ExtractedFile> files) throws IOException;
+
+    void discardGenerationExtraction(Path extractionDirectory);
+
+    boolean generationFileExists(UUID projectId, UUID generationId, String relativePath);
+
+    String readGenerationText(UUID projectId, UUID generationId, String relativePath) throws IOException;
+
+    void deleteGeneration(UUID projectId, UUID generationId) throws IOException;
+
+    void deleteProjectGenerations(UUID projectId) throws IOException;
+
     /** Local directory that {@link #persistExtractedFiles} reads extracted files from. */
     Path extractionDirectory(UUID projectId) throws IOException;
 
