@@ -91,7 +91,8 @@ public class AgentController {
         body.put("question", request.getQuestion());
         body.put("project_id", projectId.toString());
         agentStreamService.stream(projectId, userId, "/agent/investigate/stream",
-                body, emitter, request.getQuestion(), request.getConversationId());
+                body, emitter, request.getQuestion(), request.getConversationId(), request.getRequestId(),
+                request.getReplyToMessageId(), request.isRegenerate());
         return emitter;
     }
 

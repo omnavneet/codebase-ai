@@ -20,4 +20,6 @@ public class ProjectResponse {
     private UUID latestJobId;
     /** Progress of that job, percent 0-100; null when no job has run yet. */
     private Integer indexingProgressPercent;
+    /** Latest job state, independent of whether a previous index is usable. */
+    private String latestJobStatus;
 }

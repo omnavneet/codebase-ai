@@ -16,4 +16,7 @@ public class AgentInvestigateRequest {
      * persisted on success — to the project's most recent conversation.
      */
     private UUID conversationId;
+    private UUID requestId;
+    private UUID replyToMessageId;
+    private boolean regenerate;
 }

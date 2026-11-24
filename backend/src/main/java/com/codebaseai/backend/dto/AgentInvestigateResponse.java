@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class AgentInvestigateResponse {
     private String answer;
+    private List<?> citations;
     private List<String> trace;
     private int iterations;
     @JsonProperty("tool_calls")

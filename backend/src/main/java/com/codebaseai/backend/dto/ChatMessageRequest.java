@@ -25,4 +25,7 @@ public class ChatMessageRequest {
      * that do not send a conversation keep working.
      */
     private UUID conversationId;
+
+    private UUID requestId;
+    private UUID replyToMessageId;
 }

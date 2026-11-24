@@ -44,9 +44,9 @@ public class ChatController {
             @RequestParam(value = "userPersisted", defaultValue = "false") boolean userMessagePersisted,
             @Valid @RequestBody ChatMessageRequest request) {
         UUID userId = getCurrentUserId();
-        return ResponseEntity.ok(chatService.sendMessage(
-                projectId, userId, request.getContent(),
-                userMessagePersisted, request.isRegenerate(), conversationId));
+        return ResponseEntity.ok(chatService.sendDurableMessage(projectId, userId, request.getContent(),
+                conversationId, request.getRequestId(), request.getReplyToMessageId(),
+                request.isRegenerate() || userMessagePersisted));
     }
 
     /**
@@ -64,9 +64,9 @@ public class ChatController {
             @Valid @RequestBody ChatMessageRequest request) {
         UUID userId = getCurrentUserId();
 
-        ChatService.PreparedChat prepared = chatService.prepareChat(
-                projectId, userId, request.getContent(),
-                !userMessagePersisted, request.isRegenerate(), conversationId);
+        ChatService.PreparedChat prepared = chatService.prepareDurableChat(projectId, userId, request.getContent(),
+                conversationId, request.getRequestId(), request.getReplyToMessageId(),
+                request.isRegenerate() || userMessagePersisted);
 
         SseEmitter emitter = new SseEmitter(properties.getChat().getStreamTimeoutMs());
         chatService.streamMessage(prepared, emitter);
