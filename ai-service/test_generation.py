@@ -73,7 +73,7 @@ def indexed_tools(tmp_path):
     legacy.parent.mkdir()
     legacy.write_text("legacy version\n", encoding="utf-8")
     tools = AgentTools({}, None, str(tmp_path))
-    tools._get_db_connection = lambda: Connection(state)
+    tools._get_db_connection = lambda **kwargs: Connection(state)
     return tools, state
 
 
@@ -110,7 +110,7 @@ def test_analyze_pipelines_pin_generation_for_entire_run(indexed_tools, service_
     tools, state = indexed_tools
     service = service_class(tools, object())
 
-    def pipeline(*args):
+    def pipeline(*args, deadline):
         state["active"] = NEW
         return tools.read_file("src/app.py", PROJECT)["content"]
 

@@ -113,35 +113,28 @@ class AgentTools:
             return {path: str(file_id) for path, file_id in cur.fetchall()}
 
     @contextmanager
-    def generation_scope(self, project_id: str, generation_id=_UNSET):
+    def generation_scope(self, project_id: str, generation_id=_UNSET, *, timeout=None):
         """Bind one published generation, including the legacy NULL generation."""
         if generation_id is _UNSET:
-            generation_id = self.active_generation(project_id)
+            generation_id = self.active_generation(project_id, timeout=timeout)
         else:
             if generation_id is not None:
                 try:
                     generation_id = str(uuid.UUID(str(generation_id)))
                 except ValueError as exc:
                     raise ValueError("Invalid repository generation") from exc
-            conn = self._get_db_connection()
-            try:
-                cur = conn.cursor()
-                try:
-                    cur.execute(
-                        """SELECT EXISTS (
-                            SELECT 1 FROM projects p WHERE p.id = %s
-                            AND (%s::uuid IS NULL OR EXISTS (
-                                SELECT 1 FROM published_generations g
-                                WHERE g.project_id = p.id AND g.generation_id = %s::uuid))
-                        )""",
-                        (project_id, generation_id, generation_id),
-                    )
-                    if not cur.fetchone()[0]:
-                        raise ValueError("Repository generation is not published")
-                finally:
-                    cur.close()
-            finally:
-                conn.close()
+            with self._generation_cursor(timeout) as cur:
+                cur.execute(
+                    """SELECT EXISTS (
+                        SELECT 1 FROM projects p WHERE p.id = %s
+                        AND (%s::uuid IS NULL OR EXISTS (
+                            SELECT 1 FROM published_generations g
+                            WHERE g.project_id = p.id AND g.generation_id = %s::uuid))
+                    )""",
+                    (project_id, generation_id, generation_id),
+                )
+                if not cur.fetchone()[0]:
+                    raise ValueError("Repository generation is not published")
         token = self._generation_scope.set((project_id, generation_id))
         try:
             yield

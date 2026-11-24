@@ -250,6 +250,7 @@ def _friendly_ai_error(exc: Exception) -> dict:
             429: "rate_limited",
             502: "ai_unreachable",
             503: "ai_unreachable",
+            504: "timeout",
         }.get(exc.status_code, "upstream_error")
         return {"message": detail, "code": code}
     if isinstance(exc, (FileNotFoundError, PermissionError)):
@@ -382,16 +383,9 @@ def explain_code(request: ExplainCodeRequest):
 async def explain_code_stream(request: ExplainCodeRequest, http_request: Request):
     """Streaming twin of POST /agent/explain-code (fixed pipeline, step events)."""
     def run(emit, cancel_event):
-        try:
-            return explain_service.explain(
-                request.file_path, request.project_id, request.symbol,
-                on_event=emit, cancel_event=cancel_event)
-        except HTTPException as exc:
-            # Surface the not-found as an SSE error rather than a raised 404,
-            # because the stream has already started (200 OK).
-            raise McpUnavailableError(
-                exc.detail if isinstance(exc.detail, str)
-                else "That file or symbol could not be found.")
+        return explain_service.explain(
+            request.file_path, request.project_id, request.symbol,
+            on_event=emit, cancel_event=cancel_event)
     return _run_agent_stream(run, http_request, project_id=request.project_id)
 
 class DebugFinding(BaseModel):

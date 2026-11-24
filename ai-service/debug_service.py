@@ -18,11 +18,10 @@ import os
 import re
 import time
 import uuid
-from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
 from citation_evidence import verified_citations
-from explain_service import streaming_model_call
+from explain_service import analysis_scope, streaming_model_call
 from stack_trace_parser import parse_stack_trace, project_frames, resolve_project_file
 
 logger = logging.getLogger(__name__)
@@ -66,15 +65,13 @@ class DebugService:
 
     def debug(self, issue_description, project_id, stack_trace=None,
               file_path=None, on_event=None, cancel_event=None):
-        scope = getattr(self.tools, "generation_scope", None)
-        with scope(project_id) if callable(scope) else nullcontext():
+        with analysis_scope(self.tools, project_id, self.timeout_seconds) as deadline:
             return self._debug(issue_description, project_id, stack_trace, file_path,
-                               on_event, cancel_event)
+                               on_event, cancel_event, deadline=deadline)
 
-    def _debug(self, issue_description, project_id, stack_trace=None,
-               file_path=None, on_event=None, cancel_event=None):
+    def _debug(self, issue_description, project_id, stack_trace, file_path,
+               on_event, cancel_event, *, deadline):
         request_id = uuid.uuid4().hex[:12]
-        deadline = time.monotonic() + self.timeout_seconds
 
         def emit(event: Dict[str, Any]) -> None:
             if on_event is not None:

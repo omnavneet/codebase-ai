@@ -10,13 +10,24 @@ import logging
 import os
 import time
 import uuid
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from citation_evidence import verified_citations
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def analysis_scope(tools, project_id, timeout_seconds):
+    deadline = time.monotonic() + timeout_seconds
+    scope = getattr(tools, "generation_scope", None)
+    try:
+        with scope(project_id, timeout=deadline - time.monotonic()) if callable(scope) else nullcontext():
+            yield deadline
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Code analysis timed out") from exc
 
 
 def _reasoning_effort() -> Optional[str]:
@@ -33,11 +44,10 @@ def streaming_model_call(client, model, messages, *, temperature, max_tokens,
                         deadline, cancel_event):
     """One Groq completion, streamed. Returns (text, stopped_early, stop_reason).
 
-    Streaming lets a hard timeout be honoured mid-flight: the loop breaks on
-    the deadline or on ``cancel_event`` and returns the text so far.
-    ``reasoning_effort`` is set to low when supported, else the call is retried
-    without it.
+    Check the deadline and cancellation between streamed chunks.
     """
+    if time.monotonic() >= deadline:
+        raise TimeoutError("Code analysis timed out")
     reasoning = _reasoning_effort()
     stopped_early = False
     stop_reason = ""
@@ -85,14 +95,11 @@ class ExplainService:
 
     def explain(self, file_path, project_id, symbol=None,
                 on_event=None, cancel_event=None):
-        scope = getattr(self.tools, "generation_scope", None)
-        with scope(project_id) if callable(scope) else nullcontext():
-            return self._explain(file_path, project_id, symbol, on_event, cancel_event)
+        with analysis_scope(self.tools, project_id, self.timeout_seconds) as deadline:
+            return self._explain(file_path, project_id, symbol, on_event, cancel_event, deadline=deadline)
 
-    def _explain(self, file_path, project_id, symbol=None,
-                 on_event=None, cancel_event=None):
+    def _explain(self, file_path, project_id, symbol, on_event, cancel_event, *, deadline):
         request_id = uuid.uuid4().hex[:12]
-        deadline = time.monotonic() + self.timeout_seconds
 
         def emit(event: Dict[str, Any]) -> None:
             if on_event is not None:

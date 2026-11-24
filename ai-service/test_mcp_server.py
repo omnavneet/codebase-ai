@@ -286,7 +286,7 @@ def real_tools(tmp_path):
     (other / "secret.txt").write_text("nope\n", encoding="utf-8")
 
     tools = AgentTools({}, None, str(tmp_path))
-    tools.active_generation = lambda project_id: None
+    tools.active_generation = lambda project_id, *, timeout=None: None
     # Nothing is indexed in this fixture, so list_files falls back to storage
     # (same trick as test_storage; no Postgres in the unit-test environment).
     tools._get_db_connection = lambda: _EmptyConnection()
