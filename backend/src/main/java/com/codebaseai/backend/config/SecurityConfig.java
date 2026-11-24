@@ -12,6 +12,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 
 @Configuration
@@ -60,6 +61,9 @@ public class SecurityConfig {
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
             .authorizeHttpRequests(auth -> auth
+                // The initial request passed authorization before the servlet
+                // started asynchronous work. Its redispatch finishes that response.
+                .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 // Infrastructure probe (ALB/ECS): must answer without credentials.
                 .requestMatchers("/api/health").permitAll()
