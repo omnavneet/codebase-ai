@@ -8,6 +8,8 @@ import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,25 +22,47 @@ import com.codebaseai.backend.model.IndexingJob;
  */
 public interface IndexingJobRepository extends JpaRepository<IndexingJob, UUID> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select j from IndexingJob j where j.id = :jobId")
+    Optional<IndexingJob> findByIdForUpdate(@Param("jobId") UUID jobId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = """
+            UPDATE indexing_jobs SET progress_percent = :progress, locked_at = :now, updated_at = :now
+            WHERE id = :jobId AND status = 'processing' AND locked_by = :workerId
+            """, nativeQuery = true)
+    int heartbeatIfOwned(@Param("jobId") UUID jobId, @Param("workerId") String workerId,
+                         @Param("progress") int progress, @Param("now") LocalDateTime now);
+
     /**
      * Claims the next runnable job, if any.
      *
-     * <p>A job is runnable when it is {@code queued} and due, or when it is
-     * {@code processing} but its lease has gone stale (crash recovery). The
+     * <p>A job is runnable when it is {@code queued} and due. Stale leases
+     * are handled by the recovery service before another claim. The
      * {@code FOR UPDATE SKIP LOCKED} makes the pick atomic across workers: a
      * row another transaction already holds is skipped rather than blocking, so
      * every worker gets a different job (or none). Must be called inside a
      * transaction so the row lock is held until the caller commits.
      */
     @Query(value = """
-            SELECT * FROM indexing_jobs
-            WHERE (status = 'queued' AND next_run_at <= now())
-               OR (status = 'processing' AND locked_at < now() - (:staleSeconds * interval '1 second'))
-            ORDER BY next_run_at
+            SELECT j.* FROM indexing_jobs j
+            JOIN projects p ON p.id = j.project_id
+            WHERE j.status = 'queued' AND j.next_run_at <= now()
+              AND NOT EXISTS (
+                  SELECT 1 FROM indexing_jobs other
+                  WHERE other.project_id = j.project_id AND other.status = 'processing'
+                    AND other.id <> j.id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM indexing_jobs earlier
+                  WHERE earlier.project_id = j.project_id AND earlier.status = 'queued'
+                    AND (earlier.created_at, earlier.id) < (j.created_at, j.id)
+              )
+            ORDER BY j.next_run_at, j.created_at, j.id
             LIMIT 1
-            FOR UPDATE SKIP LOCKED
+            FOR UPDATE OF p, j SKIP LOCKED
             """, nativeQuery = true)
-    Optional<IndexingJob> claimNext(@Param("staleSeconds") long staleSeconds);
+    Optional<IndexingJob> claimNext();
 
     /** Idempotency lookup: an existing queued/processing/ready job for this archive. */
     Optional<IndexingJob> findFirstByProjectIdAndContentHashAndStatusInOrderByCreatedAtDesc(
@@ -62,6 +86,8 @@ public interface IndexingJobRepository extends JpaRepository<IndexingJob, UUID> 
 
     /** Jobs a user may still cancel (anything not yet finished). */
     List<IndexingJob> findByProjectIdAndStatusIn(UUID projectId, Collection<String> statuses);
+
+    List<IndexingJob> findByProjectId(UUID projectId);
 
     /**
      * Finishes a job only when it is still processing.
@@ -104,26 +130,11 @@ public interface IndexingJobRepository extends JpaRepository<IndexingJob, UUID> 
                               @Param("errorMessage") String errorMessage,
                               @Param("now") LocalDateTime now);
 
-    /**
-     * Crash recovery: flips every {@code processing} job whose lease
-     * ({@code locked_at}) has gone stale back to {@code queued}, so it can be
-     * claimed again. Attempts are NOT touched here — they are incremented once,
-     * at claim time. A healthy job keeps a fresh {@code locked_at} via the
-     * per-batch heartbeat, so it never matches this update.
-     *
-     * @return number of jobs re-queued.
-     */
-    @org.springframework.data.jpa.repository.Modifying
-    @Transactional
+    /** Candidate identifiers only, so the service can lock project then job. */
     @Query(value = """
-            UPDATE indexing_jobs
-               SET status = 'queued',
-                   locked_by = NULL,
-                   locked_at = NULL,
-                   next_run_at = :now,
-                   updated_at = :now
-              WHERE status = 'processing'
-                AND locked_at < now() - (:staleSeconds * interval '1 second')
+            SELECT project_id, id FROM indexing_jobs
+            WHERE status = 'processing' AND locked_at < :cutoff
+            ORDER BY project_id, id
             """, nativeQuery = true)
-    int requeueStale(@Param("staleSeconds") long staleSeconds, @Param("now") LocalDateTime now);
+    List<Object[]> findStaleJobIds(@Param("cutoff") LocalDateTime cutoff);
 }

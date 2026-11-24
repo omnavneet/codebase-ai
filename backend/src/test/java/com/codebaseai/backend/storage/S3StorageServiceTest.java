@@ -30,6 +30,8 @@ import com.codebaseai.backend.service.ZipExtractionService;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
@@ -39,6 +41,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
 
@@ -161,6 +164,27 @@ class S3StorageServiceTest {
     }
 
     @Test
+    void jobUploadUsesDurableJobSpecificObjectAndDeletesThatObject() throws IOException {
+        UUID uploadId = UUID.randomUUID();
+        MockMultipartFile upload = new MockMultipartFile(
+                "file", "project.zip", "application/zip", "zip".getBytes(StandardCharsets.UTF_8));
+        storageService.storeJobUpload(upload, projectId, uploadId);
+        PutObjectRequest put = singleRequest("putObject", PutObjectRequest.class);
+        String expectedKey = PREFIX + "/.job-uploads/" + projectId + "/" + uploadId + ".zip";
+        assertEquals(expectedKey, put.key());
+        assertEquals(ServerSideEncryption.AES256, put.serverSideEncryption());
+
+        fakeS3.script("getObjectAsBytes", ResponseBytes.fromByteArray(
+                GetObjectResponse.builder().build(), "zip".getBytes(StandardCharsets.UTF_8)));
+        Path copy = storageService.materializeJobUpload(projectId, uploadId);
+        assertEquals("zip", Files.readString(copy));
+        storageService.releaseJobUpload(copy);
+        assertFalse(Files.exists(copy));
+        storageService.deleteJobUpload(projectId, uploadId);
+        assertEquals(expectedKey, singleRequest("deleteObject", DeleteObjectRequest.class).key());
+    }
+
+    @Test
     void deletesEveryObjectUnderTheProjectPrefixAcrossPages() {
         String prefix = keyPrefix() + "/";
         fakeS3.script("listObjectsV2", ListObjectsV2Response.builder()
@@ -199,6 +223,27 @@ class S3StorageServiceTest {
         storageService.deleteProject(projectId);
 
         assertTrue(fakeS3.callsTo("deleteObjects").isEmpty());
+    }
+
+    @Test
+    void generationDeletionBatchesObjectsAndReportsPartialFailure() {
+        UUID generation = UUID.randomUUID();
+        List<S3Object> firstPage = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            firstPage.add(S3Object.builder().key("file-" + i).build());
+        }
+        fakeS3.script("listObjectsV2", ListObjectsV2Response.builder().contents(firstPage)
+                .isTruncated(true).nextContinuationToken("more").build());
+        fakeS3.script("listObjectsV2", ListObjectsV2Response.builder().isTruncated(false)
+                .contents(S3Object.builder().key("last-file").build()).build());
+        fakeS3.script("deleteObjects", DeleteObjectsResponse.builder().build());
+        fakeS3.script("deleteObjects", DeleteObjectsResponse.builder().errors(
+                S3Error.builder().key("last-file").code("AccessDenied").build()).build());
+
+        assertThrows(IllegalStateException.class, () -> storageService.deleteGeneration(projectId, generation));
+
+        assertEquals(List.of(1000, 1), fakeS3.argumentListsTo("deleteObjects").stream()
+                .map(call -> ((DeleteObjectsRequest) call[0]).delete().objects().size()).toList());
     }
 
     @Test

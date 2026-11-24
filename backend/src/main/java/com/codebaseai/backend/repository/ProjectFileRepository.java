@@ -14,6 +14,14 @@ import com.codebaseai.backend.model.ProjectFile;
 public interface ProjectFileRepository extends JpaRepository<ProjectFile, UUID> {
     List<ProjectFile> findByProjectId(UUID projectId);
 
+    List<ProjectFile> findByProjectIdAndGenerationId(UUID projectId, UUID generationId);
+
+    @Transactional
+    @Modifying
+    @Query("delete from ProjectFile f where f.projectId = :projectId and f.generationId = :generationId")
+    void deleteByProjectIdAndGenerationId(@Param("projectId") UUID projectId,
+                                          @Param("generationId") UUID generationId);
+
     @Transactional
     @Modifying
     @Query("delete from ProjectFile f where f.projectId = :projectId")

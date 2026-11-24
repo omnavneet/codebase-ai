@@ -168,6 +168,27 @@ class LocalStorageServiceTest {
     }
 
     @Test
+    void jobUploadsHaveDistinctDurableIdentityAndSurviveProjectDeletion() throws IOException {
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        MockMultipartFile firstUpload = new MockMultipartFile("file", "a.zip", "application/zip", "first".getBytes());
+        MockMultipartFile secondUpload = new MockMultipartFile("file", "b.zip", "application/zip", "second".getBytes());
+        storageService.storeJobUpload(firstUpload, projectId, first);
+        storageService.storeJobUpload(secondUpload, projectId, second);
+        storageService.deleteProject(projectId);
+
+        Path firstPath = storageService.materializeJobUpload(projectId, first);
+        Path secondPath = storageService.materializeJobUpload(projectId, second);
+        assertEquals("first", Files.readString(firstPath));
+        assertEquals("second", Files.readString(secondPath));
+        storageService.releaseJobUpload(firstPath);
+        assertTrue(Files.exists(firstPath));
+        storageService.deleteJobUpload(projectId, first);
+        assertFalse(Files.exists(firstPath));
+        assertTrue(Files.exists(secondPath));
+    }
+
+    @Test
     void projectsAreIsolatedFromEachOther() throws IOException {
         UUID otherProjectId = UUID.randomUUID();
         storageService.writeText(projectId, "src/main/Foo.java", "class Foo {}");
