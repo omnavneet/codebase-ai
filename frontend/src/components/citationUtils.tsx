@@ -1,6 +1,9 @@
+import type { Citation } from '../pages/chat/types';
+
 /** Shape returned by the agent endpoints (investigate/explain/debug). */
 export interface AgentInvestigation {
   answer: string;
+  citations?: Citation[];
   trace: string[];
   iterations: number;
   tool_calls: number;
@@ -45,15 +48,13 @@ export interface AgentInvestigation {
 
 export type CitationClickHandler = (
   filePath: string,
-  startLine?: number,
-  endLine?: number,
+  startLine: number,
+  endLine: number,
+  fileId: string,
 ) => void;
 
-/** A citation that matched a real file in the project's file list. */
 export interface ResolvedCitation {
-  /** The project path to open — the first match at the winning tier. */
   path: string;
-  /** Other files the citation could mean; surfaced in the link tooltip. */
   others: string[];
 }
 
@@ -73,7 +74,6 @@ export const createCitationResolver = (filePaths: string[]): CitationResolver =>
   // Segment-aligned suffixes: 'src/app.py' indexes 'app.py' (from the first
   // slash on), so tier 2 and the basename tier are both one lookup.
   const bySuffix = new Map<string, string[]>();
-  const byBase = new Map<string, string[]>();
 
   const push = (index: Map<string, string[]>, key: string, path: string) => {
     const bucket = index.get(key);
@@ -82,8 +82,6 @@ export const createCitationResolver = (filePaths: string[]): CitationResolver =>
   };
 
   for (const path of filePaths) {
-    const base = path.slice(path.lastIndexOf("/") + 1);
-    push(byBase, base, path);
     let slash = path.indexOf("/");
     while (slash !== -1) {
       push(bySuffix, path.slice(slash + 1), path);
@@ -103,15 +101,8 @@ export const createCitationResolver = (filePaths: string[]): CitationResolver =>
     // Tier 2: unique path suffix (bucket also covers tier 3's basename —
     // a bare name is the shortest suffix a root-level file can produce).
     const suffixHits = bySuffix.get(normalized);
-    if (suffixHits && suffixHits.length > 0) {
-      return { path: suffixHits[0], others: suffixHits.slice(1) };
-    }
-
-    // Tier 3: unique basename of the cited string.
-    const base = normalized.slice(normalized.lastIndexOf("/") + 1);
-    const baseHits = byBase.get(base);
-    if (baseHits && baseHits.length > 0) {
-      return { path: baseHits[0], others: baseHits.slice(1) };
+    if (suffixHits?.length === 1) {
+      return { path: suffixHits[0], others: [] };
     }
 
     return null;

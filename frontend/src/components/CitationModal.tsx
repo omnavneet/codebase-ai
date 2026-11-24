@@ -1,18 +1,14 @@
 import React from 'react';
 import Dialog from './Dialog';
 import { CopyButton } from './PanelKit';
+import type { CitationClickHandler } from './citationUtils';
+import type { Citation } from '../pages/chat/types';
 import './Modal.css';
 
 interface CitationModalProps {
-  citation: {
-    file_path?: string;
-    start_line: number;
-    end_line: number;
-    content?: string;
-  } | null;
+  citation: Citation | null;
   onClose: () => void;
-  /** Jumps from this snippet to the whole file in the viewer. */
-  onOpenFile?: (filePath: string) => void;
+  onOpenFile: CitationClickHandler;
 }
 
 const CitationModal: React.FC<CitationModalProps> = ({
@@ -23,6 +19,7 @@ const CitationModal: React.FC<CitationModalProps> = ({
   if (!citation) return null;
 
   const path = citation.file_path ?? '';
+  const fileId = citation.file_id;
   const segments = path.split('/');
   const name = segments[segments.length - 1] || 'Code snippet';
   const folder = segments.length > 1 ? segments.slice(0, -1).join('/') : '';
@@ -42,11 +39,11 @@ const CitationModal: React.FC<CitationModalProps> = ({
 
         <div className="file-preview-tools">
           {citation.content && <CopyButton text={citation.content} label="Copy snippet" />}
-          {path && onOpenFile && (
+          {path && fileId && (
             <button
               type="button"
               className="ui-btn ui-btn-ghost ui-btn-sm"
-              onClick={() => onOpenFile(path)}
+              onClick={() => onOpenFile(path, citation.start_line, citation.end_line, fileId)}
             >
               Open full file
             </button>
