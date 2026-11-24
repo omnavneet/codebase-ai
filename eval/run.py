@@ -5,6 +5,7 @@ Usage:
     python -m eval.run                         # runs retrieval + agent (full)
     python -m eval.run --suite retrieval       # retrieval only (no LLM calls)
     python -m eval.run --suite agent           # agent only (needs Groq)
+    python -m eval.run --suite product         # six prompts on a synthetic fixture
     python -m eval.run --verify-dataset        # verify expected files exist (no indexing)
     python -m eval.run --gate                    # quick CI gate check (exit nonzero if thresholds breached)
 """
@@ -21,7 +22,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--suite",
-        choices=["retrieval", "agent", "all"],
+        choices=["retrieval", "agent", "product", "all"],
         default="all",
         help="Which evaluation suite to run.",
     )
@@ -47,6 +48,10 @@ def main(argv=None):
     )
 
     args = parser.parse_args(argv)
+
+    if args.suite == "product" and not (args.verify_dataset or args.gate):
+        from eval.product_eval import run_product_eval
+        return run_product_eval(args.backend_url)
 
     if args.verify_dataset:
         from eval.dataset import verify_dataset

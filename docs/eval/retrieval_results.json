@@ -1,0 +1,959 @@
+{
+  "suite": "retrieval",
+  "generated_at": "2026-11-15 10:29:00",
+  "dataset_version": "see eval/questions.json metadata.version",
+  "pins": {
+    "codebase-ai": "4b32ac70c13c1d9a8819844acd603c62f82e6ea8",
+    "httprouter": "484018016424d215c0b87c42f4c9b57d980fbd00"
+  },
+  "aggregate": {
+    "precision@5": 0.15555555555555556,
+    "precision@10": 0.08888888888888889,
+    "recall@5": 0.6643518518518519,
+    "recall@10": 0.7152777777777778,
+    "hit_rate@5": 0.7777777777777778,
+    "hit_rate@10": 0.8333333333333334,
+    "mrr": 0.5810185185185186,
+    "total_questions": 36,
+    "failed_questions": 0
+  },
+  "per_question": [
+    {
+      "question_id": "q001",
+      "repo": "codebase-ai",
+      "type": "locate",
+      "question": "Where is the HTTP security chain configured so that only the auth and health endpoints are public?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/config/SecurityConfig.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/config/SecurityConfig.java",
+        "ai-service/test_mcp_server.py",
+        "docker-compose.prod.yml",
+        "README.md",
+        "ai-service/mcp_server.py",
+        "backend/src/main/java/com/codebaseai/backend/service/CookieService.java",
+        "backend/src/main/java/com/codebaseai/backend/controller/HealthController.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q002",
+      "repo": "codebase-ai",
+      "type": "locate",
+      "question": "Where are the rate-limit ceilings for auth and AI endpoints defined, and what are they?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/config/InMemoryRateLimitFilter.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/config/InMemoryRateLimitFilter.java",
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java",
+        "docker-compose.yml",
+        "README.md",
+        "backend/src/main/java/com/codebaseai/backend/config/VerifiedUserFilter.java",
+        "docker-compose.prod.yml",
+        "backend/src/test/java/com/codebaseai/backend/config/VerifiedUserFilterTest.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q003",
+      "repo": "codebase-ai",
+      "type": "locate",
+      "question": "Where is the pgvector similarity query that backs semantic search?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/repository/CodeChunkRepository.java"
+      ],
+      "retrieved": [
+        "ai-service/agent_tools.py",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "README.md",
+        "ai-service/test_mcp_server.py",
+        "frontend/src/components/SearchPanel.tsx",
+        "ai-service/tool_registry.py",
+        "backend/pom.xml"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.0,
+        "recall@10": 0.0,
+        "hit_rate@10": 0.0,
+        "mrr": 0.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q004",
+      "repo": "codebase-ai",
+      "type": "locate",
+      "question": "Where are the ZIP upload resource limits (per file and per archive) defined?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/service/ZipExtractionService.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ZipExtractionService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ZipLimitExceededException.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q005",
+      "repo": "codebase-ai",
+      "type": "locate",
+      "question": "Where are the retrieval top-K defaults configured?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java",
+        "ai-service/tool_registry.py",
+        "frontend/src/index.css",
+        "frontend/package-lock.json",
+        "frontend/src/App.tsx",
+        "frontend/src/hooks/useProjectFiles.ts",
+        "frontend/src/services/apiClient.ts",
+        "docker-compose.prod.yml"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q006",
+      "repo": "codebase-ai",
+      "type": "locate",
+      "question": "Where is the investigation agent's main tool-calling loop defined?",
+      "expected_files": [
+        "ai-service/agent.py"
+      ],
+      "retrieved": [
+        "ai-service/main.py",
+        "ai-service/agent.py",
+        "README.md",
+        "docker-compose.prod.yml",
+        "ai-service/test_agent.py",
+        "ai-service/debug_service.py"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q007",
+      "repo": "codebase-ai",
+      "type": "explain",
+      "question": "How does the backend decide which requests require a verified email address?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/config/VerifiedUserFilter.java"
+      ],
+      "retrieved": [
+        "README.md",
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java",
+        "backend/src/test/java/com/codebaseai/backend/config/VerifiedUserFilterTest.java",
+        "backend/src/main/java/com/codebaseai/backend/config/VerifiedUserFilter.java",
+        "frontend/src/pages/VerifyEmailPage.tsx"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.25
+      },
+      "error": null
+    },
+    {
+      "question_id": "q008",
+      "repo": "codebase-ai",
+      "type": "explain",
+      "question": "How are email verification tokens created and delivered?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/service/EmailVerificationService.java"
+      ],
+      "retrieved": [
+        "README.md",
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java",
+        "backend/src/main/java/com/codebaseai/backend/controller/AuthController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/EmailVerificationService.java",
+        "frontend/src/pages/VerifyEmailPage.tsx"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.25
+      },
+      "error": null
+    },
+    {
+      "question_id": "q009",
+      "repo": "codebase-ai",
+      "type": "explain",
+      "question": "How does the AI service prevent embedding-dimension mismatches with the database?",
+      "expected_files": [
+        "ai-service/embedding_service.py"
+      ],
+      "retrieved": [
+        "ai-service/embedding_service.py",
+        "backend/src/main/java/com/codebaseai/backend/repository/CodeSymbolRepository.java",
+        "ai-service/agent_tools.py",
+        "README.md",
+        "docker-compose.prod.yml",
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q010",
+      "repo": "codebase-ai",
+      "type": "explain",
+      "question": "How does the AI service authenticate server-to-server requests?",
+      "expected_files": [
+        "ai-service/main.py"
+      ],
+      "retrieved": [
+        "README.md",
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java",
+        "ai-service/mcp_server.py",
+        "backend/src/main/java/com/codebaseai/backend/service/AiServiceClient.java",
+        "docker-compose.yml",
+        "ai-service/main.py"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.16666666666666666
+      },
+      "error": null
+    },
+    {
+      "question_id": "q011",
+      "repo": "codebase-ai",
+      "type": "explain",
+      "question": "How does the storage layer block path traversal when reading project files?",
+      "expected_files": [
+        "ai-service/storage.py"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/storage/StorageService.java",
+        "backend/src/main/java/com/codebaseai/backend/storage/StoragePaths.java",
+        "ai-service/test_storage.py",
+        "ai-service/test_mcp_server.py",
+        "backend/src/main/java/com/codebaseai/backend/storage/LocalStorageService.java",
+        "ai-service/agent_tools.py",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/CodeProcessingService.java"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.0,
+        "recall@10": 0.0,
+        "hit_rate@10": 0.0,
+        "mrr": 0.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q012",
+      "repo": "codebase-ai",
+      "type": "explain",
+      "question": "What happens when an unverified account tries to log in?",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java",
+        "backend/src/main/java/com/codebaseai/backend/model/User.java",
+        "README.md",
+        "backend/src/test/java/com/codebaseai/backend/service/EmailVerificationServiceTest.java",
+        "backend/src/main/resources/db/migration/V11__add_email_verification.sql",
+        "backend/src/test/java/com/codebaseai/backend/service/AuthServiceTest.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q013",
+      "repo": "codebase-ai",
+      "type": "trace-call-flow",
+      "question": "Trace the full path of a semantic search request from the HTTP endpoint down to pgvector and back.",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/controller/ProjectController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/AiServiceClient.java",
+        "backend/src/main/java/com/codebaseai/backend/repository/CodeChunkRepository.java"
+      ],
+      "retrieved": [
+        "ai-service/agent_tools.py",
+        "README.md",
+        "ai-service/test_mcp_server.py",
+        "ai-service/debug_service.py",
+        "frontend/src/components/SearchPanel.tsx",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.1,
+        "recall@10": 0.25,
+        "hit_rate@10": 1.0,
+        "mrr": 0.16666666666666666
+      },
+      "error": null
+    },
+    {
+      "question_id": "q014",
+      "repo": "codebase-ai",
+      "type": "trace-call-flow",
+      "question": "Trace how a single agent tool call flows from the LLM to the code and back.",
+      "expected_files": [
+        "ai-service/agent.py",
+        "ai-service/mcp_client.py",
+        "ai-service/mcp_server.py"
+      ],
+      "retrieved": [
+        "ai-service/agent.py",
+        "ai-service/main.py",
+        "ai-service/debug_service.py",
+        "backend/src/main/java/com/codebaseai/backend/service/AiServiceClient.java",
+        "ai-service/test_agent.py",
+        "README.md",
+        "ai-service/tool_registry.py",
+        "ai-service/test_mcp_server.py"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.3333333333333333,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 0.3333333333333333,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q015",
+      "repo": "codebase-ai",
+      "type": "trace-call-flow",
+      "question": "Trace what happens to an uploaded project ZIP from the HTTP request to a searchable index.",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/controller/ProjectController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ZipExtractionService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/CodeProcessingService.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/service/ZipLimitExceededException.java",
+        "backend/src/main/java/com/codebaseai/backend/service/ProjectService.java",
+        "backend/src/main/java/com/codebaseai/backend/storage/StorageService.java",
+        "backend/src/test/java/com/codebaseai/backend/storage/LocalStorageServiceTest.java",
+        "backend/src/main/java/com/codebaseai/backend/storage/LocalStorageService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/CodeProcessingService.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.25,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.2,
+        "recall@10": 0.5,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q016",
+      "repo": "codebase-ai",
+      "type": "trace-call-flow",
+      "question": "Trace the account registration and email verification flow end to end.",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/controller/AuthController.java",
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java",
+        "backend/src/main/java/com/codebaseai/backend/service/EmailVerificationService.java"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/service/AuthService.java",
+        "README.md",
+        "frontend/src/pages/AuthPage.tsx",
+        "backend/src/main/java/com/codebaseai/backend/service/MailService.java",
+        "frontend/src/context/AuthContext.tsx",
+        "backend/src/main/resources/db/migration/V11__add_email_verification.sql",
+        "backend/src/main/java/com/codebaseai/backend/controller/AuthController.java"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.3333333333333333,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.2,
+        "recall@10": 0.6666666666666666,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q017",
+      "repo": "codebase-ai",
+      "type": "trace-call-flow",
+      "question": "Trace the checks a request must pass before the investigation agent runs for a project.",
+      "expected_files": [
+        "backend/src/main/java/com/codebaseai/backend/config/SecurityConfig.java",
+        "backend/src/main/java/com/codebaseai/backend/config/VerifiedUserFilter.java",
+        "backend/src/main/java/com/codebaseai/backend/config/InMemoryRateLimitFilter.java"
+      ],
+      "retrieved": [
+        "README.md",
+        "docker-compose.prod.yml",
+        "backend/src/main/java/com/codebaseai/backend/service/AgentService.java",
+        "ai-service/main.py",
+        "ai-service/debug_service.py",
+        "backend/src/main/java/com/codebaseai/backend/service/AiServiceClient.java",
+        "ai-service/test_agent.py"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.0,
+        "recall@10": 0.0,
+        "hit_rate@10": 0.0,
+        "mrr": 0.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q018",
+      "repo": "codebase-ai",
+      "type": "trace-call-flow",
+      "question": "Trace what happens inside the AI service when a POST /chat request arrives.",
+      "expected_files": [
+        "ai-service/main.py",
+        "ai-service/chat_service.py"
+      ],
+      "retrieved": [
+        "backend/src/main/java/com/codebaseai/backend/service/AiServiceClient.java",
+        "backend/src/main/java/com/codebaseai/backend/config/AppProperties.java",
+        "README.md",
+        "backend/src/main/java/com/codebaseai/backend/service/ChatService.java",
+        "backend/src/main/java/com/codebaseai/backend/controller/ChatController.java"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.0,
+        "recall@10": 0.0,
+        "hit_rate@10": 0.0,
+        "mrr": 0.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q019",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where is httprouter's Router type defined and what does it hold?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go",
+        "go.mod"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q020",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where is the Router constructor and what behavior does it enable by default?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q021",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where is route registration into the radix tree implemented?",
+      "expected_files": [
+        "tree.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go",
+        "tree_test.go",
+        "tree.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.25
+      },
+      "error": null
+    },
+    {
+      "question_id": "q022",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where is the route lookup function that returns the handler, params and trailing-slash flag?",
+      "expected_files": [
+        "tree.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.0,
+        "recall@10": 0.0,
+        "hit_rate@10": 0.0,
+        "mrr": 0.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q023",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where does the router enter the http.Handler interface for an incoming request?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q024",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where is request-path canonicalization implemented?",
+      "expected_files": [
+        "path.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go",
+        "path.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.3333333333333333
+      },
+      "error": null
+    },
+    {
+      "question_id": "q025",
+      "repo": "httprouter",
+      "type": "explain",
+      "question": "How does the router handle a request whose only mismatch is a trailing slash?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q026",
+      "repo": "httprouter",
+      "type": "explain",
+      "question": "How does the router answer OPTIONS requests automatically?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q027",
+      "repo": "httprouter",
+      "type": "explain",
+      "question": "How does the router produce 405 Method Not Allowed?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q028",
+      "repo": "httprouter",
+      "type": "explain",
+      "question": "What does the router do when no route matches the request at all?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "router.go",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q029",
+      "repo": "httprouter",
+      "type": "explain",
+      "question": "How are named parameters and catch-all routes represented in the routing tree?",
+      "expected_files": [
+        "tree.go"
+      ],
+      "retrieved": [
+        "README.md",
+        "tree_test.go",
+        "router.go"
+      ],
+      "metrics": {
+        "precision@5": 0.0,
+        "recall@5": 0.0,
+        "hit_rate@5": 0.0,
+        "precision@10": 0.0,
+        "recall@10": 0.0,
+        "hit_rate@10": 0.0,
+        "mrr": 0.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q030",
+      "repo": "httprouter",
+      "type": "explain",
+      "question": "How does RedirectFixedPath rescue messy request paths such as //foo//bar or wrong casing?",
+      "expected_files": [
+        "router.go",
+        "tree.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "path.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.5,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 0.5,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q031",
+      "repo": "httprouter",
+      "type": "trace-call-flow",
+      "question": "Trace an incoming HTTP request from ServeHTTP to the final handler function.",
+      "expected_files": [
+        "router.go",
+        "tree.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.5,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 0.5,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q032",
+      "repo": "httprouter",
+      "type": "trace-call-flow",
+      "question": "Trace how Router.GET('/path', handler) becomes a routable entry.",
+      "expected_files": [
+        "router.go",
+        "tree.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.5,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 0.5,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q033",
+      "repo": "httprouter",
+      "type": "trace-call-flow",
+      "question": "Trace what happens when a request misses a registered route only by a trailing slash.",
+      "expected_files": [
+        "router.go",
+        "tree.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 0.5,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 0.5,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q034",
+      "repo": "httprouter",
+      "type": "trace-call-flow",
+      "question": "Trace why a registered path returns 405 when called with the wrong HTTP method.",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md",
+        "router_test.go"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    },
+    {
+      "question_id": "q035",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where is the method that exposes routing decisions without writing a response?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "router_test.go",
+        "router.go",
+        "README.md"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 0.5
+      },
+      "error": null
+    },
+    {
+      "question_id": "q036",
+      "repo": "httprouter",
+      "type": "locate",
+      "question": "Where does the router manage its Params object pool?",
+      "expected_files": [
+        "router.go"
+      ],
+      "retrieved": [
+        "router.go",
+        "README.md"
+      ],
+      "metrics": {
+        "precision@5": 0.2,
+        "recall@5": 1.0,
+        "hit_rate@5": 1.0,
+        "precision@10": 0.1,
+        "recall@10": 1.0,
+        "hit_rate@10": 1.0,
+        "mrr": 1.0
+      },
+      "error": null
+    }
+  ]
+}

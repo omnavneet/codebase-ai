@@ -52,7 +52,17 @@ def run_retrieval_eval(backend_url: str = None,
         repo_questions = [q for q in questions if q["repo"] == repo]
         print(f"[{repo}] indexing pinned {repo_sha(repo)[:12]} "
               f"({len(repo_questions)} questions) ...")
-        project_id = client.ensure_indexed(repo)
+        try:
+            project_id = client.ensure_indexed(repo)
+        except Exception as exc:
+            for q in repo_questions:
+                per_question.append({
+                    "question_id": q["id"], "repo": repo, "type": q["type"],
+                    "question": q["question"], "expected_files": q["expected_files"],
+                    "retrieved": [], "metrics": {},
+                    "error": f"Indexing the pinned repository failed: {exc}",
+                })
+            continue
         for q in repo_questions:
             record = {
                 "question_id": q["id"],
@@ -82,7 +92,7 @@ def run_retrieval_eval(backend_url: str = None,
                    + [f"hit_rate@{k}" for k in k_values] + ["mrr"])
     ok_records = [r for r in per_question if not r["error"]]
     aggregate = {
-        key: _mean([r["metrics"].get(key, 0.0) for r in ok_records])
+        key: _mean([r["metrics"].get(key, 0.0) for r in per_question])
         for key in metric_keys
     }
     aggregate["total_questions"] = len(per_question)
@@ -116,11 +126,13 @@ def run_retrieval_eval(backend_url: str = None,
             continue
         if key in aggregate and aggregate[key] + 1e-9 < threshold:
             breached.append((key, aggregate[key], threshold))
-    if breached or aggregate["failed_questions"]:
+    if breached or aggregate["failed_questions"] or not per_question or aggregate["mrr"] == 0:
         for key, value, threshold in breached:
             print(f"GATE FAIL {key}: {value:.4f} < threshold {threshold:.4f}")
         if aggregate["failed_questions"]:
             print(f"GATE FAIL failed_questions: {aggregate['failed_questions']}")
+        if not per_question or aggregate["mrr"] == 0:
+            print("GATE FAIL: no relevant result was retrieved for any question")
         return 2
     print("GATE PASS: all thresholds met")
     return 0

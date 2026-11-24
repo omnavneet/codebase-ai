@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "files": {
+    "billing/receipts.py": "RECEIPT_PREFIX = 'rcpt_'\n\ndef receipt_id(sequence):\n    if sequence < 0:\n        raise ValueError('sequence must be non-negative')\n    return f'{RECEIPT_PREFIX}{sequence:06d}'\n",
+    "shipping/labels.py": "def label_id(sequence):\n    return f'label-{sequence:04d}'\n"
+  },
+  "cases": [
+    {
+      "id": "receipt-format",
+      "modes": ["chat", "deep"],
+      "conversation": "receipt",
+      "question": "What prefix does receipt_id use and what is the minimum width of its numeric part? Cite the relevant file and lines.",
+      "required_patterns": ["rcpt_", "\\b(?:six|6)\\b|06d"],
+      "source": ["billing/receipts.py", 1, 6]
+    },
+    {
+      "id": "receipt-follow-up",
+      "modes": ["chat"],
+      "conversation": "receipt",
+      "question": "What does it do for a negative number? Cite the relevant file and lines.",
+      "required_patterns": ["\\bValueError\\b", "negativ"],
+      "source": ["billing/receipts.py", 4, 5]
+    },
+    {
+      "id": "missing-provider",
+      "modes": ["chat", "deep"],
+      "conversation": "missing",
+      "question": "Which third-party provider processes card payments in this repository? If the repository does not establish a provider, respond only with NOT IN REPOSITORY.",
+      "abstain": true
+    },
+    {
+      "id": "receipt-debug",
+      "modes": ["debug"],
+      "question": "Why did generating a receipt for sequence -7 fail? Cite the code that caused it.",
+      "stack_trace": "Traceback (most recent call last):\n  File \"/app/billing/receipts.py\", line 5, in receipt_id\n    raise ValueError('sequence must be non-negative')\nValueError: sequence must be non-negative",
+      "required_patterns": ["\\bValueError\\b", "negativ"],
+      "source": ["billing/receipts.py", 4, 5]
+    }
+  ]
+}

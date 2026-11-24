@@ -75,6 +75,14 @@ def write_report() -> Path:
         lines.append(f"| {label} | {_fmt(value)} |")
     lines.append("")
 
+    if agent:
+        lines.append("Citation accuracy checks a unique expected file and valid line range. "
+                     "Where the dataset specifies a single-file evidence range, the citation "
+                     "must overlap it. For questions without annotated ranges, file and line "
+                     "checks do not assess whether the cited lines support the answer. "
+                     "Quality averages include failed requests as zero.")
+        lines.append("")
+
     if retrieval:
         lines += ["## Retrieval: per-question results", "",
                   "| ID | Repo | Type | P@5 | P@10 | R@5 | R@10 | MRR | "

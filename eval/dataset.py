@@ -80,6 +80,7 @@ def file_exists_at_pin(repo_name: str, rel_path: str) -> bool:
     return _git_ok(["cat-file", "-e", f"{sha}:{rel_path}"], cwd)
 
 
+@lru_cache(maxsize=2048)
 def file_line_count_at_pin(repo_name: str, rel_path: str) -> Optional[int]:
     """Number of lines of ``rel_path`` at the pinned commit (None if absent)."""
     spec = load_config()["repos"][repo_name]

@@ -40,11 +40,11 @@
     "temperature": 0
   },
   "thresholds": {
-    "precision@5": 0.0,
-    "recall@5": 0.0,
-    "mrr": 0.0,
-    "hit_rate@5": 0.0,
-    "_note": "Baseline minus a small margin; filled in from the committed baseline in docs/eval/report.md. Raise temporarily to confirm the gate exits non-zero."
+    "precision@5": 0.14,
+    "recall@5": 0.59,
+    "mrr": 0.52,
+    "hit_rate@5": 0.70,
+    "_note": "Approximately 90% of the measured 36-question MiniLM baseline, rounded down to hundredths. Source: docs/eval/retrieval_results.json."
   },
   "runtime": {
     "backend_url": "http://localhost:8080",

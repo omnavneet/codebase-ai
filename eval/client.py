@@ -252,6 +252,13 @@ class BackendClient:
                 f"investigate failed: {resp.status_code} {resp.text[:300]}")
         return resp.json(), latency
 
+    def post_project(self, project_id: str, path: str, payload: Optional[dict] = None) -> dict:
+        resp = self._request("POST", f"{self.backend_url}/api/projects/{project_id}/{path}",
+                             auth=True, json=payload, timeout=self.request_timeout_s, retries=0)
+        if resp.status_code != 200:
+            raise EvalClientError(f"{path} failed: {resp.status_code} {resp.text[:200]}")
+        return resp.json()
+
     def delete_project(self, project_id: str) -> None:
         """Best-effort cleanup so repeated local runs don't pile up projects."""
         try:

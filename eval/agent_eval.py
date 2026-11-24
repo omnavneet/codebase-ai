@@ -5,9 +5,9 @@ latency, input/output tokens (from Groq usage surfaced by the agent) and the
 estimated cost from the price table in ``eval/config.json``.
 
 Two correctness signals:
-  * Citation correctness - ``eval/citation_parser.py`` extracts file/line
-    citations from the answer; each cited file must exist at the pinned
-    commit AND be one of the question's expected_files.
+  * Citation correctness - each citation must resolve uniquely to an expected
+    file and valid line range at the pinned commit, overlapping an annotated
+    range when one is available.
   * Answer correctness - an LLM judge at temperature 0 with a fixed prompt
     returns pass/fail per reference answer point; the raw judge output is
     logged in the results JSON for audit.
@@ -24,10 +24,10 @@ from typing import List, Optional, Set
 
 import requests
 
-from eval.citation_parser import citation_matches_expected, parse_citations
+from eval.citation_parser import parse_citations
 from eval.client import BackendClient
 from eval.dataset import (
-    REPO_ROOT, file_exists_at_pin, load_config, question_list,
+    REPO_ROOT, file_line_count_at_pin, load_config, question_list,
 )
 
 DOCS_DIR = REPO_ROOT / "docs" / "eval"
@@ -134,25 +134,51 @@ def files_at_pin(repo_name: str) -> Set[str]:
 
 
 def score_citations(answer: str, expected_files: List[str],
-                    repo_files: Set[str]) -> dict:
-    """Parse citations; a citation is correct iff the file exists at the pin
-    AND is listed in the question's expected_files."""
+                    repo_files: Set[str], repo_name: str,
+                    expected_line_ranges: Optional[List[List[int]]] = None) -> dict:
+    """Score uniquely resolved, valid line citations against pinned evidence.
+
+    The current dataset attaches ranges only to single-file questions. For
+    questions without annotated ranges, line validity and file relevance are
+    measured without claiming the cited lines support the answer.
+    """
     citations = parse_citations(answer)
     details = []
     correct = 0
     for c in citations:
-        path = c.file_path.replace("\\", "/").lstrip("./")
-        exists = (path in repo_files
-                  or any(f.endswith("/" + path) for f in repo_files))
-        in_expected = citation_matches_expected(c.file_path, expected_files)
-        ok = bool(exists and in_expected)
+        path = c.file_path.replace("\\", "/")
+        while path.startswith("./"):
+            path = path[2:]
+        if path.startswith("/") or ".." in path.split("/"):
+            matches = []
+        elif path in repo_files:
+            matches = [path]
+        else:
+            matches = sorted(f for f in repo_files if f.endswith("/" + path))
+        resolved = matches[0] if len(matches) == 1 else None
+        in_expected = resolved in expected_files if resolved else False
+        line_count = file_line_count_at_pin(repo_name, resolved) if resolved else None
+        end_line = c.end_line if c.end_line is not None else c.start_line
+        valid_lines = (line_count is not None and c.start_line is not None
+                       and 1 <= c.start_line <= end_line <= line_count)
+        ranges = expected_line_ranges or []
+        overlap = None
+        if ranges and len(expected_files) == 1 and in_expected:
+            overlap = bool(valid_lines and any(
+                c.start_line <= end and end_line >= start for start, end in ranges
+            ))
+        ok = bool(resolved and in_expected and valid_lines and overlap is not False)
         correct += 1 if ok else 0
         details.append({
             "file": c.file_path,
             "start_line": c.start_line,
             "end_line": c.end_line,
-            "exists_at_pin": exists,
+            "resolved_file": resolved,
+            "ambiguous": len(matches) > 1,
+            "exists_at_pin": bool(matches),
             "in_expected_files": in_expected,
+            "valid_lines": bool(valid_lines),
+            "matches_annotated_span": overlap,
             "correct": ok,
         })
     return {
@@ -207,8 +233,18 @@ def run_agent_eval(backend_url: str = None, ai_service_url: str = None,
         repo_questions = [q for q in questions if q["repo"] == repo]
         print(f"[{repo}] indexing pinned snapshot for {len(repo_questions)} "
               f"agent questions ...")
-        project_id = client.ensure_indexed(repo)
-        repo_file_cache[repo] = files_at_pin(repo)
+        try:
+            project_id = client.ensure_indexed(repo)
+            repo_file_cache[repo] = files_at_pin(repo)
+        except Exception as exc:
+            for q in repo_questions:
+                per_question.append({
+                    "question_id": q["id"], "repo": repo, "type": q["type"],
+                    "question": q["question"], "expected_files": q["expected_files"],
+                    "error": f"Indexing or loading the pinned repository failed: {exc}",
+                    "latency_s": None,
+                })
+            continue
 
         for q in repo_questions:
             print(f"  {q['id']}: {q['question'][:70]}...")
@@ -233,7 +269,8 @@ def run_agent_eval(backend_url: str = None, ai_service_url: str = None,
             out_tok = int(usage.get("output_tokens") or 0)
             cost = estimate_cost(agent_model, in_tok, out_tok, config)
             citations = score_citations(answer, q["expected_files"],
-                                        repo_file_cache[repo])
+                                        repo_file_cache[repo], repo,
+                                        q.get("expected_line_ranges"))
             try:
                 judge = judge_answer(q["question"], answer,
                                      q["reference_answer_points"],
@@ -280,12 +317,13 @@ def run_agent_eval(backend_url: str = None, ai_service_url: str = None,
     p95 = (latencies[math.ceil(0.95 * len(latencies)) - 1]
            if latencies else 0.0)
     n_ok = len(ok) or 1
+    n_attempted = len(per_question) or 1
     aggregate = {
-        "citation_accuracy": sum(r["citation"]["accuracy"] for r in ok) / n_ok,
-        "answer_accuracy": sum(r["reference_points"]["ratio"] for r in ok) / n_ok,
+        "citation_accuracy": sum(r["citation"]["accuracy"] for r in ok) / n_attempted,
+        "answer_accuracy": sum(r["reference_points"]["ratio"] for r in ok) / n_attempted,
         "answer_all_points_pass_rate": (
             sum(1 for r in ok if r["reference_points"]["ratio"] == 1.0)
-            / len(ok) if ok else 0.0),
+            / n_attempted),
         "avg_latency_s": sum(r["latency_s"] for r in ok) / n_ok,
         "p95_latency_s": p95,
         "avg_tool_calls": sum(r["tool_calls"] for r in ok) / n_ok,
@@ -318,7 +356,7 @@ def run_agent_eval(backend_url: str = None, ai_service_url: str = None,
     print("\nAgent aggregates:")
     for key, value in aggregate.items():
         print(f"  {key}: {value}")
-    return 0 if not aggregate["failed_questions"] else 1
+    return 0 if not (aggregate["failed_questions"] or aggregate["judge_errors"]) else 1
 
 
 
