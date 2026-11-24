@@ -7,9 +7,11 @@ model may have sent.
 """
 
 import json
+import threading
 import types
 
 from agent import CodebaseAgent
+from agent_tools import AgentTools
 from tool_registry import REGISTRY
 
 
@@ -160,7 +162,7 @@ def test_investigate_runs_the_scripted_loop_through_mcp():
     completions = agent.client.chat.completions
     assert completions.requests[0]["tools"] == REGISTRY.groq_definitions()
     # ...and the call went through the MCP client, scoped to this project.
-    assert mcp.calls == [("search_code", {"query": "login", "project_id": "project-7"})]
+    assert mcp.calls == [("search_code", {"query": "login", "project_id": "project-7", "generation_id": "active"})]
 
 
 def test_investigate_deduplicates_repeated_searches():
@@ -187,4 +189,216 @@ def test_investigate_deduplicates_repeated_searches():
     # The repeated query was answered from the dedup cache, not the server.
     assert len(mcp.calls) == 1
     assert result["searches_performed"] == ["login"]
+
+
+def test_investigate_reads_distinct_ranges_and_retries_failed_reads(tmp_path, monkeypatch):
+    project = tmp_path / "project-7"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "app.py").write_bytes(b"one\ntwo\nthree\nfour\n")
+    tools = AgentTools({}, None, str(tmp_path))
+    monkeypatch.setattr(tools, "_generation", lambda _: None)
+    monkeypatch.setattr(tools, "READ_MAX_LINES", 2)
+    late_read_attempts = 0
+
+    class FileMcpClient(FakeMcpClient):
+        def call_tool(self, name, arguments):
+            nonlocal late_read_attempts
+            super().call_tool(name, arguments)
+            if arguments.get("start_line") == 4:
+                late_read_attempts += 1
+                if late_read_attempts == 1:
+                    return {"error": "File temporarily unavailable"}
+            return tools.read_file(arguments["file_path"], arguments["project_id"],
+                                   arguments.get("start_line"), arguments.get("end_line"))
+
+    def read(call_id, path="src/app.py", line=None):
+        arguments = {"file_path": path}
+        if line is not None:
+            arguments.update(start_line=line, end_line=line)
+        return types.SimpleNamespace(
+            id=call_id, function=types.SimpleNamespace(name="read_file", arguments=json.dumps(arguments)),
+        )
+
+    mcp = FileMcpClient()
+    agent = make_agent(mcp, responses=[
+        types.SimpleNamespace(content=None, tool_calls=[read("clipped")]),
+        types.SimpleNamespace(content=None, tool_calls=[
+            read("three", line=3), read("four-failed", line=4),
+            read("three-in-batch", "src\\app.py", line=3), read("missing", "missing.py"),
+        ]),
+        types.SimpleNamespace(content=None, tool_calls=[read("four-retry", line=4), read("three-repeat", line=3)]),
+        types.SimpleNamespace(content="done", tool_calls=None),
+    ])
+
+    result = agent.investigate("read the file", "project-7")
+
+    messages = agent.client.chat.completions.requests[-1]["messages"]
+    observations = [(message["tool_call_id"], json.loads(message["content"]))
+                    for message in messages if isinstance(message, dict) and message["role"] == "tool"]
+    assert [call_id for call_id, _ in observations] == [
+        "clipped", "three", "four-failed", "three-in-batch", "missing", "four-retry", "three-repeat",
+    ]
+    observed = dict(observations)
+    assert observed["clipped"]["content"] == "one\ntwo\n"
+    assert observed["three"]["content"] == "three\n"
+    assert observed["three-in-batch"]["content"] == "three\n"
+    assert observed["four-failed"] == {"error": "File temporarily unavailable"}
+    assert "error" in observed["missing"]
+    assert observed["four-retry"]["content"] == "four\n"
+    assert "note" in observed["three-repeat"]
+    assert [(args["file_path"], args.get("start_line")) for _, args in mcp.calls] == [
+        ("src/app.py", None), ("src/app.py", 3), ("src/app.py", 4), ("missing.py", None), ("src/app.py", 4),
+    ]
+    assert result["files_read"] == ["src/app.py"]
+
+
+def test_investigation_returns_pinned_citations_only_for_observed_lines():
+    class EvidenceMcp(FakeMcpClient):
+        def call_tool(self, name, arguments):
+            return {"results": [{"file_path": "src/app.py", "start_line": 5,
+                                 "end_line": 9, "content": "visible\n"},
+                                {"file_path": "other/app.py", "start_line": 5,
+                                 "end_line": 5, "content": "different\n"}]}
+
+    call = types.SimpleNamespace(id="search", function=types.SimpleNamespace(
+        name="search_code", arguments=json.dumps({"query": "visible"})))
+    agent = make_agent(EvidenceMcp(), [
+        types.SimpleNamespace(content=None, tool_calls=[call]),
+        types.SimpleNamespace(content="`src/app.py:5`, `src/app.py:6`, and `app.py:5`", tool_calls=None),
+    ])
+    agent.generation_resolver = lambda project, **kwargs: "old-generation"
+    def resolve_ids(project, paths, generation, *, timeout):
+        assert 0 < timeout <= agent.run_timeout_seconds
+        assert (project, paths, generation) == ("project-7", ["src/app.py"], "old-generation")
+        return {"src/app.py": "old-file"}
+    agent.resolve_source_ids = resolve_ids
+
+    result = agent.investigate("where is the visible code?", "project-7")
+
+    assert result["citations"] == [{"file_path": "src/app.py", "file_id": "old-file",
+                                    "start_line": 5, "end_line": 5, "content": "visible\n",
+                                    "reference_paths": ["src/app.py"]}]
+
+
+def test_concurrent_investigations_keep_independent_context_retries():
+    barrier = threading.Barrier(2)
+    calls = threading.local()
+
+    class ContextTooLong(Exception):
+        status_code = 413
+
+    class InterleavedCompletions:
+        def create(self, **kwargs):
+            calls.count = getattr(calls, "count", 0) + 1
+            if calls.count == 1:
+                barrier.wait(timeout=5)
+                raise ContextTooLong()
+            assert 0 < kwargs["timeout"] <= 60
+            message = types.SimpleNamespace(content="complete", tool_calls=None)
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+    agent = make_agent()
+    original_budget = agent.context_budget_chars
+    agent.tool_definitions = agent.discover_tools()
+    import time
+    agent.tool_definitions_at = time.monotonic()
+    agent.client.chat.completions = InterleavedCompletions()
+    answers, errors = [], []
+
+    def run():
+        try:
+            answers.append(agent.investigate("question", "project")["answer"])
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not errors
+    assert answers == ["complete", "complete"]
+    assert agent.context_budget_chars == original_budget
+
+
+def test_precancelled_run_does_not_discover_or_call_model():
+    agent = make_agent()
+    cancel = threading.Event()
+    cancel.set()
+    result = agent.investigate("question", "project", cancel_event=cancel)
+    assert result["stop_reason"] == "cancelled"
+    assert agent.tool_definitions is None
+    assert agent.client.chat.completions.requests == []
+
+
+def test_cancellation_after_model_response_starts_no_tool_or_final_call():
+    cancel = threading.Event()
+    tool_call = types.SimpleNamespace(
+        id="call-1",
+        function=types.SimpleNamespace(name="search_code", arguments='{"query":"login"}'))
+    agent = make_agent(responses=[types.SimpleNamespace(content=None, tool_calls=[tool_call])])
+    original_create = agent.client.chat.completions.create
+
+    def cancel_after_create(**kwargs):
+        result = original_create(**kwargs)
+        cancel.set()
+        return result
+
+    agent.client.chat.completions.create = cancel_after_create
+    result = agent.investigate("question", "project", cancel_event=cancel)
+    assert result["stop_reason"] == "cancelled"
+    assert len(agent.client.chat.completions.requests) == 1
+    assert agent.mcp.calls == []
+
+
+def test_expired_deadline_does_not_start_model_call():
+    agent = make_agent()
+    agent.run_timeout_seconds = 0
+    result = agent.investigate("question", "project")
+    assert result["stop_reason"] == "timeout"
+    assert agent.client.chat.completions.requests == []
+
+
+def test_cancellation_interrupts_provider_retry_wait():
+    cancel = threading.Event()
+    class RateLimited(Exception):
+        status_code = 429
+        headers = {"Retry-After": "1"}
+
+    class Completion:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            cancel.set()
+            raise RateLimited()
+
+    agent = make_agent()
+    completion = Completion()
+    agent.client.chat.completions = completion
+    result = agent.investigate("question", "project", cancel_event=cancel)
+    assert result["stop_reason"] == "cancelled"
+    assert completion.calls == 1
+
+
+def test_mcp_discovery_and_batch_obey_requested_timeout():
+    import asyncio
+    import pytest
+    from mcp_client import McpToolClient, McpUnavailableError
+
+    class SlowMcp(McpToolClient):
+        async def _list_tools(self):
+            await asyncio.sleep(1)
+            return []
+
+        async def _call_tools(self, calls):
+            await asyncio.sleep(1)
+            return []
+
+    client = SlowMcp()
+    with pytest.raises(McpUnavailableError):
+        client.list_tools(timeout=0.01)
+    with pytest.raises(McpUnavailableError):
+        client.call_tools([("search_code", {})], timeout=0.01)
 

@@ -14,8 +14,10 @@ from llm_errors import (
     is_rate_limit_error,
     retry_after_seconds,
 )
-from mcp_client import McpUnavailableError
-from tool_registry import groq_function_from_mcp
+from mcp_client import McpToolClient, McpUnavailableError
+from citation_evidence import tool_sources, verified_citations
+from storage import normalize_relative_path
+from tool_registry import ReadFileInput, groq_function_from_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +61,11 @@ class CodebaseAgent:
     work happens so a streaming caller can show progress.
     """
 
-    def __init__(self, groq_client: Groq, mcp_client):
+    def __init__(self, groq_client: Groq, mcp_client, generation_resolver=None, resolve_source_ids=None):
         self.client = groq_client
         self.mcp = mcp_client
+        self.generation_resolver = generation_resolver
+        self.resolve_source_ids = resolve_source_ids
         self.model = os.getenv("LLM_MODEL")
         # Speed-tuned defaults: deep investigate should answer in ~15-40s, so
         # the loop gets at most 4 model calls / 8 tool calls instead of the
@@ -76,10 +80,6 @@ class CodebaseAgent:
         # When the conversation grows past it, the oldest tool results are
         # stubbed; a context-length rejection halves it once before giving up.
         self.context_budget_chars = int(os.getenv("AGENT_CONTEXT_BUDGET_CHARS", "60000"))
-        # Per-run retry flags: the agent instance is shared across requests,
-        # so investigate() resets them at the start of every run.
-        self._context_trimmed = False
-        self._rate_limit_retries = 0
         # Discovered lazily from the MCP server so the service can start even
         # if the MCP server is still booting; cached for a short TTL so the
         # list_tools connection cost is paid once per window, not per run.
@@ -88,9 +88,10 @@ class CodebaseAgent:
         self.tool_cache_ttl_seconds = float(
             os.getenv("AGENT_TOOL_CACHE_TTL_SECONDS", "300"))
 
-    def discover_tools(self) -> List[Dict]:
+    def discover_tools(self, timeout=None) -> List[Dict]:
         """Fetch the MCP server's read-only tools as Groq function schemas."""
-        discovered = self.mcp.list_tools()
+        discovered = (self.mcp.list_tools(timeout=timeout)
+                      if isinstance(self.mcp, McpToolClient) else self.mcp.list_tools())
         definitions = [
             groq_function_from_mcp(tool["name"], tool["description"], tool["input_schema"])
             for tool in discovered
@@ -100,7 +101,7 @@ class CodebaseAgent:
             raise RuntimeError("The MCP server exposed no read-only tools")
         return definitions
 
-    def _fresh_tool_definitions(self, force: bool = False) -> List[Dict]:
+    def _fresh_tool_definitions(self, force: bool = False, timeout=None) -> List[Dict]:
         """Cached tool schemas, refreshed after the TTL (or on demand).
 
         ``list_tools`` opens an MCP connection, so the result is cached in the
@@ -116,7 +117,7 @@ class CodebaseAgent:
             and time.monotonic() - self.tool_definitions_at < self.tool_cache_ttl_seconds
         ):
             return cached
-        self.tool_definitions = self.discover_tools()
+        self.tool_definitions = self.discover_tools(timeout)
         self.tool_definitions_at = time.monotonic()
         return self.tool_definitions
 
@@ -157,37 +158,23 @@ class CodebaseAgent:
         def cancelled() -> bool:
             return cancel_event is not None and cancel_event.is_set()
 
-        # Retry policy is per run; this agent instance is shared.
-        self._context_trimmed = False
-        self._rate_limit_retries = 0
         run_id = request_id or uuid.uuid4().hex[:12]
-
-        if self.tool_definitions is None:
-            emit({"type": "status", "message": "Discovering available tools"})
-        # Cached listing; only opened when the TTL expired (or never fetched).
-        self._fresh_tool_definitions()
-
-        emit({"type": "status", "message": "Planning the investigation"})
-
-        messages = [
-            {"role": "system", "content": self._system_prompt()},
-            {
-                "role": "user",
-                "content": f"Question: {question}\n\nProject ID: {project_id}\n\nInvestigate the codebase and provide an evidence-based answer.",
-            },
-        ]
-
         trace: List[str] = []
         files_read = set()
+        read_requests_done = set()
         searches_done = set()
         iteration = 0
         tool_calls = 0
         stopped_early = False
         stop_reason = ""
+        messages = []
+        generation_id = "active"
         # Groq usage accounting: summed over every completion in the loop so
         # callers (notably the evaluation harness) can see real token spend.
         usage = {"input_tokens": 0, "output_tokens": 0}
         deadline = time.monotonic() + self.run_timeout_seconds
+        retry_state = {"context_trimmed": False, "rate_limit_retries": 0,
+                       "budget": self.context_budget_chars}
 
         def attribute_usage(response: Any) -> None:
             response_usage = getattr(response, "usage", None)
@@ -200,6 +187,12 @@ class CodebaseAgent:
         def result_dict(answer: Any, *, truncated: bool) -> Dict[str, Any]:
             payload: Dict[str, Any] = {
                 "answer": answer,
+                "citations": verified_citations(
+                    answer, tool_sources(messages),
+                    (lambda paths: self.resolve_source_ids(
+                        project_id, paths, generation_id, timeout=deadline - time.monotonic()))
+                    if self.resolve_source_ids is not None and generation_id != "active" and not cancelled() else None,
+                ),
                 "trace": trace,
                 "iterations": iteration,
                 "tool_calls": tool_calls,
@@ -222,8 +215,11 @@ class CodebaseAgent:
             nonlocal stopped_early, stop_reason
             stopped_early = True
             stop_reason = reason
-            emit({"type": "status", "message": "Writing answer"})
             fallback = "Investigation was truncated. Please try a more specific question."
+            if reason in ("cancelled", "timeout") or cancelled() or time.monotonic() >= deadline:
+                stop_reason = "cancelled" if cancelled() else reason
+                return result_dict(fallback, truncated=True)
+            emit({"type": "status", "message": "Writing answer"})
             answer = fallback
             started = time.monotonic()
             final_instruction = FINAL_ANSWER_INSTRUCTION
@@ -235,9 +231,13 @@ class CodebaseAgent:
                 )
             try:
                 response = self._create_completion(
-                    messages + [{"role": "user", "content": final_instruction}]
+                    messages + [{"role": "user", "content": final_instruction}],
+                    retry_state=retry_state, deadline=deadline, cancel_event=cancel_event,
                 )
                 attribute_usage(response)
+                if cancelled() or time.monotonic() >= deadline:
+                    stop_reason = "cancelled" if cancelled() else "timeout"
+                    return result_dict(fallback, truncated=True)
                 answer = response.choices[0].message.content or fallback
             except Exception:
                 answer = fallback
@@ -247,6 +247,34 @@ class CodebaseAgent:
             )
             emit({"type": "answer", "answer": answer, "truncated": True})
             return result_dict(answer, truncated=True)
+
+        if cancelled():
+            return final_answer("cancelled")
+        if self.generation_resolver is not None:
+            try:
+                generation_id = self.generation_resolver(project_id, timeout=deadline - time.monotonic())
+            except TimeoutError:
+                return final_answer("timeout")
+        if cancelled():
+            return final_answer("cancelled")
+        if time.monotonic() >= deadline:
+            return final_answer("timeout")
+        if self.tool_definitions is None:
+            emit({"type": "status", "message": "Discovering available tools"})
+        try:
+            self._fresh_tool_definitions(timeout=deadline - time.monotonic())
+        except McpUnavailableError:
+            if cancelled() or time.monotonic() >= deadline:
+                return final_answer("cancelled" if cancelled() else "timeout")
+            raise
+        emit({"type": "status", "message": "Planning the investigation"})
+        messages = [
+            {"role": "system", "content": self._system_prompt()},
+            {
+                "role": "user",
+                "content": f"Question: {question}\n\nProject ID: {project_id}\n\nInvestigate the codebase and provide an evidence-based answer.",
+            },
+        ]
 
         while True:
             if cancelled():
@@ -269,10 +297,23 @@ class CodebaseAgent:
             emit({"type": "status", "message": f"Step {iteration}"})
 
             model_started = time.monotonic()
-            response = self._create_completion(messages, tools=self.tool_definitions)
+            try:
+                response = self._create_completion(
+                    messages, tools=self.tool_definitions, retry_state=retry_state,
+                    deadline=deadline, cancel_event=cancel_event)
+            except TimeoutError:
+                return final_answer("cancelled" if cancelled() else "timeout")
+            except Exception:
+                if cancelled() or time.monotonic() >= deadline:
+                    return final_answer("cancelled" if cancelled() else "timeout")
+                raise
             model_ms = int((time.monotonic() - model_started) * 1000)
 
             response_message = response.choices[0].message
+            if cancelled():
+                return final_answer("cancelled")
+            if time.monotonic() >= deadline:
+                return final_answer("timeout")
 
             # Attribute this completion's Groq usage to the investigation.
             attribute_usage(response)
@@ -291,8 +332,10 @@ class CodebaseAgent:
             # the local caches, everything else goes to MCP as ONE batch —
             # one connection, one event loop, calls running concurrently —
             # with results mapped back in the original order.
-            results: List[Optional[Dict[str, Any]]] = []
+            results: List[Any] = []
             batch: List[Tuple[str, Dict]] = []
+            pending_reads = {}
+            batch_trace = {}
             for tool_call in response_message.tool_calls:
                 tool_name = tool_call.function.name
                 try:
@@ -316,15 +359,25 @@ class CodebaseAgent:
                         results.append({"note": "Already searched this query", "results": []})
                         continue
                     searches_done.add(search_key)
-                    trace.append(f"Searched: {search_key}")
+                    batch_trace[len(batch)] = f"Searched: {search_key}"
 
                 elif tool_name == "read_file":
-                    file_key = tool_args.get("file_path", "")
-                    if file_key in files_read:
-                        results.append({"note": "Already read this file"})
-                        continue
-                    files_read.add(file_key)
-                    trace.append(f"Read: {file_key}")
+                    try:
+                        read = ReadFileInput.model_validate(
+                            {**tool_args, "project_id": project_id, "generation_id": generation_id}
+                        )
+                        read_key = (normalize_relative_path(read.file_path), read.start_line, read.end_line)
+                    except ValueError:
+                        # Let MCP return the normal validation error for this call.
+                        read_key = None
+                    if read_key is not None:
+                        if read_key in read_requests_done:
+                            results.append({"note": "Already read this file with the same line range"})
+                            continue
+                        if read_key in pending_reads:
+                            results.append(pending_reads[read_key])
+                            continue
+                        pending_reads[read_key] = len(batch)
 
                 elif tool_name == "grep":
                     search_key = "grep:{}:{}".format(
@@ -334,19 +387,33 @@ class CodebaseAgent:
                         results.append({"note": "Already ran this search", "matches": []})
                         continue
                     searches_done.add(search_key)
-                    trace.append(f"Grepped: {tool_args.get('pattern', '')}")
+                    batch_trace[len(batch)] = f"Grepped: {tool_args.get('pattern', '')}"
 
-                results.append(None)  # placeholder: filled from the batch below
+                results.append(len(batch))
                 batch.append((tool_name, tool_args))
 
             tool_ms = 0
             if batch:
                 tools_started = time.monotonic()
-                batch_results = self._execute_tools(batch, project_id)
+                try:
+                    batch_results = self._execute_tools(
+                        batch, project_id, generation_id, timeout=deadline - time.monotonic())
+                except McpUnavailableError:
+                    if cancelled() or time.monotonic() >= deadline:
+                        return final_answer("cancelled" if cancelled() else "timeout")
+                    raise
                 tool_ms = int((time.monotonic() - tools_started) * 1000)
-                batch_iter = iter(batch_results)
+                for read_key, index in pending_reads.items():
+                    outcome = batch_results[index]
+                    if isinstance(outcome, dict) and "error" not in outcome and "content" in outcome:
+                        read_requests_done.add(read_key)
+                        file_path = read_key[0]
+                        if file_path not in files_read:
+                            files_read.add(file_path)
+                            batch_trace[index] = f"Read: {file_path}"
+                trace.extend(batch_trace[index] for index in sorted(batch_trace))
                 results = [
-                    item if item is not None else next(batch_iter)
+                    batch_results[item] if isinstance(item, int) else item
                     for item in results
                 ]
 
@@ -365,7 +432,7 @@ class CodebaseAgent:
                 })
             # Keep the running conversation inside the context budget
             # by stubbing the oldest tool results when it overflows.
-            self._trim_to_budget(messages)
+            self._trim_to_budget(messages, retry_state["budget"])
 
     @staticmethod
     def _step_label(tool_name: str, tool_args: Dict) -> str:
@@ -394,6 +461,7 @@ class CodebaseAgent:
                     return {"error": f"Unknown tool: {tool_name}"}
 
             arguments = dict(args or {})
+            arguments.pop("generation_id", None)
             # The scope comes from the investigation, never from the model:
             # whatever it sent for project_id is overwritten here.
             arguments["project_id"] = project_id
@@ -408,7 +476,7 @@ class CodebaseAgent:
             return {"error": f"Tool execution failed: {e}"}
 
     def _execute_tools(
-        self, calls: List[Tuple[str, Dict]], project_id: str
+        self, calls: List[Tuple[str, Dict]], project_id: str, generation_id="active", timeout=None
     ) -> List[Any]:
         """Run one iteration's tool calls as ONE MCP batch, order preserved.
 
@@ -419,18 +487,20 @@ class CodebaseAgent:
         ``McpUnavailableError`` so the run fails fast when MCP is down.
         """
         prepared = []
+        deadline = time.monotonic() + timeout if timeout is not None else None
         for tool_name, args in calls:
             arguments = dict(args or {})
             # The scope comes from the investigation, never from the model:
             # whatever it sent for project_id is overwritten here.
             arguments["project_id"] = project_id
+            arguments["generation_id"] = generation_id
             prepared.append((tool_name, arguments))
 
         # An unknown tool usually means the cached listing is stale: refresh
         # it once from the MCP server before refusing any of the calls.
         known = self._known_tools()
         if any(tool_name not in known for tool_name, _ in prepared):
-            self._fresh_tool_definitions(force=True)
+            self._fresh_tool_definitions(force=True, timeout=timeout)
             known = self._known_tools()
 
         results: List[Any] = [None] * len(prepared)
@@ -444,7 +514,10 @@ class CodebaseAgent:
         if runnable:
             batch_call = getattr(self.mcp, "call_tools", None)
             if callable(batch_call):
-                outcomes = batch_call([item for _, item in runnable])
+                call_list = [item for _, item in runnable]
+                remaining = max(0, deadline - time.monotonic()) if deadline is not None else None
+                outcomes = (batch_call(call_list, timeout=remaining)
+                            if isinstance(self.mcp, McpToolClient) else batch_call(call_list))
             else:
                 # Simple clients without a batch method (test doubles, older
                 # wrappers) run one connection per call, sequentially.
@@ -462,7 +535,8 @@ class CodebaseAgent:
 
     # -- context budget and provider retry policy --------------------------
 
-    def _create_completion(self, messages: List[Any], tools: Optional[List[Dict]] = None) -> Any:
+    def _create_completion(self, messages: List[Any], tools: Optional[List[Dict]] = None,
+                           retry_state=None, deadline=None, cancel_event=None) -> Any:
         """One model call with the context and rate-limit policies applied.
 
         - 413 / context-length rejection: halve the budget, stub the oldest
@@ -472,7 +546,14 @@ class CodebaseAgent:
         - 429: honour Retry-After once when it is under 10 seconds, otherwise
           raise AgentRateLimitError carrying the wait time.
         """
+        retry_state = retry_state if retry_state is not None else {
+            "context_trimmed": False, "rate_limit_retries": 0, "budget": self.context_budget_chars}
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise TimeoutError("Investigation cancelled")
+            remaining = deadline - time.monotonic() if deadline is not None else None
+            if remaining is not None and remaining <= 0:
+                raise TimeoutError("Investigation timed out")
             try:
                 kwargs: Dict[str, Any] = {
                     "model": self.model,
@@ -482,26 +563,35 @@ class CodebaseAgent:
                 if tools is not None:
                     kwargs["tools"] = tools
                     kwargs["tool_choice"] = "auto"
-                return self.client.chat.completions.create(**kwargs)
+                if remaining is not None:
+                    kwargs["timeout"] = remaining
+                client = self.client.with_options(max_retries=0) if hasattr(self.client, "with_options") else self.client
+                return client.chat.completions.create(**kwargs)
             except Exception as exc:
                 if is_context_length_error(exc):
-                    if self._context_trimmed:
+                    if retry_state["context_trimmed"]:
                         raise AgentContextError(
                             "The conversation exceeded the model's context window"
                         ) from exc
-                    self._context_trimmed = True
-                    self.context_budget_chars = max(4_000, self.context_budget_chars // 2)
-                    self._trim_to_budget(messages)
+                    retry_state["context_trimmed"] = True
+                    retry_state["budget"] = max(4_000, retry_state["budget"] // 2)
+                    self._trim_to_budget(messages, retry_state["budget"])
                     continue
                 if is_rate_limit_error(exc):
                     wait = retry_after_seconds(exc)
-                    if wait is None or wait >= 10 or self._rate_limit_retries >= 1:
+                    if wait is None or wait >= 10 or retry_state["rate_limit_retries"] >= 1:
                         raise AgentRateLimitError(
                             "The model provider rate-limited this request",
                             wait_seconds=int(wait) if wait else 30,
                         ) from exc
-                    self._rate_limit_retries += 1
-                    time.sleep(wait)
+                    if remaining is not None and wait >= remaining:
+                        raise TimeoutError("Investigation timed out") from exc
+                    retry_state["rate_limit_retries"] += 1
+                    if cancel_event is not None:
+                        if cancel_event.wait(wait):
+                            raise TimeoutError("Investigation cancelled") from exc
+                    else:
+                        time.sleep(wait)
                     continue
                 raise
 
@@ -516,15 +606,16 @@ class CodebaseAgent:
     def _messages_size(self, messages: List[Any]) -> int:
         return sum(len(self._message_content(message)) for message in messages)
 
-    def _trim_to_budget(self, messages: List[Any]) -> None:
+    def _trim_to_budget(self, messages: List[Any], budget=None) -> None:
         """Stub the oldest tool results until the conversation fits the budget.
 
         Only tool results are ever replaced: the system prompt and the
         question must survive so the model can still answer. Already-stubbed
         results are skipped, so the trim always makes progress.
         """
+        budget = self.context_budget_chars if budget is None else budget
         size = self._messages_size(messages)
-        if size <= self.context_budget_chars:
+        if size <= budget:
             return
         for message in messages:
             if not (isinstance(message, dict) and message.get("role") == "tool"):
@@ -534,7 +625,7 @@ class CodebaseAgent:
                 continue
             size -= len(content) - len(EARLIER_RESULT_STUB)
             message["content"] = EARLIER_RESULT_STUB
-            if size <= self.context_budget_chars:
+            if size <= budget:
                 return
 
     def _system_prompt(self) -> str:

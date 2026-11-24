@@ -78,7 +78,7 @@ agent_tools = create_agent_tools_from_env(embedding_service)
 # The investigation agent still owns its MCP-discovered tool loop for the
 # deep-investigate path. Explain and Debug use the fixed pipelines below,
 # which read through the in-process agent_tools (no MCP, no agent loop).
-agent = CodebaseAgent(chat_service.client, McpToolClient())
+agent = CodebaseAgent(chat_service.client, McpToolClient(), agent_tools.active_generation, agent_tools.source_file_ids)
 explain_service = ExplainService(agent_tools, chat_service.client)
 debug_service = DebugService(agent_tools, chat_service.client)
 
@@ -175,6 +175,7 @@ class AgentRequest(BaseModel):
 
 class AgentResponse(BaseModel):
     answer: str
+    citations: List[dict] = Field(default_factory=list)
     trace: List[str]
     iterations: int
     tool_calls: int = 0
@@ -326,6 +327,12 @@ def _run_agent_stream(fn, request: Request, request_id: Optional[str] = None,
                 yield _sse("done", payload)
         finally:
             monitor.cancel()
+            # Swallow the cancellation (or any monitor error) so it never
+            # surfaces as an unhandled task exception / RuntimeWarning.
+            try:
+                await monitor
+            except (asyncio.CancelledError, Exception):
+                pass
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -407,6 +414,7 @@ class StackFrame(BaseModel):
 
 
 class DebugResponse(BaseModel):
+    citations: List[dict] = Field(default_factory=list)
     answer: str
     findings: List[DebugFinding]
     trace: List[str]

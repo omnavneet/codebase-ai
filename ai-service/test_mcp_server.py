@@ -26,12 +26,16 @@ import pytest
 
 # agent_tools imports psycopg2 at module scope. Stub it so this module runs
 # with a bare interpreter, exactly as test_core_safety and test_storage do.
-psycopg2_stub = types.ModuleType("psycopg2")
-psycopg2_extras_stub = types.ModuleType("psycopg2.extras")
-psycopg2_extras_stub.RealDictCursor = object
-psycopg2_stub.extras = psycopg2_extras_stub
-sys.modules.setdefault("psycopg2", psycopg2_stub)
-sys.modules.setdefault("psycopg2.extras", psycopg2_extras_stub)
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2_stub = types.ModuleType("psycopg2")
+    psycopg2_extras_stub = types.ModuleType("psycopg2.extras")
+    psycopg2_extras_stub.RealDictCursor = object
+    psycopg2_stub.extras = psycopg2_extras_stub
+    sys.modules.setdefault("psycopg2", psycopg2_stub)
+    sys.modules.setdefault("psycopg2.extras", psycopg2_extras_stub)
 
 from mcp import Client
 
@@ -282,10 +286,32 @@ def real_tools(tmp_path):
     (other / "secret.txt").write_text("nope\n", encoding="utf-8")
 
     tools = AgentTools({}, None, str(tmp_path))
+    tools.active_generation = lambda project_id: None
     # Nothing is indexed in this fixture, so list_files falls back to storage
     # (same trick as test_storage; no Postgres in the unit-test environment).
     tools._get_db_connection = lambda: _EmptyConnection()
     return tools
+
+
+@pytest.mark.parametrize(("bounds", "line", "content"), [
+    ({"start_line": 2}, 2, "    pass\n"),
+    ({"end_line": 1}, 1, "def login():\n"),
+])
+def test_read_file_accepts_one_bound(real_tools, monkeypatch, bounds, line, content):
+    monkeypatch.setattr(real_tools, "READ_MAX_LINES", 1)
+    server = build_mcp_server(real_tools)
+    args = {"project_id": PROJECT, "file_path": "src/app.py"}
+
+    clipped = call(server, "read_file", args).structured_content
+    assert clipped["content"] == "def login():\n"
+    assert "Truncated" in clipped["note"]
+
+    result = call(server, "read_file", {**args, **bounds})
+    assert not result.is_error
+    observed = result.structured_content
+    assert observed["content"] == content
+    assert observed["start_line"] == observed["end_line"] == line
+    assert observed["partial"] is True
 
 
 def test_cross_project_access_is_denied(real_tools):

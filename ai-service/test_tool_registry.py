@@ -51,7 +51,8 @@ def test_groq_schema_is_generated_from_the_input_model(spec):
     assert PROJECT_ID_FIELD not in parameters["properties"]
     assert PROJECT_ID_FIELD not in parameters.get("required", [])
 
-    expected_properties = set(model_schema["properties"]) - {PROJECT_ID_FIELD}
+    expected_properties = set(model_schema["properties"]) - {PROJECT_ID_FIELD, "generation_id"}
+    assert "generation_id" not in parameters["properties"]
     assert set(parameters["properties"]) == expected_properties
     assert set(parameters.get("required", [])) == (
         set(model_schema.get("required", [])) - {PROJECT_ID_FIELD}

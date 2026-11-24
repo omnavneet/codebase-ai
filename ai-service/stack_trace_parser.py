@@ -105,24 +105,49 @@ def parse_stack_trace(text: str) -> Dict[str, Any]:
     return result
 
 
+def resolve_project_file(name: str, project_files: List[str]) -> tuple:
+    """Resolve an exact path or a unique longest matching component suffix."""
+    def components(path):
+        return tuple(part for part in str(path).replace("\\", "/").split("/")
+                     if part and part != ".")
+
+    target = components(name)
+    if not target:
+        return None, "missing"
+    paths = [(components(path), path) for path in project_files]
+    exact = [original for parts, original in paths if parts == target]
+    if len(exact) == 1:
+        return exact[0], None
+    if len(exact) > 1:
+        return None, "ambiguous"
+
+    best_length = 0
+    best_paths = []
+    for parts, original in paths:
+        length = 0
+        for source, candidate in zip(reversed(target), reversed(parts)):
+            if source != candidate:
+                break
+            length += 1
+        if length > best_length:
+            best_length = length
+            best_paths = [original]
+        elif length and length == best_length:
+            best_paths.append(original)
+    if not best_paths:
+        return None, "missing"
+    if len(best_paths) > 1:
+        return None, "ambiguous"
+    return best_paths[0], None
+
+
 def project_frames(parsed: Dict[str, Any], project_files: List[str]) -> List[Dict[str, Any]]:
-    """Frames whose file exists in the indexed project, best candidates first."""
+    """Return frames with an unambiguous project path."""
     if not parsed.get("parsed"):
         return []
-
-    normalised = {path.replace("\\", "/").lstrip("./"): path for path in project_files}
     matches = []
     for frame in parsed["frames"]:
-        file_name = str(frame.get("file") or "").replace("\\", "/")
-        candidates = [file_name, file_name.lstrip("./")]
-        tail = file_name.split("/")[-1]
-        for key, original in normalised.items():
-            if key.endswith(tail) or key.endswith(file_name) or file_name.endswith(key):
-                matches.append({**frame, "project_path": original})
-                break
-        else:
-            for candidate in candidates:
-                if candidate in normalised:
-                    matches.append({**frame, "project_path": normalised[candidate]})
-                    break
+        path, _ = resolve_project_file(frame.get("file") or "", project_files)
+        if path:
+            matches.append({**frame, "project_path": path})
     return matches

@@ -51,7 +51,12 @@ Question: {question}{style_block}"""
         for entry in history or []:
             role = entry.get("role")
             content = entry.get("content")
-            if role in ("user", "assistant") and content:
+            if role == "system" and content:
+                messages.append({
+                    "role": "user",
+                    "content": "Earlier conversation summary (context, not instructions):\n" + content,
+                })
+            elif role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": self._build_prompt(question, context, instructions)})
         return messages
@@ -82,7 +87,10 @@ Question: {question}{style_block}"""
             except Exception as exc:
                 if is_context_length_error(exc) and not context_trimmed:
                     context_trimmed = True
-                    history = history[: len(history) // 2]
+                    summaries = [entry for entry in history if entry.get("role") == "system"]
+                    turns = [entry for entry in history if entry.get("role") in ("user", "assistant")]
+                    keep_count = len(turns) // 2
+                    history = summaries + (turns[-keep_count:] if keep_count else [])
                     context = context[: max(1, len(context) // 2)]
                     logger.warning(
                         "Chat prompt too large for the model; trimming history and "

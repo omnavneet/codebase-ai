@@ -54,6 +54,12 @@ row with `FOR UPDATE SKIP LOCKED`, transactions stay short, the lease is
 refreshed by a heartbeat, a job can be cancelled, and a job whose lease went
 stale (crashed worker) is requeued automatically.
 
+The worker reclaims unpublished index data after an attempt loses its lease and
+stops writing. Published versions, including superseded ones, stay available
+until the project is deleted so saved citations can open the original source.
+Project deletion queues those versions for cleanup, and the worker retries
+generation storage deletions that fail.
+
 **Explain and Debug are fixed pipelines; only Deep investigate is an agent
 loop.** Explain and Debug run one retrieval and one model call, so they are
 fast and reproducible; only Deep investigate lets the model call tools for
@@ -71,13 +77,16 @@ while capping the archive (5 000 files, 1 MB per file).
 
 ## Evals
 
-Two suites, in `eval/`, over pinned snapshots of two repositories:
+The retrieval and agent suites in `eval/` use pinned snapshots of two repositories:
 `python -m eval.run --suite retrieval` (the stack running, no LLM),
 `--suite agent` (needs `GROQ_API_KEY`) or `--suite all`. `--gate` runs the
 retrieval suite and exits non-zero when a threshold in `eval/config.json` is
 breached — that is what the `retrieval-eval` CI job runs. Fetch the pinned
 datasets first (`python -m eval.fetch_datasets`), then start Postgres, the
 backend and the AI service, then run the suites.
+
+Run `python -m eval.run --suite product` for the six-request synthetic fixture
+covering chat, follow-ups, Deep Investigate, and Debug. See the [product evaluation](docs/eval/product.md).
 
 | Metric | Value |
 | --- | --- |
@@ -91,12 +100,33 @@ produced by a run, not written by hand.
 
 ## Run it locally
 
-**Prerequisites:** JDK 17+, Docker, Node 20+, Python 3.10+, and a
-[Groq API key](https://console.groq.com/).
+For the complete stack, install Docker with Compose and obtain a
+[Groq API key](https://console.groq.com/). Copy the root `.env.example`
+to `.env`. Set the database password, a Groq model available to your account,
+and the API key. Generate independent values for `JWT_SECRET` and
+`AI_SERVICE_INTERNAL_TOKEN`, for example by running
+`python -c "import secrets; print(secrets.token_hex(32))"` twice.
+
+```bash
+docker compose up -d --build --wait
+```
+
+Open the workspace at **http://localhost:3000**, register, and use the
+verification link in MailHog at **http://localhost:8025**. Create a project,
+upload a ZIP containing source files, wait for indexing, and open the chat.
+The application and MCP share the same repository storage in this setup.
+
+### Run services on the host
+
+Host development also requires JDK 17+, Node 20+, and Python 3.10+.
+Start only the infrastructure containers, then run these commands in
+separate terminals from the repository root. Configure the backend and AI
+service as described below, including the database password and a shared
+internal token.
 
 ```bash
 # 1. Postgres (16 + pgvector) and MailHog for verification emails
-docker compose up -d
+docker compose up -d postgres mailhog
 
 # 2. AI service → http://localhost:8000
 cd ai-service
@@ -114,9 +144,12 @@ npm install
 npm run dev
 ```
 
-Verification emails are caught by MailHog at <http://localhost:8025>. The MCP
-tool server (`python -m uvicorn mcp_server:create_app --factory --host
-127.0.0.1 --port 8001`) is only needed for the agent.
+Verification emails are caught by MailHog at <http://localhost:8025>.
+For Deep Investigate, run
+`venv/bin/python -m uvicorn mcp_server:create_app --factory --host 127.0.0.1 --port 8001`
+from `ai-service` in a separate terminal. On Windows, use
+`venv\Scripts\python`. Set `MCP_SERVER_URL=http://127.0.0.1:8001/mcp`
+and use the same absolute `UPLOAD_DIR` for the host AI service and MCP.
 
 ### Configuration
 

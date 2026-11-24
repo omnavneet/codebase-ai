@@ -41,10 +41,11 @@ class McpToolClient:
 
     # -- public API (synchronous) ------------------------------------------
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(self, timeout: Optional[float] = None) -> List[Dict[str, Any]]:
         """Discover the server's tools as plain dicts (name/desc/schema/flags)."""
         try:
-            return asyncio.run(asyncio.wait_for(self._list_tools(), MCP_CALL_TIMEOUT_S))
+            return asyncio.run(asyncio.wait_for(
+                self._list_tools(), min(MCP_CALL_TIMEOUT_S, timeout) if timeout is not None else MCP_CALL_TIMEOUT_S))
         except (asyncio.TimeoutError, OSError, httpx2.HTTPError) as e:
             raise McpUnavailableError(
                 "The code-search tool server is not reachable. "
@@ -67,7 +68,8 @@ class McpToolClient:
                 "The code-search tool server stopped responding mid-run. Please try again."
             ) from e
 
-    def call_tools(self, calls: Sequence[Tuple[str, Dict[str, Any]]]) -> List[Any]:
+    def call_tools(self, calls: Sequence[Tuple[str, Dict[str, Any]]],
+                   timeout: Optional[float] = None) -> List[Any]:
         """Call several tools inside ONE connection and ONE event loop.
 
         The calls run concurrently (``asyncio.gather``) and the results come
@@ -84,7 +86,8 @@ class McpToolClient:
                 asyncio.wait_for(
                     self._call_tools(calls),
                     # One connection plus one round of parallel calls.
-                    MCP_CONNECT_TIMEOUT_S + 2 * MCP_CALL_TIMEOUT_S,
+                    min(MCP_CONNECT_TIMEOUT_S + 2 * MCP_CALL_TIMEOUT_S, timeout)
+                    if timeout is not None else MCP_CONNECT_TIMEOUT_S + 2 * MCP_CALL_TIMEOUT_S,
                 )
             )
         except (asyncio.TimeoutError, OSError, httpx2.HTTPError) as e:

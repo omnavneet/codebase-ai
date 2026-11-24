@@ -13,12 +13,16 @@ from pathlib import Path
 
 # agent_tools imports psycopg2 at module scope. Stub it so this module runs with
 # a bare interpreter, exactly as test_core_safety does.
-psycopg2_stub = types.ModuleType("psycopg2")
-psycopg2_extras_stub = types.ModuleType("psycopg2.extras")
-psycopg2_extras_stub.RealDictCursor = object
-psycopg2_stub.extras = psycopg2_extras_stub
-sys.modules.setdefault("psycopg2", psycopg2_stub)
-sys.modules.setdefault("psycopg2.extras", psycopg2_extras_stub)
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2_stub = types.ModuleType("psycopg2")
+    psycopg2_extras_stub = types.ModuleType("psycopg2.extras")
+    psycopg2_extras_stub.RealDictCursor = object
+    psycopg2_stub.extras = psycopg2_extras_stub
+    sys.modules.setdefault("psycopg2", psycopg2_stub)
+    sys.modules.setdefault("psycopg2.extras", psycopg2_extras_stub)
 
 from agent_tools import AgentTools
 from storage import (
@@ -383,13 +387,16 @@ class AgentToolStorageTests(unittest.TestCase):
         (project / "README.md").write_text("# project\n", encoding="utf-8")
 
         self.tools = AgentTools({}, None, self.upload_dir)
+        self.tools.active_generation = lambda project_id: None
 
     def _s3_tools(self, objects):
         """Tools backed by an injected S3 client, i.e. no local files at all."""
-        return AgentTools(
+        tools = AgentTools(
             {}, None, self.upload_dir,
             storage=S3Storage("my-bucket", client=FakeS3Client(objects)),
         )
+        tools.active_generation = lambda project_id: None
+        return tools
 
     def test_read_file_returns_content_through_the_provider(self):
         result = self.tools.read_file("README.md", "project-1")

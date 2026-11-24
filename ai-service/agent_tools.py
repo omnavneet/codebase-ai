@@ -1,7 +1,12 @@
 import logging
+import math
 import os
 import posixpath
 import re
+import time
+import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +16,7 @@ from psycopg2.extras import RealDictCursor
 from storage import LocalStorage, create_storage, normalize_relative_path
 
 logger = logging.getLogger(__name__)
+_UNSET = object()
 
 
 
@@ -51,13 +57,102 @@ class AgentTools:
         self.embedding_service = embedding_service
         self.upload_dir = upload_dir
         self.storage = storage if storage is not None else create_storage(upload_dir)
+        self._generation_scope = ContextVar("agent_tools_generation", default=None)
         self.grep_max_matches = int(
             os.getenv("AGENT_TOOL_GREP_MAX_MATCHES", str(self.MAX_GREP_MATCHES)))
         self.grep_line_max_chars = int(
             os.getenv("AGENT_TOOL_GREP_LINE_MAX_CHARS", "400"))
 
-    def _get_db_connection(self):
-        return psycopg2.connect(**self.db_config)
+    def _get_db_connection(self, **options):
+        return psycopg2.connect(**{**self.db_config, **options})
+
+    @contextmanager
+    def _generation_cursor(self, timeout):
+        if timeout is not None and timeout <= 0:
+            raise TimeoutError("Repository generation lookup timed out")
+        deadline = None if timeout is None else time.monotonic() + timeout
+        # libpq applies a two-second minimum to connect_timeout.
+        options = {} if timeout is None else {"connect_timeout": max(2, math.ceil(timeout))}
+        try:
+            conn = self._get_db_connection(**options)
+        except psycopg2.OperationalError as exc:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError("Repository generation lookup timed out") from exc
+            raise
+        try:
+            cur = conn.cursor()
+            try:
+                if deadline is not None:
+                    remaining_ms = int((deadline - time.monotonic()) * 1000)
+                    if remaining_ms <= 0:
+                        raise TimeoutError("Repository generation lookup timed out")
+                    cur.execute("SET LOCAL statement_timeout = %s", (remaining_ms,))
+                yield cur
+            except psycopg2.errors.QueryCanceled as exc:
+                raise TimeoutError("Repository generation lookup timed out") from exc
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+
+    def active_generation(self, project_id: str, timeout=None) -> Optional[str]:
+        """Resolve the published snapshot once at the start of a run."""
+        with self._generation_cursor(timeout) as cur:
+            cur.execute("SELECT active_generation_id FROM projects WHERE id = %s", (project_id,))
+            row = cur.fetchone()
+        if row is None:
+            raise ValueError("Project not found")
+        return str(row[0]) if row[0] is not None else None
+
+    def source_file_ids(self, project_id, paths, generation_id=_UNSET, *, timeout=None):
+        generation = self._generation(project_id) if generation_id is _UNSET else generation_id
+        with self._generation_cursor(timeout) as cur:
+            cur.execute("""SELECT path, id FROM files WHERE project_id = %s
+                           AND generation_id IS NOT DISTINCT FROM %s::uuid AND path = ANY(%s)""",
+                        (project_id, generation, paths))
+            return {path: str(file_id) for path, file_id in cur.fetchall()}
+
+    @contextmanager
+    def generation_scope(self, project_id: str, generation_id=_UNSET):
+        """Bind one published generation, including the legacy NULL generation."""
+        if generation_id is _UNSET:
+            generation_id = self.active_generation(project_id)
+        else:
+            if generation_id is not None:
+                try:
+                    generation_id = str(uuid.UUID(str(generation_id)))
+                except ValueError as exc:
+                    raise ValueError("Invalid repository generation") from exc
+            conn = self._get_db_connection()
+            try:
+                cur = conn.cursor()
+                try:
+                    cur.execute(
+                        """SELECT EXISTS (
+                            SELECT 1 FROM projects p WHERE p.id = %s
+                            AND (%s::uuid IS NULL OR EXISTS (
+                                SELECT 1 FROM published_generations g
+                                WHERE g.project_id = p.id AND g.generation_id = %s::uuid))
+                        )""",
+                        (project_id, generation_id, generation_id),
+                    )
+                    if not cur.fetchone()[0]:
+                        raise ValueError("Repository generation is not published")
+                finally:
+                    cur.close()
+            finally:
+                conn.close()
+        token = self._generation_scope.set((project_id, generation_id))
+        try:
+            yield
+        finally:
+            self._generation_scope.reset(token)
+
+    def _generation(self, project_id: str) -> Optional[str]:
+        bound = self._generation_scope.get()
+        if bound is not None and bound[0] == project_id:
+            return bound[1]
+        return self.active_generation(project_id)
 
     def _safe_project_path(self, project_id: str, file_path: str = "") -> Path:
         """Resolve file_path inside the project directory, blocking traversal.
@@ -80,21 +175,26 @@ class AgentTools:
             cur = conn.cursor(cursor_factory=RealDictCursor)
             cur.execute(
                 """
+                WITH candidates AS MATERIALIZED (
+                    SELECT c.id, c.content, c.start_line, c.end_line, c.embedding,
+                           f.path AS file_path, f.id AS file_id
+                    FROM chunks c
+                    JOIN files f ON c.file_id = f.id
+                    WHERE c.project_id = %s AND f.generation_id IS NOT DISTINCT FROM %s::uuid
+                )
                 SELECT
                     c.id as chunk_id,
                     c.content,
                     c.start_line,
                     c.end_line,
-                    f.path as file_path,
-                    f.id as file_id,
+                    c.file_path,
+                    c.file_id,
                     1 - (c.embedding <=> %s::vector) as similarity
-                FROM chunks c
-                JOIN files f ON c.file_id = f.id
-                WHERE c.project_id = %s
+                FROM candidates c
                 ORDER BY c.embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (query_vector, project_id, query_vector, limit),
+                (project_id, self._generation(project_id), query_vector, query_vector, limit),
             )
             results = cur.fetchall()
             cur.close()
@@ -118,7 +218,7 @@ class AgentTools:
                   end_line: Optional[int] = None) -> Dict[str, Any]:
         """Read file content, optionally a specific line range."""
         try:
-            content_text = self.storage.read_text(project_id, file_path)
+            content_text = self.storage.read_text(project_id, file_path, self._generation(project_id))
         except FileNotFoundError:
             return {"error": f"File not found: {file_path}"}
         except ValueError as e:
@@ -132,7 +232,9 @@ class AgentTools:
         note = ("Truncated: showing the first {shown} lines. "
                 "Request a line range (start_line/end_line) to read more.")
 
-        if start_line is not None and end_line is not None:
+        if start_line is not None or end_line is not None:
+            start_line = 1 if start_line is None else start_line
+            end_line = len(lines) if end_line is None else end_line
             selected_lines = lines[start_line - 1:end_line]
             content = "".join(selected_lines)
             truncated = False
@@ -197,8 +299,8 @@ class AgentTools:
         try:
             cur = conn.cursor()
             cur.execute(
-                "SELECT path FROM files WHERE project_id = %s ORDER BY path",
-                (project_id,),
+                "SELECT path FROM files WHERE project_id = %s AND generation_id IS NOT DISTINCT FROM %s::uuid ORDER BY path",
+                (project_id, self._generation(project_id)),
             )
             files = [row[0] for row in cur.fetchall()]
             cur.close()
@@ -208,7 +310,7 @@ class AgentTools:
         if files:
             return files[: self.LIST_MAX_FILES]
         try:
-            return self.storage.list_paths(project_id)[: self.LIST_MAX_FILES]
+            return self.storage.list_paths(project_id, self._generation(project_id))[: self.LIST_MAX_FILES]
         except ValueError:
             return []
 
@@ -238,7 +340,7 @@ class AgentTools:
                 candidates = [normalize_relative_path(file_path)]
                 skipped = 0
             else:
-                all_paths = self.storage.list_paths(project_id)
+                all_paths = self.storage.list_paths(project_id, self._generation(project_id))
                 candidates = all_paths[: self.MAX_GREP_FILES]
                 skipped = len(all_paths) - len(candidates)
         except ValueError as e:
@@ -252,7 +354,7 @@ class AgentTools:
 
         for path in candidates:
             try:
-                content = self.storage.read_text(project_id, path)
+                content = self.storage.read_text(project_id, path, self._generation(project_id))
             except FileNotFoundError:
                 continue  # deleted between listing and reading
             except ValueError:
@@ -297,12 +399,12 @@ class AgentTools:
         unresolvable targets are reported as such instead of being guessed.
         """
         try:
-            if not self.storage.is_file(project_id, file_path):
+            if not self.storage.is_file(project_id, file_path, self._generation(project_id)):
                 return {"error": f"File not found: {file_path}"}
 
             files = self._query_rows(
-                "SELECT id::text AS id, path, language FROM files WHERE project_id = %s ORDER BY path",
-                (project_id,),
+                "SELECT id::text AS id, path, language FROM files WHERE project_id = %s AND generation_id IS NOT DISTINCT FROM %s::uuid ORDER BY path",
+                (project_id, self._generation(project_id)),
             )
             target = next((item for item in files if item["path"] == file_path), None)
             if target is None:
@@ -338,14 +440,15 @@ class AgentTools:
                 SELECT DISTINCT f2.path
                 FROM code_references r
                 JOIN files f2 ON r.file_id = f2.id
-                WHERE r.project_id = %s AND r.kind = 'call' AND r.file_id <> %s
+                WHERE r.project_id = %s AND f2.generation_id IS NOT DISTINCT FROM %s::uuid
+                  AND r.kind = 'call' AND r.file_id <> %s
                   AND EXISTS (
                       SELECT 1 FROM code_symbols s
                       WHERE s.project_id = %s AND s.file_id = %s
                         AND LOWER(s.name) = LOWER(split_part(r.to_name, '.', -1)))
                 LIMIT 20
                 """,
-                (project_id, target["id"], project_id, target["id"]),
+                (project_id, self._generation(project_id), target["id"], project_id, target["id"]),
             )
 
             dependencies: Dict[str, Any] = {
@@ -387,10 +490,10 @@ class AgentTools:
                    s.signature, f.path AS file_path, s.file_id
             FROM code_symbols s
             JOIN files f ON s.file_id = f.id
-            WHERE s.project_id = %s
+            WHERE s.project_id = %s AND f.generation_id IS NOT DISTINCT FROM %s::uuid
             ORDER BY f.path, s.start_line
             """,
-            (project_id,),
+            (project_id, self._generation(project_id)),
         )
         for row in rows:
             row["file_id"] = str(row["file_id"])
@@ -478,12 +581,12 @@ class AgentTools:
             SELECT r.from_symbol, r.to_name, r.line, r.is_dynamic, f.path AS file_path
             FROM code_references r
             JOIN files f ON r.file_id = f.id
-            WHERE r.project_id = %s AND r.kind = 'call'
+            WHERE r.project_id = %s AND f.generation_id IS NOT DISTINCT FROM %s::uuid AND r.kind = 'call'
               AND LOWER(split_part(r.to_name, '.', -1)) = LOWER(%s)
             ORDER BY f.path, r.line
             LIMIT 50
             """,
-            (project_id, name),
+            (project_id, self._generation(project_id), name),
         )
         return [
             {

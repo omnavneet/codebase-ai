@@ -5,12 +5,16 @@ import unittest
 
 # The path-safety test does not use the database. Keep it runnable with the
 # standard interpreter even when the optional service dependencies are absent.
-psycopg2_stub = types.ModuleType("psycopg2")
-psycopg2_extras_stub = types.ModuleType("psycopg2.extras")
-psycopg2_extras_stub.RealDictCursor = object
-psycopg2_stub.extras = psycopg2_extras_stub
-sys.modules.setdefault("psycopg2", psycopg2_stub)
-sys.modules.setdefault("psycopg2.extras", psycopg2_extras_stub)
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2_stub = types.ModuleType("psycopg2")
+    psycopg2_extras_stub = types.ModuleType("psycopg2.extras")
+    psycopg2_extras_stub.RealDictCursor = object
+    psycopg2_stub.extras = psycopg2_extras_stub
+    sys.modules.setdefault("psycopg2", psycopg2_stub)
+    sys.modules.setdefault("psycopg2.extras", psycopg2_extras_stub)
 
 from agent_tools import AgentTools
 from stack_trace_parser import parse_stack_trace, project_frames

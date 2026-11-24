@@ -48,3 +48,40 @@ def test_cancel_is_set_once_client_disconnects():
         assert cancel.is_set()
 
     _run(scenario())
+
+
+
+def test_cancel_is_not_set_when_monitor_is_cancelled_while_connected():
+    async def scenario():
+        cancel = threading.Event()
+        monitor = asyncio.create_task(
+            watch_disconnect(_FakeRequest(disconnect_after_s=10), cancel, poll_seconds=0.01))
+        await asyncio.sleep(0.05)
+        monitor.cancel()
+        try:
+            await monitor
+        except asyncio.CancelledError:
+            pass
+        assert not cancel.is_set()
+
+    _run(scenario())
+
+
+def test_watch_disconnect_propagates_cancellation_without_setting_event():
+    async def scenario():
+        cancel = threading.Event()
+        task = asyncio.create_task(
+            watch_disconnect(_FakeRequest(disconnect_after_s=10), cancel, poll_seconds=0.01))
+        await asyncio.sleep(0.02)
+        task.cancel()
+        raised = False
+        try:
+            await task
+        except asyncio.CancelledError:
+            raised = True
+        assert raised
+        assert not cancel.is_set()
+
+    _run(scenario())
+
+    _run(scenario())

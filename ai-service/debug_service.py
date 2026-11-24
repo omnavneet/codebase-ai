@@ -18,10 +18,12 @@ import os
 import re
 import time
 import uuid
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
+from citation_evidence import verified_citations
 from explain_service import streaming_model_call
-from stack_trace_parser import parse_stack_trace, project_frames
+from stack_trace_parser import parse_stack_trace, project_frames, resolve_project_file
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,7 @@ class DebugService:
     MAX_GREP_LINE_CHARS = int(os.getenv("DEBUG_MAX_GREP_LINE_CHARS", "400"))
     READ_WINDOW = int(os.getenv("DEBUG_READ_WINDOW", "25"))
     MAX_TOKENS = int(os.getenv("DEBUG_MAX_TOKENS", "1500"))
+    MAX_TRACE_CHARS = 12000
 
     def __init__(self, tools, groq_client):
         self.tools = tools
@@ -63,6 +66,13 @@ class DebugService:
 
     def debug(self, issue_description, project_id, stack_trace=None,
               file_path=None, on_event=None, cancel_event=None):
+        scope = getattr(self.tools, "generation_scope", None)
+        with scope(project_id) if callable(scope) else nullcontext():
+            return self._debug(issue_description, project_id, stack_trace, file_path,
+                               on_event, cancel_event)
+
+    def _debug(self, issue_description, project_id, stack_trace=None,
+               file_path=None, on_event=None, cancel_event=None):
         request_id = uuid.uuid4().hex[:12]
         deadline = time.monotonic() + self.timeout_seconds
 
@@ -79,6 +89,11 @@ class DebugService:
         parsed = parse_stack_trace(stack_trace or "")
         project_files = self.tools.list_files(project_id)
         located = project_frames(parsed, project_files)
+        for frame in parsed.get("frames", []):
+            _, reason = resolve_project_file(frame.get("file") or "", project_files)
+            if reason:
+                parsed["notes"].append(
+                    f"Frame {frame.get('file') or '(unknown)'} could not be mapped: {reason}")
         clues = self._extract_clues(issue_description, parsed)
         logger.info("debug clues request_id=%s ms=%.0f strings=%d excs=%d files=%d",
                     request_id, (time.monotonic() - t0) * 1000,
@@ -96,7 +111,7 @@ class DebugService:
 
         # -- Step 3: one streamed model call ---------------------------------
         emit({"type": "status", "message": "Analyzing"})
-        prompt = self._build_prompt(issue_description, parsed, located, evidence)
+        prompt = self._build_prompt(issue_description, parsed, located, evidence, stack_trace)
         t0 = time.monotonic()
         answer, stopped_early, stop_reason = streaming_model_call(
             self.client, self.model,
@@ -118,8 +133,14 @@ class DebugService:
             f"Read {len(evidence['files_read'])} relevant region(s)",
             "Wrote root-cause analysis",
         ]
+        resolve_ids = getattr(self.tools, "source_file_ids", None)
         return {
             "answer": answer,
+            "citations": verified_citations(
+                answer, evidence["sources"],
+                (lambda paths: resolve_ids(project_id, paths, timeout=deadline - time.monotonic()))
+                if resolve_ids else None,
+            ),
             "findings": [],
             "trace": trace,
             "iterations": 1,
@@ -158,13 +179,8 @@ class DebugService:
         }
 
     def _match_project_file(self, name: str, project_files: List[str]) -> Optional[str]:
-        target = str(name).replace("\\", "/").lstrip("./")
-        tail = target.split("/")[-1]
-        for path in project_files:
-            normalised = path.replace("\\", "/").lstrip("./")
-            if normalised == target or normalised.endswith("/" + target) or normalised.endswith(tail):
-                return path
-        return None
+        resolved, _ = resolve_project_file(name, project_files)
+        return resolved
 
     def _gather_evidence(self, description, project_id, clues, located, file_path, project_files):
         searches: List[str] = []
@@ -179,7 +195,9 @@ class DebugService:
         for frame in located[:5]:
             candidates.setdefault(frame["project_path"], frame.get("line"))
         if file_path:
-            candidates.setdefault(file_path, None)
+            resolved = self._match_project_file(file_path, project_files)
+            if resolved:
+                candidates.setdefault(resolved, None)
         # A suspected file that only appears as a bare name.
         for fname in clues["bare_files"]:
             if len(candidates) >= self.MAX_EVIDENCE_FILES:
@@ -208,6 +226,7 @@ class DebugService:
 
         kept = list(candidates.items())[: self.MAX_EVIDENCE_FILES]
         blocks: List[str] = []
+        sources: List[Dict[str, Any]] = []
         files_read: List[str] = []
         total = 0
         for path, line in kept:
@@ -219,19 +238,30 @@ class DebugService:
             if "error" in snippet:
                 continue
             content = snippet.get("content") or ""
+            if not content:
+                continue
             remaining = self.MAX_CONTEXT_CHARS - total
+            truncated = len(content) > remaining
             if len(content) > remaining:
-                content = content[:remaining] + "\n... (truncated)"
-            blocks.append(f"{path} (around L{centre}):\n{content}")
+                content = content[:remaining]
+            start_line = snippet.get("start_line", max(1, centre - self.READ_WINDOW))
+            end_line = start_line + content.count("\n") - int(content.endswith("\n"))
+            suffix = "\n... (truncated)" if truncated else ""
+            blocks.append(f"{path} (lines {start_line}-{end_line}):\n{content}{suffix}")
+            sources.append({"file_path": path, "start_line": start_line, "content": content})
             files_read.append(path)
             total += len(content)
-        return {"blocks": blocks, "files_read": files_read, "searches": searches}
+        return {"blocks": blocks, "files_read": files_read, "searches": searches, "sources": sources}
 
-    def _build_prompt(self, issue_description, parsed, located, evidence) -> str:
+    def _build_prompt(self, issue_description, parsed, located, evidence, stack_trace=None) -> str:
         located_line = ""
         if located:
-            located_line = "Frames that exist in this project: " + ", ".join(
+            located_line = "Mapped frame paths (frame line numbers are unverified): " + ", ".join(
                 f"{frame['project_path']}:{frame.get('line')}" for frame in located[:5])
+        raw_trace = (stack_trace or "")[:self.MAX_TRACE_CHARS]
+        if stack_trace and len(stack_trace) > self.MAX_TRACE_CHARS:
+            raw_trace += "\n... (stack trace truncated)"
+        notes = "\n".join(parsed.get("notes", [])[:20])[:2000] or "(none)"
         if evidence["blocks"]:
             evidence_block = "\n\n".join(evidence["blocks"])
         else:
@@ -242,6 +272,12 @@ evidence below. Do not invent files, line numbers or call paths you cannot see.
 
 Reported problem:
 {issue_description}
+
+Original stack trace (reported input, not verified code evidence):
+{raw_trace or "(none)"}
+
+Stack trace mapping notes:
+{notes}
 
 Stack-trace frames located in this project:
 {located_line or "(none)"}
@@ -271,5 +307,7 @@ Respond with EXACTLY these markdown sections, in order, concise and concrete:
 
 Rules:
 - Only cite files that appear in the evidence.
+- Only cite line numbers within the displayed code ranges. Frame locations and
+  the original trace are reported input and do not prove a line exists.
 - If the evidence is not enough, say so and state what the user should provide
   (for example the full stack trace or the failing input) instead of guessing."""

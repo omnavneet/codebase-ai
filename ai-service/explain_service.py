@@ -10,9 +10,11 @@ import logging
 import os
 import time
 import uuid
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
+from citation_evidence import verified_citations
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,12 @@ class ExplainService:
 
     def explain(self, file_path, project_id, symbol=None,
                 on_event=None, cancel_event=None):
+        scope = getattr(self.tools, "generation_scope", None)
+        with scope(project_id) if callable(scope) else nullcontext():
+            return self._explain(file_path, project_id, symbol, on_event, cancel_event)
+
+    def _explain(self, file_path, project_id, symbol=None,
+                 on_event=None, cancel_event=None):
         request_id = uuid.uuid4().hex[:12]
         deadline = time.monotonic() + self.timeout_seconds
 
@@ -140,9 +148,15 @@ class ExplainService:
             f"Analyzed symbol {symbol} (definition + callers)" if symbol
             else f"Read dependencies of {file_path}")
         trace.append("Wrote explanation")
+        resolve_ids = getattr(self.tools, "source_file_ids", None)
 
         return {
             "answer": answer,
+            "citations": verified_citations(
+                answer, [{**file_result, "file_path": file_path, "content": content}],
+                (lambda paths: resolve_ids(project_id, paths, timeout=deadline - time.monotonic()))
+                if resolve_ids else None,
+            ),
             "trace": trace,
             "iterations": 1,
             "tool_calls": 0,

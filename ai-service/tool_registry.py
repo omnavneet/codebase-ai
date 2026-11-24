@@ -26,6 +26,7 @@ Permission = Literal["read", "execute", "write", "destructive"]
 # The agent already knows which project it is investigating, so project_id is
 # injected server-side and never handed to the LLM as a function argument.
 PROJECT_ID_FIELD = "project_id"
+GENERATION_ID_FIELD = "generation_id"
 
 
 class ToolInvocationError(Exception):
@@ -40,24 +41,29 @@ class ToolInvocationError(Exception):
 # Input models (the contract callers validate against)
 # ---------------------------------------------------------------------------
 
-class SearchCodeInput(BaseModel):
+class ProjectScopedInput(BaseModel):
+    # "active" means resolve on this call; explicit null denotes legacy data.
+    generation_id: Optional[str] = Field(default="active", description="Internal repository snapshot")
+
+
+class SearchCodeInput(ProjectScopedInput):
     project_id: str = Field(description="Project the search is scoped to")
     query: str = Field(description="Search query describing what you're looking for")
     limit: Optional[int] = Field(default=None, description="Number of results to return (default 5)")
 
 
-class ReadFileInput(BaseModel):
+class ReadFileInput(ProjectScopedInput):
     project_id: str = Field(description="Project the file belongs to")
     file_path: str = Field(description="Path to the file")
     start_line: Optional[int] = Field(default=None, description="Starting line (optional)")
     end_line: Optional[int] = Field(default=None, description="Ending line (optional)")
 
 
-class ListFilesInput(BaseModel):
+class ListFilesInput(ProjectScopedInput):
     project_id: str = Field(description="Project to list files for")
 
 
-class GrepInput(BaseModel):
+class GrepInput(ProjectScopedInput):
     project_id: str = Field(description="Project the search is scoped to")
     pattern: str = Field(description="Python regular expression to search for")
     file_path: Optional[str] = Field(
@@ -66,12 +72,12 @@ class GrepInput(BaseModel):
     )
 
 
-class FindDependenciesInput(BaseModel):
+class FindDependenciesInput(ProjectScopedInput):
     project_id: str = Field(description="Project the file belongs to")
     file_path: str = Field(description="Path to the file to analyze")
 
 
-class AnalyzeSymbolInput(BaseModel):
+class AnalyzeSymbolInput(ProjectScopedInput):
     project_id: str = Field(description="Project to analyze")
     name: str = Field(description="Function/class/method name to analyze")
     file_path: Optional[str] = Field(
@@ -209,7 +215,9 @@ def groq_parameters(schema: Dict[str, Any]) -> Dict[str, Any]:
     parameters = copy.deepcopy(schema)
     parameters.pop("title", None)
     parameters.get("properties", {}).pop(PROJECT_ID_FIELD, None)
-    required = [name for name in parameters.get("required", []) if name != PROJECT_ID_FIELD]
+    parameters.get("properties", {}).pop(GENERATION_ID_FIELD, None)
+    required = [name for name in parameters.get("required", [])
+                if name not in (PROJECT_ID_FIELD, GENERATION_ID_FIELD)]
     if required:
         parameters["required"] = required
     else:
@@ -232,7 +240,19 @@ class ToolSpec:
     def invoke(self, tools, arguments: Dict[str, Any]) -> BaseModel:
         """Validate the arguments, run the handler and validate the result."""
         args = self.input_model.model_validate(arguments)
-        result = self.handler(tools, args)
+        scope = getattr(tools, "generation_scope", None)
+        try:
+            if callable(scope):
+                if args.generation_id == "active":
+                    with scope(args.project_id):
+                        result = self.handler(tools, args)
+                else:
+                    with scope(args.project_id, args.generation_id):
+                        result = self.handler(tools, args)
+            else:
+                result = self.handler(tools, args)
+        except ValueError as exc:
+            raise ToolInvocationError(str(exc)) from exc
         if isinstance(result, self.output_model):
             return result
         return self.output_model.model_validate(result)

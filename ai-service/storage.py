@@ -93,12 +93,16 @@ class LocalStorage:
     def __init__(self, upload_dir: str):
         self.upload_dir = upload_dir
 
-    def project_root(self, project_id: str) -> Path:
-        return (Path(self.upload_dir) / normalize_project_id(project_id)).resolve()
+    def project_root(self, project_id: str, generation_id: Optional[str] = None) -> Path:
+        project = normalize_project_id(project_id)
+        if generation_id is None:
+            return (Path(self.upload_dir) / project).resolve()
+        generation = normalize_project_id(generation_id)
+        return (Path(self.upload_dir) / ".generations" / project / generation).resolve()
 
-    def resolve(self, project_id: str, file_path: str = "") -> Path:
+    def resolve(self, project_id: str, file_path: str = "", generation_id: Optional[str] = None) -> Path:
         """Resolve file_path inside the project directory, blocking traversal."""
-        project_root = self.project_root(project_id)
+        project_root = self.project_root(project_id, generation_id)
         resolved = (project_root / normalize_relative_path(file_path)).resolve()
 
         # Note: must compare path components, not string prefixes,
@@ -108,21 +112,21 @@ class LocalStorage:
 
         return resolved
 
-    def is_file(self, project_id: str, file_path: str = "") -> bool:
+    def is_file(self, project_id: str, file_path: str = "", generation_id: Optional[str] = None) -> bool:
         try:
-            return self.resolve(project_id, file_path).is_file()
+            return self.resolve(project_id, file_path, generation_id).is_file()
         except OSError:
             return False
 
-    def read_text(self, project_id: str, file_path: str) -> str:
-        path = self.resolve(project_id, file_path)
+    def read_text(self, project_id: str, file_path: str, generation_id: Optional[str] = None) -> str:
+        path = self.resolve(project_id, file_path, generation_id)
         if not path.is_file():
             raise FileNotFoundError("File not found: {}".format(file_path))
         with open(path, "r", encoding="utf-8", errors="ignore") as handle:
             return handle.read()
 
-    def list_paths(self, project_id: str) -> List[str]:
-        root = self.project_root(project_id)
+    def list_paths(self, project_id: str, generation_id: Optional[str] = None) -> List[str]:
+        root = self.project_root(project_id, generation_id)
         if not root.is_dir():
             return []
         return sorted(
@@ -164,16 +168,21 @@ class S3Storage:
             self._client = self._client_factory(self.region)
         return self._client
 
-    def key_for(self, project_id: str, file_path: str = "") -> str:
+    def key_for(self, project_id: str, file_path: str = "", generation_id: Optional[str] = None) -> str:
         """The exact object key the backend wrote for this project file."""
-        parts = [self.prefix, normalize_project_id(project_id)]
+        project = normalize_project_id(project_id)
+        parts = [self.prefix]
+        if generation_id is not None:
+            parts.extend([".generations", project, normalize_project_id(generation_id)])
+        else:
+            parts.append(project)
         relative = normalize_relative_path(file_path)
         if relative:
             parts.append(relative)
         return "/".join(part for part in parts if part)
 
-    def is_file(self, project_id: str, file_path: str = "") -> bool:
-        key = self.key_for(project_id, file_path)
+    def is_file(self, project_id: str, file_path: str = "", generation_id: Optional[str] = None) -> bool:
+        key = self.key_for(project_id, file_path, generation_id)
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
             return True
@@ -182,8 +191,8 @@ class S3Storage:
                 return False
             raise
 
-    def read_text(self, project_id: str, file_path: str) -> str:
-        key = self.key_for(project_id, file_path)
+    def read_text(self, project_id: str, file_path: str, generation_id: Optional[str] = None) -> str:
+        key = self.key_for(project_id, file_path, generation_id)
         try:
             body = self.client.get_object(Bucket=self.bucket, Key=key).get("Body")
         except Exception as exc:  # noqa: BLE001 - re-raised unless it means 404
@@ -194,8 +203,8 @@ class S3Storage:
             raise FileNotFoundError("File not found: {}".format(file_path))
         return body.read().decode("utf-8", errors="ignore")
 
-    def list_paths(self, project_id: str) -> List[str]:
-        base = self.key_for(project_id) + "/"
+    def list_paths(self, project_id: str, generation_id: Optional[str] = None) -> List[str]:
+        base = self.key_for(project_id, generation_id=generation_id) + "/"
         paths: List[str] = []
         token = None
         while True:
