@@ -7,6 +7,8 @@ import './Modal.css';
 
 interface NewProjectModalProps {
   onClose: () => void;
+  project?: { id: string; name: string };
+  onCreated?: () => void;
   /** Called after the upload is accepted (202) so the dashboard can refresh. */
   onUploaded?: () => void;
 }
@@ -30,8 +32,9 @@ const uploadIcon = (
  * the backend accepts the upload (202) the dialog closes: indexing runs in
  * the background and the dashboard card shows its progress.
  */
-const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }) => {
-  const [name, setName] = useState('');
+const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded, onCreated, project }) => {
+  const [name, setName] = useState(project?.name ?? '');
+  const [projectId, setProjectId] = useState(project?.id);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -74,10 +77,14 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }
     setLoading(true);
     setError('');
 
+    let pid = projectId;
     try {
-      // Create project
-      const createResponse = await apiClient.post('/projects', { name });
-      const pid = createResponse.data.id;
+      if (!pid) {
+        const createResponse = await apiClient.post<{ id: string }>('/projects', { name: name.trim() });
+        pid = createResponse.data.id;
+        setProjectId(pid);
+        onCreated?.();
+      }
 
       // Upload ZIP — the backend answers 202 Accepted as soon as the job is
       // queued. Indexing continues in the background: close immediately and
@@ -92,17 +99,17 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }
       onUploaded?.();
       onClose();
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Failed to create project'));
+      setError(getApiErrorMessage(err, pid ? 'Failed to upload the archive' : 'Failed to create project'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog labelledBy="new-project-title" onClose={onClose}>
+    <Dialog labelledBy="new-project-title" onClose={() => { if (!loading) onClose(); }}>
       <div className="modal-header">
         <h2 className="modal-title" id="new-project-title">
-          New project
+          {projectId ? 'Upload archive' : 'New project'}
         </h2>
         <p className="modal-subtitle">
           Upload a ZIP of the codebase. Indexing starts immediately after upload.
@@ -126,7 +133,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }
             placeholder="payments-service"
             required
             autoFocus
-            disabled={loading}
+            disabled={loading || Boolean(projectId)}
           />
         </div>
 
@@ -188,7 +195,6 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }
             className="ui-btn ui-btn-neutral"
             onClick={onClose}
             disabled={loading}
-            title={loading ? 'Uploading…' : 'Close without creating a project'}
           >
             Cancel
           </button>
@@ -205,7 +211,7 @@ const NewProjectModal: React.FC<NewProjectModalProps> = ({ onClose, onUploaded }
                   : 'Choose a ZIP first'
             }
           >
-            {loading ? 'Uploading…' : 'Create project'}
+            {loading ? 'Uploading…' : projectId ? 'Upload archive' : 'Create project'}
           </button>
         </div>
       </form>

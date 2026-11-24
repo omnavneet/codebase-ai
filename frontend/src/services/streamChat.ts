@@ -7,7 +7,7 @@
  */
 import { refreshAccessToken } from './apiClient';
 export interface StreamHandlers {
-  onMeta?: (citations: unknown[]) => void;
+  onMeta?: (citations: unknown[], userMessageId?: string) => void;
   onToken: (token: string) => void;
   onDone?: (messageId: string) => void;
   onContext?: (context: { usedChars: number; budgetChars: number } | undefined) => void;
@@ -19,6 +19,7 @@ interface StreamEventPayload {
   citations?: unknown[];
   t?: string;
   messageId?: string;
+  userMessageId?: string;
   message?: string;
   context?: { usedChars: number; budgetChars: number };
 }
@@ -29,7 +30,7 @@ export const streamChatMessage = async (
   content: string,
   handlers: StreamHandlers,
   signal?: AbortSignal,
-  options?: { regenerate?: boolean; conversationId?: string },
+  options?: { regenerate?: boolean; requestId?: string; replyToMessageId?: string },
 ): Promise<void> => {
   const callStream = (authToken?: string | null) =>
     fetch(`/api/projects/${projectId}/conversations/${conversationId}/messages/stream`, {
@@ -38,15 +39,7 @@ export const streamChatMessage = async (
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
-      // `regenerate` re-asks the stored question: the backend skips the user
-      // insert and replaces the previous answer instead of appending.
-      // The conversation id travels in the body too, so the backend can
-      // fall back to the project's most recent conversation when it is absent.
-      body: JSON.stringify({
-        content,
-        ...(options?.regenerate ? { regenerate: true } : {}),
-        ...(options?.conversationId ? { conversationId: options.conversationId } : {}),
-      }),
+      body: JSON.stringify({ content, ...options }),
       signal,
     });
 
@@ -104,7 +97,7 @@ const processEvent = (rawEvent: string) => {
     }
 
     if (event === 'meta') {
-      handlers.onMeta?.(payload.citations ?? []);
+      handlers.onMeta?.(payload.citations ?? [], payload.userMessageId);
     } else if (event === 'token') {
       handlers.onToken(payload.t ?? '');
     } else if (event === 'done') {
@@ -148,7 +141,7 @@ const processEvent = (rawEvent: string) => {
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) throw new Error('The answer was interrupted. Please try again.');
 
       buffer += decoder.decode(value, { stream: true });
 

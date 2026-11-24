@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { type AgentInvestigation } from './citationUtils';
+import type { AgentInvestigation, CitationClickHandler } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { type Finding } from './findings';
 import { useProjectFiles } from '../hooks/useProjectFiles';
@@ -26,9 +26,7 @@ interface DebugResult extends AgentInvestigation {
 
 interface DebugPanelProps {
   projectId: string;
-  onCitationClick: (filePath: string, startLine?: number, endLine?: number) => void;
-  /** Project file paths — citations only link when they resolve against it. */
-  filePaths: string[];
+  onCitationClick: CitationClickHandler;
 }
 
 /**
@@ -37,7 +35,7 @@ interface DebugPanelProps {
  * it gets a monospaced field with room to paste — but it stays optional, so
  * the mode still works from a description alone.
  */
-const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, filePaths }) => {
+const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick }) => {
   const { files, loading: filesLoading, error: filesError, reload } = useProjectFiles(projectId);
   const [description, setDescription] = useState('');
   const [stackTrace, setStackTrace] = useState('');
@@ -236,8 +234,9 @@ const DebugPanel: React.FC<DebugPanelProps> = ({ projectId, onCitationClick, fil
             <div className="panel-answer">
               <MarkdownAnswer
                 content={result.answer}
+                evidence={result.citations}
+                verifiedCitations
                 onCitationClick={onCitationClick}
-                filePaths={filePaths}
               />
             </div>
           </section>

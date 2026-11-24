@@ -5,6 +5,10 @@ import remarkGfm from 'remark-gfm';
 import type { CitationClickHandler, ResolvedCitation } from './citationUtils';
 import { createCitationResolver } from './citationUtils';
 import { copyText } from '../utils/clipboard';
+import type { Citation } from '../pages/chat/types';
+
+type ResolveCitation = (path: string, start: number, end: number) =>
+  (ResolvedCitation & { fileId: string }) | null;
 
 // Citations the agent emits: `path/to/File.ext:12`, `File.ext:12-34`, and
 // `File.ext (line 12)`. One alternation so a single pass finds every form.
@@ -16,16 +20,10 @@ const CITATION_SOURCE = new RegExp(
   'g',
 );
 
-/**
- * Split a text node into plain runs and clickable citations. A match becomes
- * a link only when it resolves to a real file in the project; anything else
- * stays literal text, so there are never broken links. The stored message is
- * never touched — this runs on every render.
- */
 const splitText = (
   text: string,
   onCitationClick: CitationClickHandler,
-  resolve: (path: string) => ResolvedCitation | null,
+  resolve: ResolveCitation,
 ): React.ReactNode[] => {
   const parts: React.ReactNode[] = [];
   // Fresh copy per call so one paragraph's lastIndex never leaks into the next.
@@ -46,7 +44,7 @@ const splitText = (
     const citedPath = match[1] ?? match[4];
     const startLine = parseInt(match[2] ?? match[5], 10);
     const endLine = match[3] ? parseInt(match[3], 10) : startLine;
-    const resolved = resolve(citedPath);
+    const resolved = startLine > 0 && endLine >= startLine ? resolve(citedPath, startLine, endLine) : null;
 
     if (resolved) {
       const base = resolved.path.split('/').pop() ?? resolved.path;
@@ -60,14 +58,13 @@ const splitText = (
           type="button"
           className="inline-citation"
           title={tooltip}
-          onClick={() => onCitationClick(resolved.path, startLine, endLine)}
+          onClick={() => onCitationClick(resolved.path, startLine, endLine, resolved.fileId)}
         >
           {match[0]}
         </button>,
       );
     } else {
-      // Not a file in this project: plain text, never a broken link.
-      push(match[0]);
+      push(<span title="This source could not be verified" className="unverified-citation">{match[0]}</span>);
     }
 
     lastIndex = match.index + match[0].length;
@@ -90,7 +87,7 @@ const splitText = (
 const injectCitations = (
   children: React.ReactNode,
   onCitationClick: CitationClickHandler,
-  resolve: (path: string) => ResolvedCitation | null,
+  resolve: ResolveCitation,
 ): React.ReactNode =>
   React.Children.map(children, (child) => {
     if (typeof child === 'string') {
@@ -148,7 +145,7 @@ const CodeBlock: React.FC<Record<string, unknown>> = (props) => {
 
 const buildComponents = (
   onCitationClick: CitationClickHandler,
-  resolve: (path: string) => ResolvedCitation | null,
+  resolve: ResolveCitation,
 ) => {
   const components: Record<string, React.ComponentType<Record<string, unknown>>> = {
     pre: CodeBlock,
@@ -172,33 +169,40 @@ const buildComponents = (
 interface MarkdownAnswerProps {
   content: string;
   onCitationClick: CitationClickHandler;
-  /**
-   * The project's file paths. Citations are linked only when they resolve
-   * against this list; unresolved ones stay plain text. Nothing else in the
-   * message is rewritten — resolution happens at render time.
-   */
-  filePaths: string[];
+  evidence?: Citation[];
+  verifiedCitations?: boolean;
   className?: string;
 }
 
-/**
- * Renders an LLM answer as GFM markdown while keeping file citations
- * (path.ext:line, path.ext:12-34, path.ext (line 12)) clickable when they
- * match a real project file. Used by both the chat stream and the
- * explain/debug panels so every answer formats identically.
- */
 const MarkdownAnswer: React.FC<MarkdownAnswerProps> = ({
   content,
   onCitationClick,
-  filePaths,
+  evidence,
+  verifiedCitations,
   className,
 }) => {
-  // The resolution index is rebuilt only when the file list changes; the
-  // lookup itself is read-only, which keeps streamed re-renders cheap.
-  const resolve = React.useMemo(
-    () => createCitationResolver(filePaths),
-    [filePaths],
-  );
+  const resolve = React.useMemo<ResolveCitation>(() => {
+    if (!evidence?.length) return () => null;
+    if (verifiedCitations) {
+      return (path, start, end) => {
+        const source = evidence.find(item => item.file_id && item.start_line === start && item.end_line === end
+          && (item.reference_paths ?? [item.file_path]).includes(path));
+        return source?.file_path && source.file_id
+          ? { path: source.file_path, fileId: source.file_id, others: [] } : null;
+      };
+    }
+    const resolvePath = createCitationResolver(
+      [...new Set(evidence.flatMap(source => source.file_path ? [source.file_path] : []))],
+    );
+    return (path, start, end) => {
+      const resolved = resolvePath(path);
+      if (!resolved) return null;
+      const source = evidence.find(item =>
+        item.file_id && item.file_path === resolved.path && item.start_line <= start && item.end_line >= end,
+      );
+      return source?.file_id ? { ...resolved, fileId: source.file_id } : null;
+    };
+  }, [evidence, verifiedCitations]);
 
   return (
     <div className={['markdown-body', className].filter(Boolean).join(' ')}>

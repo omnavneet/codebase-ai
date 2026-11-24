@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { streamAgent, type AgentStreamResult } from '../services/streamAgent';
 
 /**
@@ -32,11 +32,17 @@ export function useAgentRun(projectId: string, onResult: (result: AgentStreamRes
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    setLoading(false);
   }, []);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, [projectId]);
 
   const run = useCallback(
     async (path: string, body: Record<string, unknown>) => {
-      if (loading) return;
+      if (abortRef.current) return;
       lastRequestRef.current = { path, body };
 
       setLoading(true);
@@ -53,40 +59,32 @@ export function useAgentRun(projectId: string, onResult: (result: AgentStreamRes
           path,
           body,
           {
-            onStep: (message) => setSteps((prev) => [...prev, message]),
+            onStep: (message) => {
+              if (abortRef.current === controller) setSteps((prev) => [...prev, message]);
+            },
             onDone: (payload) => {
+              if (abortRef.current !== controller) return;
               setResult(payload);
-              setLoading(false);
-              abortRef.current = null;
               onResult(payload);
             },
             onError: (message) => {
-              setError(message);
-              setLoading(false);
-              abortRef.current = null;
+              if (abortRef.current === controller) setError(message);
             },
           },
           controller.signal,
         );
       } catch (err) {
-        // AbortError is expected when user cancels; treat it as a clean stop
-        // rather than an error.
-        if (err instanceof DOMException && err.name === 'AbortError') {
+        if (abortRef.current === controller && !controller.signal.aborted) {
+          setError(err instanceof Error ? err.message : 'The investigation was interrupted. Please try again.');
+        }
+      } finally {
+        if (abortRef.current === controller) {
           setLoading(false);
           abortRef.current = null;
-        } else {
-          throw err;
         }
       }
-
-      // Aborted mid-run (Cancel): clear the spinner without treating it as an
-      // error — the user stopped it on purpose.
-      if (controller.signal.aborted) {
-        setLoading(false);
-        abortRef.current = null;
-      }
     },
-    [loading, onResult, projectId],
+    [onResult, projectId],
   );
 
   const retry = useCallback(() => {

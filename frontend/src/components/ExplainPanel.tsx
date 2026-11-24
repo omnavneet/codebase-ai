@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { type AgentInvestigation } from './citationUtils';
+import type { AgentInvestigation, CitationClickHandler } from './citationUtils';
 import MarkdownAnswer from './MarkdownAnswer';
 import { useProjectFiles } from '../hooks/useProjectFiles';
 import { useAgentRun } from '../hooks/useAgentRun';
@@ -7,9 +7,7 @@ import { CopyButton, FilePicker, PanelError, ProgressBar, StateView } from './Pa
 
 interface ExplainPanelProps {
   projectId: string;
-  onCitationClick: (filePath: string, startLine?: number, endLine?: number) => void;
-  /** Project file paths — citations only link when they resolve against it. */
-  filePaths: string[];
+  onCitationClick: CitationClickHandler;
 }
 
 /**
@@ -17,7 +15,7 @@ interface ExplainPanelProps {
  * interaction, so it leads; the answer is a trace plus an explanation, both of
  * which can cite the source they came from.
  */
-const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick, filePaths }) => {
+const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick }) => {
   const { files, loading: filesLoading, error: filesError, reload } = useProjectFiles(projectId);
   const [selectedFile, setSelectedFile] = useState('');
   const [symbol, setSymbol] = useState('');
@@ -192,9 +190,10 @@ const ExplainPanel: React.FC<ExplainPanelProps> = ({ projectId, onCitationClick,
             </div>
             <div className="panel-answer">
               <MarkdownAnswer
+                evidence={displayResult.citations}
+                verifiedCitations
                 content={displayResult.answer}
                 onCitationClick={onCitationClick}
-                filePaths={filePaths}
               />
             </div>
           </section>

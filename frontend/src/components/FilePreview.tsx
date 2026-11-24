@@ -17,7 +17,7 @@ interface FilePreviewProps {
   onClose: () => void;
   /**
    * Optional line focus, set when the viewer is opened from a citation: the
-   * range is highlighted and scrolled into view (clamped to the file's real
+   * range is highlighted and scrolled into view when it exists in the file's
    * length). The caller drops the props after ~2s to end the flash.
    */
   highlightLine?: number;
@@ -61,19 +61,12 @@ const FilePreview: React.FC<FilePreviewProps> = ({
   );
   const codeRef = useRef<HTMLPreElement>(null);
 
-  // Clamp the citation's line to the real file, so a line number beyond the
-  // end lands on the last line instead of nowhere.
-  const focusStart =
-    highlightLine != null && contentLines.length > 0
-      ? Math.min(Math.max(1, highlightLine), contentLines.length)
-      : 0;
-  const focusEnd =
-    focusStart > 0
-      ? Math.min(
-          Math.max(focusStart, highlightEnd ?? focusStart),
-          contentLines.length,
-        )
-      : 0;
+  const requestedEnd = highlightEnd ?? highlightLine ?? 0;
+  const invalidRange = highlightLine != null &&
+    (!Number.isSafeInteger(highlightLine) || !Number.isSafeInteger(requestedEnd) ||
+      highlightLine < 1 || requestedEnd < highlightLine || requestedEnd > contentLines.length);
+  const focusStart = invalidRange ? 0 : highlightLine ?? 0;
+  const focusEnd = focusStart > 0 ? requestedEnd : 0;
 
   // Bring the cited line into view once the content it lives in has rendered
   // (the <pre> is its own scroll container). focusStart only becomes > 0
@@ -94,6 +87,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({
 
   return (
     <Dialog labelledBy="file-preview-title" onClose={onClose} size="wide">
+      {!loading && !error && invalidRange && <p role="status">The cited line range is unavailable in this file.</p>}
       <div className="modal-header file-preview-header">
         <div className="file-preview-heading">
           {folder && <span className="file-preview-folder">{folder}/</span>}

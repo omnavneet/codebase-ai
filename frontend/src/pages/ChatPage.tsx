@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import apiClient from "../services/apiClient"
 import CitationModal from "../components/CitationModal"
@@ -6,8 +6,8 @@ import FilePreview from "../components/FilePreview"
 import type { FileNode } from "../components/FileTree"
 import SearchPanel from "../components/SearchPanel"
 import WorkspaceMode from "../components/WorkspaceMode"
+import type { CitationClickHandler } from "../components/citationUtils"
 import { getApiErrorMessage } from "../utils/apiError"
-import { flattenFileTree } from "../utils/fileTree"
 import { useChat } from "./chat/useChat"
 import ChatSidebar from "./chat/ChatSidebar"
 import ChatHeader from "./chat/ChatHeader"
@@ -73,10 +73,8 @@ const ChatPage: React.FC = () => {
   // "no files" before the request lands would be a lie.
   const [filesLoading, setFilesLoading] = useState(true)
   const [filesError, setFilesError] = useState("")
-  // The id is kept alongside the content so the viewer can retry the exact
-  // same request when the fetch fails.
   const [selectedFile, setSelectedFile] = useState<{
-    fileId?: string
+    fileId: string
     path: string
     content: string
   } | null>(null)
@@ -84,26 +82,14 @@ const ChatPage: React.FC = () => {
   // the path it already knows plus a skeleton, so the click is never silent.
   const [fileLoading, setFileLoading] = useState(false)
   const [fileError, setFileError] = useState("")
-  // Line range a citation just asked the viewer to flash (set for ~2s by
-  // openFileByPath). Lives here so closing the viewer or opening another file
-  // cancels it along with its timer.
   const [fileHighlight, setFileHighlight] = useState<{
     line: number
     end: number
   } | null>(null)
-  const highlightTimerRef = useRef<number | null>(null)
   const [styleEditorOpen, setStyleEditorOpen] = useState(false)
   // The keyboard-shortcuts popover in the header. It is a layer of its own,
   // so Esc has to be able to close it.
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
-
-  const clearCitationHighlight = () => {
-    if (highlightTimerRef.current) {
-      window.clearTimeout(highlightTimerRef.current)
-      highlightTimerRef.current = null
-    }
-    setFileHighlight(null)
-  }
 
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(
     null,
@@ -122,11 +108,6 @@ const ChatPage: React.FC = () => {
   const chatBodyRef = useRef<HTMLDivElement>(null)
   // The composer's textarea, so the "/" shortcut can put the caret in it.
   const chatInputRef = useRef<HTMLTextAreaElement>(null)
-
-  // Flat list of every indexed file path. Inline citations in answers (chat
-  // and analyze alike) are only linked when they resolve against it, so it
-  // loads with the page rather than when the Files tab is first opened.
-  const filePaths = useMemo(() => flattenFileTree(fileTree), [fileTree])
 
   // Below this width the sidebar overlays the workspace rather than sitting
   // beside it, so it has to behave as a dismissable drawer.
@@ -255,10 +236,6 @@ const ChatPage: React.FC = () => {
   }, [projectId, projectStatus, navigate])
 
   useEffect(() => {
-    // The tree loads with the page, because citations in answers resolve
-    // against the real file list. One effect, so a late failure cannot wipe
-    // out a list that had already loaded — and a failed load keeps its error
-    // on screen, where the Files tab's Retry can re-run the request.
     if (projectId && fileTree.length === 0) {
       // Async fetch — setState only runs after the request resolves.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -318,9 +295,12 @@ const ChatPage: React.FC = () => {
    * the content in when it arrives, so a click is never silent while the
    * request is in flight.
    */
-  const openFile = async (file: { fileId?: string; path?: string }) => {
+  const openFile = async (
+    file: { fileId?: string; path?: string },
+    highlight?: { line: number; end: number },
+  ) => {
     if (!file.fileId || !projectId) return
-    clearCitationHighlight()
+    setFileHighlight(highlight ?? null)
     setSelectedFile({
       fileId: file.fileId,
       path: file.path ?? "",
@@ -346,57 +326,14 @@ const ChatPage: React.FC = () => {
   }
 
   const closeFile = () => {
-    clearCitationHighlight()
+    setFileHighlight(null)
     setSelectedFile(null)
     setFileError("")
   }
 
-  /**
-   * Citations arrive as paths rather than ids, so they resolve by path.
-   * `highlight` flashes the cited range for ~2s — set by openCitation, absent
-   * for ordinary opens (Sources chips, retries with no citation context).
-   */
-  const openFileByPath = async (
-    filePath: string,
-    highlight?: { line: number; end: number },
-  ) => {
-    if (!projectId) return
-    clearCitationHighlight()
-    if (highlight) {
-      setFileHighlight(highlight)
-      highlightTimerRef.current = window.setTimeout(() => {
-        setFileHighlight(null)
-        highlightTimerRef.current = null
-      }, 2000)
-    }
-    setSelectedFile({ path: filePath, content: "" })
-    setFileError("")
-    setFileLoading(true)
-    try {
-      const response = await apiClient.get(
-        `/projects/${projectId}/files/by-path`,
-        { params: { path: filePath } },
-      )
-      setSelectedFile({ path: filePath, content: response.data.content })
-    } catch (error) {
-      console.error("Failed to fetch file:", error)
-      setFileError("This file is no longer part of the indexed project.")
-    } finally {
-      setFileLoading(false)
-    }
-  }
-
   const retryFile = () => {
     if (!selectedFile) return
-    if (selectedFile.fileId) {
-      void openFile({
-        fileId: selectedFile.fileId,
-        path: selectedFile.path,
-      })
-    } else {
-      // Keep the citation flash alive across a retry of the same file.
-      void openFileByPath(selectedFile.path, fileHighlight ?? undefined)
-    }
+    void openFile(selectedFile, fileHighlight ?? undefined)
   }
 
   /**
@@ -414,20 +351,9 @@ const ChatPage: React.FC = () => {
     [goToTab],
   )
 
-  /**
-   * Click on an inline citation in any answer (chat or analyze panels):
-   * switch to the Files tab, open the resolved file in the existing viewer,
-   * and flash the cited line(s) for a beat. The line itself is clamped to the
-   * file's real length by the viewer.
-   */
-  const openCitation = (
-    filePath: string,
-    startLine?: number,
-    endLine?: number,
-  ) => {
-    const line = Math.max(1, startLine ?? 1)
-    handleSelectTab("files")
-    void openFileByPath(filePath, { line, end: Math.max(line, endLine ?? line) })
+  const openCitation: CitationClickHandler = (path, startLine, endLine, fileId) => {
+    setSelectedCitation(null)
+    void openFile({ fileId, path }, { line: startLine, end: endLine })
   }
 
   const handleSelectSession = (sessionId: string) => {
@@ -560,7 +486,14 @@ const ChatPage: React.FC = () => {
           <>
             {/* Conversation Stream or Purposeful Empty State */}
             <div className="chat-body" ref={chatBodyRef}>
-              {chat.messages.length === 0 ? (
+              {chat.historyLoading ? (
+                <p role="status">Loading conversation…</p>
+              ) : chat.historyError ? (
+                <div role="alert">
+                  <p>{chat.historyError}</p>
+                  <button type="button" className="ui-btn ui-btn-neutral" onClick={chat.retryHistory}>Retry</button>
+                </div>
+              ) : chat.messages.length === 0 ? (
                 <ChatEmptyState
                   projectName={projectName}
                   onPrompt={chat.sendQuery}
@@ -573,16 +506,15 @@ const ChatPage: React.FC = () => {
                   error={chat.error}
                   onCitationClick={setSelectedCitation}
                   onOpenCitation={openCitation}
-                  filePaths={filePaths}
                   scrollContainerRef={chatBodyRef}
-                  onRetry={() => void chat.regenerate({ deep: deepInvestigate })}
+                  onRetry={chat.retry}
                   onRegenerate={() => void chat.regenerate({ deep: deepInvestigate })}
                 />
               )}
             </div>
 
             {/* Modern AI Chat Composer */}
-            <ChatComposer
+            {!chat.historyLoading && !chat.historyError && <ChatComposer
               ref={chatInputRef}
               value={chat.input}
               onChange={chat.setInput}
@@ -593,7 +525,7 @@ const ChatPage: React.FC = () => {
               onToggleDeep={() => setDeepInvestigate((prev) => !prev)}
               contextPercent={chat.contextPercent}
               onOpenStyle={() => setStyleEditorOpen(true)}
-            />
+            />}
           </>
         ) : (
           <div className="workspace-body">
@@ -621,7 +553,6 @@ const ChatPage: React.FC = () => {
                 <AnalyzeMode
                   projectId={projectId}
                   onCitationClick={openCitation}
-                  filePaths={filePaths}
                 />
               )}
             </WorkspaceMode>
@@ -640,12 +571,7 @@ const ChatPage: React.FC = () => {
       <CitationModal
         citation={selectedCitation}
         onClose={() => setSelectedCitation(null)}
-        onOpenFile={(path) => {
-          // Swap the snippet for the whole file instead of stacking a second
-          // dialog on top of the first.
-          setSelectedCitation(null)
-          void openFileByPath(path)
-        }}
+        onOpenFile={openCitation}
       />
 
       <FilePreview
