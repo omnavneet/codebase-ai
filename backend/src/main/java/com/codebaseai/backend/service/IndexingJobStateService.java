@@ -11,9 +11,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.codebaseai.backend.model.IndexingJob;
 import com.codebaseai.backend.model.Project;
-import com.codebaseai.backend.repository.CodeChunkRepository;
-import com.codebaseai.backend.repository.CodeReferenceRepository;
-import com.codebaseai.backend.repository.CodeSymbolRepository;
 import com.codebaseai.backend.repository.IndexingJobRepository;
 import com.codebaseai.backend.repository.ProjectFileRepository;
 import com.codebaseai.backend.repository.ProjectRepository;
@@ -41,9 +38,6 @@ public class IndexingJobStateService {
     private final IndexingJobRepository indexingJobRepository;
     private final ProjectRepository projectRepository;
     private final ProjectFileRepository projectFileRepository;
-    private final CodeChunkRepository codeChunkRepository;
-    private final CodeSymbolRepository codeSymbolRepository;
-    private final CodeReferenceRepository codeReferenceRepository;
     private final StorageService storageService;
 
     /**
@@ -57,7 +51,7 @@ public class IndexingJobStateService {
      */
     @Transactional
     public Optional<IndexingJob> claimNext(String workerId, long staleSeconds) {
-        return indexingJobRepository.claimNext(staleSeconds)
+        return indexingJobRepository.claimNext()
                 .map(job -> {
                     job.setStatus(IndexingJob.PROCESSING);
                     job.setLockedBy(workerId);
@@ -77,135 +71,133 @@ public class IndexingJobStateService {
      * and is flipped back to {@code queued} so {@link #claimNext} can pick it
      * up again. Attempts are left untouched here (they advance once, at claim
      * time). A healthy worker renews {@code locked_at} on every
-     * {@link #heartbeat}, so a live job is never older than the timeout and is
+     * {@link #heartbeatOwned}, so a live job is never older than the timeout and is
      * never re-queued out from under its worker.
      *
      * @return how many jobs were re-queued.
      */
     @Transactional
     public int requeueStaleJobs(long staleSeconds) {
-        int requeued = indexingJobRepository.requeueStale(staleSeconds, LocalDateTime.now());
-        if (requeued > 0) {
-            log.warn("Re-queued {} stale processing job(s) (no heartbeat for >{}s)", requeued, staleSeconds);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime cutoff = now.minusSeconds(staleSeconds);
+        int recovered = 0;
+        for (Object[] candidate : indexingJobRepository.findStaleJobIds(cutoff)) {
+            UUID projectId = (UUID) candidate[0];
+            UUID jobId = (UUID) candidate[1];
+            Project project = projectRepository.findByIdForUpdate(projectId).orElse(null);
+            IndexingJob job = indexingJobRepository.findByIdForUpdate(jobId).orElse(null);
+            if (project == null || job == null || !IndexingJob.PROCESSING.equals(job.getStatus())
+                    || job.getLockedAt() == null || !job.getLockedAt().isBefore(cutoff)) {
+                continue;
+            }
+            int attempts = job.getAttempts() == null ? 0 : job.getAttempts();
+            int maxAttempts = job.getMaxAttempts() == null ? 3 : job.getMaxAttempts();
+            if (attempts >= maxAttempts) {
+                job.setStatus(IndexingJob.ERROR);
+                job.setErrorMessage("Indexing worker stopped repeatedly; upload the archive again");
+                deleteUploadAfterCommit(job);
+                boolean hasPublishedIndex = project.getActiveGenerationId() != null
+                        || (project.getFileCount() != null && project.getFileCount() > 0);
+                project.setStatus(hasPublishedIndex ? "ready"
+                        : hasOtherPendingJob(projectId, jobId) ? "processing" : "error");
+                project.setErrorMessage(job.getErrorMessage());
+                projectRepository.save(project);
+            } else {
+                job.setStatus(IndexingJob.QUEUED);
+                job.setNextRunAt(now);
+            }
+            job.setLockedBy(null);
+            job.setLockedAt(null);
+            job.setUpdatedAt(now);
+            indexingJobRepository.save(job);
+            recovered++;
         }
-        return requeued;
+        if (recovered > 0) {
+            log.warn("Recovered {} stale indexing job(s) (no heartbeat for >{}s)", recovered, staleSeconds);
+        }
+        return recovered;
     }
 
-    /**
-     * Heartbeat: records progress and refreshes the lease in its own commit.
-     *
-     * <p>Visible to the polling endpoint at once. The refreshed
-     * {@code locked_at} is what keeps a healthy job from looking stale to the
-     * claim query, so the worker calls this after every batch, not just at
-     * the end.
-     *
-     * @return false when the job row no longer exists (worker must stop).
-     */
     @Transactional
-    public boolean heartbeat(UUID jobId, int progressPercent) {
-        Optional<IndexingJob> found = indexingJobRepository.findById(jobId);
-        if (found.isEmpty()) {
+    public boolean heartbeatOwned(UUID jobId, String workerId, int progressPercent) {
+        return indexingJobRepository.heartbeatIfOwned(jobId, workerId, progressPercent, LocalDateTime.now()) == 1;
+    }
+
+    /** Publish the staged generation and finish its job in one transaction. */
+    @Transactional
+    public boolean publish(UUID projectId, UUID jobId, String workerId, UUID generationId,
+                           int fileCount, long totalSize) {
+        Project project = projectRepository.findByIdForUpdate(projectId).orElse(null);
+        IndexingJob job = indexingJobRepository.findByIdForUpdate(jobId).orElse(null);
+        if (project == null || job == null || !projectId.equals(job.getProjectId())
+                || !IndexingJob.PROCESSING.equals(job.getStatus())
+                || !workerId.equals(job.getLockedBy())) {
             return false;
         }
-        IndexingJob job = found.get();
-        job.setProgressPercent(progressPercent);
-        job.setLockedAt(LocalDateTime.now());
-        job.setUpdatedAt(LocalDateTime.now());
+        project.setActiveGenerationId(generationId);
+        projectRepository.recordPublishedGeneration(projectId, generationId);
+        project.setFileCount(fileCount);
+        project.setTotalSizeBytes(totalSize);
+        project.setStatus("ready");
+        project.setErrorMessage(null);
+        projectRepository.save(project);
+        job.setStatus(IndexingJob.READY);
+        job.setProgressPercent(100);
+        job.setErrorMessage(null);
+        job.setLockedAt(null);
+        job.setLockedBy(null);
         indexingJobRepository.save(job);
         return true;
     }
 
-    /** Short read of the current status (used to notice cancellation). */
-    @Transactional(readOnly = true)
-    public Optional<String> currentStatus(UUID jobId) {
-        return indexingJobRepository.findById(jobId).map(IndexingJob::getStatus);
-    }
-
-    /**
-     * Marks the job ready ONLY when it is still processing.
-     *
-     * <p>Guarded on the status so a job the user cancelled mid-flight is never
-     * overwritten back to ready: when the row says {@code cancelled} zero rows
-     * change and this returns false so the worker stops quietly.
-     */
     @Transactional
-    public boolean completeIfProcessing(UUID jobId) {
-        int updated = indexingJobRepository.markReadyIfProcessing(jobId, LocalDateTime.now());
-        if (updated == 0) {
+    public boolean discardUnpublishedGeneration(UUID projectId, UUID generationId) {
+        // Serialize with publish even when its commit outcome was ambiguous.
+        Project project = projectRepository.findByIdForUpdate(projectId).orElse(null);
+        if (project != null && projectRepository.isGenerationPublished(projectId, generationId)) {
             return false;
         }
-        log.info("Completed indexing job {}", jobId);
+        projectFileRepository.deleteByProjectIdAndGenerationId(projectId, generationId);
         return true;
     }
 
-    /**
-     * Records a failure in a short transaction: re-queue with backoff while
-     * attempts remain, else mark error and purge the partial index.
-     *
-     * <p>Attempts are incremented once at claim time, so this method only
-     * reads them. The terminal-error branch is guarded on
-     * {@code status='processing'} like completion, so a cancelled job keeps
-     * its cancellation instead of flipping to error.
-     */
+    /** Fail only the current lease owner; earlier attempts cannot affect a reclaim. */
     @Transactional
-    public void fail(UUID jobId, String errorMessage) {
-        IndexingJob job = indexingJobRepository.findById(jobId).orElse(null);
-        if (job == null) {
-            return;
-        }
-        if (IndexingJob.CANCELLED.equals(job.getStatus())) {
-            log.info("Job {} was cancelled; keeping cancellation instead of failing", jobId);
+    public void failOwned(UUID projectId, UUID jobId, String workerId, String errorMessage, boolean permanent) {
+        Project project = projectRepository.findByIdForUpdate(projectId).orElse(null);
+        IndexingJob job = indexingJobRepository.findByIdForUpdate(jobId).orElse(null);
+        if (project == null || job == null || !projectId.equals(job.getProjectId())
+                || !IndexingJob.PROCESSING.equals(job.getStatus())
+                || !workerId.equals(job.getLockedBy())) {
             return;
         }
         int attempts = job.getAttempts() == null ? 1 : job.getAttempts();
         int maxAttempts = job.getMaxAttempts() == null ? 3 : job.getMaxAttempts();
-        if (attempts < maxAttempts) {
-            long delaySeconds = (long) Math.pow(2, attempts) * 30; // 30s, 60s, 120s, ...
+        job.setErrorMessage(errorMessage);
+        job.setLockedBy(null);
+        job.setLockedAt(null);
+        if (!permanent && attempts < maxAttempts) {
             job.setStatus(IndexingJob.QUEUED);
-            job.setErrorMessage(errorMessage);
-            job.setNextRunAt(LocalDateTime.now().plusSeconds(delaySeconds));
-            job.setLockedBy(null);
-            job.setLockedAt(null);
-            job.setUpdatedAt(LocalDateTime.now());
-            indexingJobRepository.save(job);
-            log.info("Job {} failed (attempt {}/{}), rescheduling in {}s: {}",
-                    jobId, attempts, maxAttempts, delaySeconds, errorMessage);
-            return;
-        }
-        int updated = indexingJobRepository.markErrorIfProcessing(jobId, errorMessage, LocalDateTime.now());
-        if (updated == 0) {
-            return;
-        }
-        purgePartialIndex(job.getProjectId());
-        Project project = projectRepository.findById(job.getProjectId()).orElse(null);
-        if (project != null) {
-            project.setStatus("error");
+            job.setNextRunAt(LocalDateTime.now().plusSeconds((long) Math.pow(2, attempts) * 30));
+        } else {
+            job.setStatus(IndexingJob.ERROR);
+            deleteUploadAfterCommit(job);
+            boolean hasPublishedIndex = project.getActiveGenerationId() != null
+                    || (project.getFileCount() != null && project.getFileCount() > 0);
+            project.setStatus(hasPublishedIndex ? "ready"
+                    : hasOtherPendingJob(projectId, jobId) ? "processing" : "error");
             project.setErrorMessage(errorMessage);
-            project.setFileCount(0);
-            project.setTotalSizeBytes(0L);
             projectRepository.save(project);
         }
-        log.error("Job {} failed permanently after {} attempts: {}", jobId, attempts, errorMessage);
+        indexingJobRepository.save(job);
     }
 
-    /**
-     * Plain short status flip: non-terminal job to cancelled, committed at
-     * once, never waiting on worker locks.
-     *
-     * <p>Touches only the job row: no joins, no bulk deletes in this
-     * transaction. The worker holds no row lock between heartbeats, so this
-     * update never blocks on long work — the worker notices the flip on its
-     * next status read and stops. Slow cleanup runs afterwards in
-     * {@link #purgeAfterCancel} as separate short transactions, so a big
-     * partial index cannot hold the job row either.
-     */
     @Transactional
     public IndexingJob cancel(UUID projectId, UUID jobId, UUID userId) {
-        IndexingJob job = indexingJobRepository.findById(jobId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found"));
-
-        Project project = projectRepository.findById(job.getProjectId())
+        Project project = projectRepository.findByIdForUpdate(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+        IndexingJob job = indexingJobRepository.findByIdForUpdate(jobId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found"));
 
         if (!project.getId().equals(projectId) || !job.getProjectId().equals(projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found in this project");
@@ -228,76 +220,39 @@ public class IndexingJobStateService {
         job.setLockedAt(null);
         job.setUpdatedAt(LocalDateTime.now());
         IndexingJob saved = indexingJobRepository.save(job);
-        // Enqueue flips project to "processing": a cancel must move it to a
-        // terminal state the dashboard already handles. Projects have no
-        // "cancelled" (only jobs do), so use "error" with a clear message.
-        // Same short transaction as the job flip: no bulk deletes here.
-        project.setStatus("error");
+        deleteUploadAfterCommit(job);
+        boolean hasPublishedIndex = project.getActiveGenerationId() != null
+                || (project.getFileCount() != null && project.getFileCount() > 0);
+        project.setStatus(hasPublishedIndex ? "ready"
+                : hasOtherPendingJob(projectId, jobId) ? "processing" : "error");
         project.setErrorMessage("Indexing cancelled");
-        project.setFileCount(0);
-        project.setTotalSizeBytes(0L);
         projectRepository.save(project);
         log.info("Cancelled indexing job {} for project {}", jobId, job.getProjectId());
         return saved;
     }
 
-    /**
-     * Deletes a cancelled job's partial index OUTSIDE the cancel transaction,
-     * then moves the project to a terminal state the dashboard handles.
-     *
-     * <p>The index purge stays non-transactional (slow bulk deletes must not
-     * hold the job row). The project flip below is a single repository save,
-     * i.e. its own short transaction, guarded so a newer re-upload (latest
-     * job != this job) or an already-ready project is never clobbered.
-     */
-    public void purgeAfterCancel(UUID projectId, UUID jobId) {
-        try {
-            purgePartialIndex(projectId);
-        } catch (Exception e) {
-            log.warn("Failed to clean up partial index for project {} after cancelling job {}",
-                    projectId, jobId, e);
+    private void deleteUploadAfterCommit(IndexingJob job) {
+        if (job.getUploadId() == null) {
+            return;
         }
-        try {
-            markProjectCancelledIfStale(projectId, jobId);
-        } catch (Exception e) {
-            log.warn("Failed to mark project {} cancelled after job {}", projectId, jobId, e);
-        }
+        UUID projectId = job.getProjectId();
+        UUID uploadId = job.getUploadId();
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            storageService.deleteJobUpload(projectId, uploadId);
+                        } catch (Exception e) {
+                            log.warn("Failed to delete upload {} for job {}", uploadId, job.getId(), e);
+                        }
+                    }
+                });
     }
 
-    /** Removes partially indexed rows and staged files for a project. */
-    @Transactional
-    public void markProjectCancelledIfStale(UUID projectId, UUID jobId) {
-        Project project = projectRepository.findById(projectId).orElse(null);
-        if (project == null) {
-            return;
-        }
-        // Never clobber a newer re-upload: only the latest job may move the
-        // project, and never away from a finished ready state.
-        if ("ready".equals(project.getStatus())) {
-            return;
-        }
-        var latest = indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId)
-                .orElse(null);
-        if (latest != null && !latest.getId().equals(jobId)) {
-            return;
-        }
-        project.setStatus("error");
-        project.setErrorMessage("Indexing cancelled");
-        project.setFileCount(0);
-        project.setTotalSizeBytes(0L);
-        projectRepository.save(project);
-    }
-
-    /** Removes partially indexed rows and staged files for a project. */
-    public void purgePartialIndex(UUID projectId) {
-        codeChunkRepository.deleteByProjectId(projectId);
-        codeSymbolRepository.deleteByProjectId(projectId);
-        codeReferenceRepository.deleteByProjectId(projectId);
-        projectFileRepository.deleteByProjectId(projectId);
-        try {
-            storageService.deleteProject(projectId);
-        } catch (java.io.IOException e) {
-            log.warn("Failed to delete project storage for {}", projectId, e);
-        }
+    private boolean hasOtherPendingJob(UUID projectId, UUID jobId) {
+        return indexingJobRepository.findByProjectIdAndStatusIn(
+                projectId, java.util.List.of(IndexingJob.QUEUED, IndexingJob.PROCESSING)).stream()
+                .anyMatch(other -> !other.getId().equals(jobId));
     }
 }

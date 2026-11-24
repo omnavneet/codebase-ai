@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -54,6 +55,8 @@ public class ChatService {
     private final AiServiceClient aiServiceClient;
     private final ObjectMapper objectMapper;
     private final AppProperties properties;
+    private final ChatTurnService turns;
+    private final JdbcTemplate jdbc;
     
     /**
      * Result of the blocking prep phase: the conversation the messages belong
@@ -69,7 +72,7 @@ public class ChatService {
         List<Map<String, String>> history,
         boolean regenerate,
         int usedChars,
-        String chatInstructions) {}
+        String chatInstructions, ChatTurnService.Turn turn) {}
 
     /**
      * Conversation-scoped variant of sendMessage. {@code conversationId} is
@@ -198,32 +201,36 @@ public class ChatService {
         }
 
         List<List<Double>> questionEmbeddings = aiServiceClient.generateEmbeddings(
-            List.of(trimmedQuestion)
+            List.of(retrievalQuestion(trimmedQuestion, liveMessages))
         );
         List<Double> questionEmbedding = questionEmbeddings.get(0);
         String embeddingString = Arrays.toString(questionEmbedding.toArray());
         List<CodeChunk> similarChunks = codeChunkRepository.findSimilarChunks(
-            projectId, embeddingString, properties.getRetrieval().getChatTopK());
+            projectId, project.getActiveGenerationId(), embeddingString, properties.getRetrieval().getChatTopK());
         List<Map<String, Object>> context = similarChunks.stream()
                 .map(chunk -> {
                     Map<String, Object> ctx = new HashMap<>();
-                    ctx.put("content", truncate(chunk.getContent(),
-                            properties.getRetrieval().getChatContextMaxChars()));
+                    String excerpt = truncate(chunk.getContent(), properties.getRetrieval().getChatContextMaxChars());
+                    ctx.put("content", excerpt);
                     ctx.put("start_line", chunk.getStartLine());
-                    ctx.put("end_line", chunk.getEndLine());
+                    int excerptLines = Math.max(1, (int) excerpt.lines().count());
+                    ctx.put("end_line", Math.min(chunk.getEndLine(), chunk.getStartLine() + excerptLines - 1));
                     String filePath = projectFileRepository.findById(chunk.getFileId())
                             .map(ProjectFile::getPath).orElse("unknown");
                     ctx.put("file_path", filePath);
+                    ctx.put("file_id", chunk.getFileId());
                     return ctx;
                 })
                 .collect(Collectors.toList());
 
-        conversation.setUpdatedAt(LocalDateTime.now());
-        conversationRepository.save(conversation);
+        if (persistUserMessage) {
+            conversation.setUpdatedAt(LocalDateTime.now());
+            conversationRepository.save(conversation);
+        }
 
         return new PreparedChat(conversation.getId(), projectId,
                 trimmedQuestion, context, history, regenerate, 0,
-                project.getChatInstructions());
+                project.getChatInstructions(), null);
     }
 
     /**
@@ -261,165 +268,139 @@ public class ChatService {
         return chatMessageRepository.save(assistantMessage);
     }
 
-    /**
-     * Stream an answer to the client via SSE. Persists the (possibly partial)
-     * answer exactly once, whether the stream completes, fails, or the client
-     * disconnects mid-stream.
-     */
-    public void streamMessage(PreparedChat prepared, SseEmitter emitter) {
-        UUID conversationId = prepared.conversationId();
-        UUID projectId = prepared.projectId();
-        StringBuilder content = new StringBuilder();
-        AtomicBoolean persisted = new AtomicBoolean(false);
-        AtomicReference<Disposable> subscriptionRef = new AtomicReference<>();
-
-        // Persist whatever we have, exactly once, on any exit path. A DB
-        // failure here must never escape into the stream or to Spring.
-        Runnable persistPartial = () -> {
-            if (persisted.compareAndSet(false, true) && content.length() > 0) {
-                try {
-                    persistAssistantMessage(conversationId, content.toString(),
-                            prepared.context(), prepared.regenerate());
-                } catch (RuntimeException e) {
-                    log.error("Failed to persist partial answer for conversation {}", conversationId, e);
-                }
-            }
-        };
-
-        emitter.onCompletion(persistPartial::run);
-        emitter.onTimeout(() -> {
-            Disposable sub = subscriptionRef.get();
-            if (sub != null) {
-                sub.dispose();
-            }
-            persistPartial.run();
-        });
-        emitter.onError(t -> {
-            Disposable sub = subscriptionRef.get();
-            if (sub != null) {
-                sub.dispose();
-            }
-            persistPartial.run();
-        });
-
-        // Deliver the sources up front. They are also persisted with the answer,
-        // but without this event a streamed answer would show no citations until
-        // the session is re-opened — the sync path returns them in its body, so
-        // the two paths must agree. Sends before the emitter is initialized are
-        // buffered by Spring and flushed in order by initialize().
+    /** Accept the question in a short transaction before making provider calls. */
+    public PreparedChat prepareDurableChat(UUID projectId, UUID userId, String question,
+            UUID conversationId, UUID requestId, UUID replyToMessageId, boolean regenerate) {
+        ChatTurnService.Turn turn = turns.accept(projectId, userId, conversationId, requestId,
+                replyToMessageId, "chat", question, regenerate);
+        if (turn.completed()) {
+            return new PreparedChat(turn.conversationId(), projectId, question, List.of(), List.of(),
+                    turn.regenerate(), 0, null, turn);
+        }
         try {
-            emitter.send(SseEmitter.event()
-                    .name("meta")
-                    .data(Map.of("citations", prepared.context())));
-        } catch (IOException | RuntimeException e) {
-            // Client is already gone (or the emitter closed): nothing left to stream.
-            log.debug("Chat meta event undeliverable conversation={}: {}", conversationId, e.toString());
-            persistPartial.run();
+            PreparedChat prepared = prepareChat(projectId, userId, question, false,
+                    turn.regenerate(), turn.conversationId());
+            return new PreparedChat(prepared.conversationId(), projectId, prepared.question(),
+                    prepared.context(), prepared.history(), prepared.regenerate(), prepared.usedChars(),
+                    prepared.chatInstructions(), turn);
+        } catch (RuntimeException e) {
+            turns.interrupt(turn);
+            throw e;
+        }
+    }
+
+    public ChatMessageResponse sendDurableMessage(UUID projectId, UUID userId, String question,
+            UUID conversationId, UUID requestId, UUID replyToMessageId, boolean regenerate) {
+        PreparedChat prepared = prepareDurableChat(projectId, userId, question, conversationId,
+                requestId, replyToMessageId, regenerate);
+        ChatTurnService.Turn turn = prepared.turn();
+        try {
+            if (turn.completed()) return objectMapper.readValue(turn.resultData(), ChatMessageResponse.class);
+            Map<String, Object> response = aiServiceClient.chat(prepared.question(), prepared.context(),
+                    prepared.history(), prepared.chatInstructions());
+            String answer = (String) response.get("answer");
+            if (answer == null || answer.isBlank()) throw new IllegalStateException("Empty answer");
+            ChatMessageResponse result = new ChatMessageResponse(answer, prepared.context(),
+                    calculateUsedChars(prepared.question(), prepared.history(), prepared.context()),
+                    properties.getChat().getChatContextBudgetChars());
+            turns.complete(turn, answer, objectMapper.writeValueAsString(prepared.context()), null,
+                    objectMapper.writeValueAsString(result));
+            CompletableFuture.runAsync(() -> maybeSummarize(turn.conversationId()));
+            return result;
+        } catch (Exception e) {
+            if (!turn.completed()) turns.interrupt(turn);
+            if (e instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("Could not save chat answer", e);
+        }
+    }
+
+    public void streamMessage(PreparedChat prepared, SseEmitter emitter) {
+        ChatTurnService.Turn turn = prepared.turn();
+        if (turn.completed()) {
+            try {
+                ChatMessageResponse result = objectMapper.readValue(turn.resultData(), ChatMessageResponse.class);
+                emitter.send(SseEmitter.event().name("meta").data(Map.of("citations", result.getCitations(),
+                        "requestId", turn.requestId(), "userMessageId", turn.userMessageId())));
+                emitter.send(SseEmitter.event().name("token").data(Map.of("t", result.getAnswer())));
+                emitter.send(SseEmitter.event().name("done").data(Map.of("messageId", turn.assistantMessageId().toString(),
+                        "context", Map.of("usedChars", result.getUsedChars(), "budgetChars", result.getBudgetChars()))));
+            } catch (IOException | RuntimeException e) {
+                log.debug("Could not replay chat response", e);
+            }
             completeQuietly(emitter);
             return;
         }
-
-        // Run the streaming callbacks (JDBC persistence and SseEmitter sends)
-        // on boundedElastic instead of the WebClient's event-loop threads,
-        // which must never be blocked.
-        subscriptionRef.set(aiServiceClient
-                .chatStream(prepared.question(), prepared.context(), prepared.history(),
-                        prepared.chatInstructions())
-                .publishOn(Schedulers.boundedElastic())
-                .subscribe(
-                        event -> {
-                            String type = event.event() == null ? "" : event.event();
-                            String data = event.data() == null ? "" : event.data();
-
-                            if ("token".equals(type)) {
-                                String token = extractToken(data);
-                                if (token.isEmpty()) {
-                                    return;
-                                }
-                                content.append(token);
-                                try {
-                                    emitter.send(SseEmitter.event()
-                                            .name("token")
-                                            .data(Map.of("t", token)));
-                                } catch (IOException e) {
-                                    // Client disconnected mid-stream: stop upstream and persist.
-                                    Disposable sub = subscriptionRef.get();
-                                    if (sub != null) {
-                                        sub.dispose();
-                                    }
-                                    persistPartial.run();
-                                    completeQuietly(emitter);
-                                } catch (RuntimeException e) {
-                                    // Emitter already closed; never let this reach
-                                    // Spring after the response is committed.
-                                    log.debug("Chat token send failed conversation={}: {}",
-                                            conversationId, e.toString());
-                                    Disposable sub = subscriptionRef.get();
-                                    if (sub != null) {
-                                        sub.dispose();
-                                    }
-                                    persistPartial.run();
-                                    completeQuietly(emitter);
-                                }
-                            } else if ("error".equals(type)) {
-                                log.warn("AI service reported a stream error for conversation {} (code={}): {}",
-                                        conversationId,
-                                        extractField(data, "code"),
-                                        extractField(data, "message"));
-                                persistPartial.run();
-                                // Ship the upstream user-safe message and code
-                                // verbatim (already sanitized in Python).
-                                sendError(emitter, errorPayload(data,
-                                        "The AI service failed while generating the answer.",
-                                        "upstream_error"));
-                                completeQuietly(emitter);
-                            }
-                            // The Python `done` event is ignored: this service owns the
-                            // terminal `done`, sent after the answer is persisted.
-                        },
-                        error -> {
-                            Map<String, String> payload = AiStreamErrors.describe(error);
-                            log.error("Chat stream failed conversation={} project={} code={}",
-                                    conversationId, projectId, payload.get("code"), error);
-                            persistPartial.run();
-                            sendError(emitter, payload);
-                            completeQuietly(emitter);
-                        },
-                        () -> {
-                            // Own the persisted flag so the onCompletion safety
-                            // net below cannot persist the same answer twice.
-                            String messageId = "";
-                            if (persisted.compareAndSet(false, true) && content.length() > 0) {
-                                try {
-                                    ChatMessage saved = persistAssistantMessage(
-                                            conversationId, content.toString(),
-                                            prepared.context(), prepared.regenerate());
-                                    messageId = String.valueOf(saved.getId());
-                                } catch (RuntimeException e) {
-                                    // Still send `done`: losing history must not
-                                    // break the live stream.
-                                    log.error("Failed to persist answer for conversation {}", conversationId, e);
-                                }
-                            }
-                            try {
-                                int usedChars = calculateUsedChars(
-                                        prepared.question(), prepared.history(), prepared.context());
-                                int budgetChars = properties.getChat().getChatContextBudgetChars();
-                                emitter.send(SseEmitter.event()
-                                        .name("done")
-                                        .data(Map.of("messageId", messageId,
-                                                "context", Map.of("usedChars", usedChars,
-                                                "budgetChars", budgetChars))));
-                            } catch (IOException | RuntimeException e) {
-                                // Client is gone or the emitter already closed;
-                                // persistence already happened.
-                                log.debug("Chat done event undeliverable conversation={}: {}",
-                                        conversationId, e.toString());
-                            }
-                            completeQuietly(emitter);
-                            // Trigger background summarization after the answer is persisted.
-                            CompletableFuture.runAsync(() -> maybeSummarize(conversationId));
-                        }));
+        StringBuilder answer = new StringBuilder();
+        AtomicBoolean terminal = new AtomicBoolean();
+        AtomicBoolean upstreamDone = new AtomicBoolean();
+        AtomicReference<Disposable> subscription = new AtomicReference<>();
+        Runnable interrupt = () -> {
+            if (terminal.compareAndSet(false, true)) {
+                try { turns.interrupt(turn); } catch (RuntimeException e) { log.warn("Could not interrupt chat", e); }
+            }
+            Disposable active = subscription.get();
+            if (active != null) active.dispose();
+        };
+        emitter.onTimeout(interrupt);
+        emitter.onError(error -> interrupt.run());
+        emitter.onCompletion(interrupt);
+        try {
+            emitter.send(SseEmitter.event().name("meta").data(Map.of("citations", prepared.context(),
+                    "requestId", turn.requestId(), "userMessageId", turn.userMessageId())));
+        } catch (IOException | RuntimeException e) {
+            interrupt.run();
+            completeQuietly(emitter);
+            return;
+        }
+        Disposable active = aiServiceClient.chatStream(prepared.question(), prepared.context(), prepared.history(),
+                prepared.chatInstructions()).publishOn(Schedulers.boundedElastic()).subscribe(event -> {
+            if (terminal.get()) return;
+            String type = event.event() == null ? "" : event.event();
+            String data = event.data() == null ? "" : event.data();
+            if ("done".equals(type)) {
+                upstreamDone.set(true);
+            } else if ("token".equals(type)) {
+                String token = extractToken(data);
+                answer.append(token);
+                try { emitter.send(SseEmitter.event().name("token").data(Map.of("t", token))); }
+                catch (IOException | RuntimeException e) { interrupt.run(); }
+            } else if ("error".equals(type) && terminal.compareAndSet(false, true)) {
+                turns.interrupt(turn);
+                sendError(emitter, errorPayload(data, "The AI service failed while generating the answer.", "upstream_error"));
+                completeQuietly(emitter);
+            }
+        }, error -> {
+            if (terminal.compareAndSet(false, true)) {
+                turns.interrupt(turn);
+                sendError(emitter, AiStreamErrors.describe(error));
+                completeQuietly(emitter);
+            }
+        }, () -> {
+            if (!terminal.compareAndSet(false, true)) return;
+            if (!upstreamDone.get() || answer.length() == 0) {
+                turns.interrupt(turn);
+                sendError(emitter, Map.of("message", "The answer ended before completing.", "code", "interrupted"));
+                completeQuietly(emitter);
+                return;
+            }
+            try {
+                int usedChars = calculateUsedChars(prepared.question(), prepared.history(), prepared.context());
+                int budgetChars = properties.getChat().getChatContextBudgetChars();
+                ChatMessageResponse result = new ChatMessageResponse(answer.toString(), prepared.context(), usedChars, budgetChars);
+                UUID messageId = turns.complete(turn, answer.toString(), objectMapper.writeValueAsString(prepared.context()),
+                        null, objectMapper.writeValueAsString(result));
+                CompletableFuture.runAsync(() -> maybeSummarize(turn.conversationId()));
+                emitter.send(SseEmitter.event().name("done").data(Map.of("messageId", messageId.toString(),
+                        "context", Map.of("usedChars", usedChars, "budgetChars", budgetChars))));
+            } catch (Exception e) {
+                log.error("Could not save chat answer", e);
+                try { turns.interrupt(turn); } catch (RuntimeException ignored) { }
+                sendError(emitter, Map.of("message", "The answer could not be saved.", "code", "persistence_error"));
+            }
+            completeQuietly(emitter);
+        });
+        subscription.set(active);
+        if (terminal.get()) active.dispose();
     }
 
     private String extractToken(String data) {
@@ -428,6 +409,22 @@ public class ChatService {
         } catch (JsonProcessingException e) {
             return "";
         }
+    }
+
+    static String retrievalQuestion(String question, List<ChatMessage> history) {
+        String lower = question.toLowerCase(java.util.Locale.ROOT).trim();
+        boolean followUp = lower.matches("^(it|its|this|that|these|those|they|them|their)\\b.*")
+                || lower.matches(".*\\b(it|its|this|that|these|those|they|them|their)\\b.*")
+                && lower.split("\\s+").length <= 12;
+        if (!followUp) return question;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage message = history.get(i);
+            if ("user".equals(message.getRole()) && message.getContent() != null
+                    && !message.getContent().isBlank()) {
+                return question + "\nPrevious question: " + truncate(message.getContent(), 1000);
+            }
+        }
+        return question;
     }
 
     /** Truncate to {@code maxChars} without ever returning more than asked. */
@@ -601,11 +598,13 @@ public class ChatService {
                 // Store the new summary and the id of the last message it covers.
                 // The summary covers all live messages up to the last one.
                 UUID lastMessageId = liveMessages.isEmpty() ? null : liveMessages.get(liveMessages.size() - 1).getId();
-                conversation.setSummary(summaryText);
-                conversation.setSummaryThroughMessageId(lastMessageId);
-                conversationRepository.save(conversation);
-                log.info("Summarized conversation {} into {} chars, covering message {}",
-                        conversationId, summaryText.length(), lastMessageId);
+                int updated = jdbc.update(
+                        "UPDATE conversations SET summary = ?, summary_through_message_id = ? WHERE id = ? AND history_revision = ?",
+                        summaryText, lastMessageId, conversationId, conversation.getHistoryRevision());
+                if (updated == 1) {
+                    log.info("Summarized conversation {} into {} chars, covering message {}",
+                            conversationId, summaryText.length(), lastMessageId);
+                }
             } catch (Exception e) {
                 log.error("Summarization failed for conversation {}: {}", conversationId, e.getMessage());
                 // Chat must never fail because of summarization.

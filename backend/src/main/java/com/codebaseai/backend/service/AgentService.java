@@ -50,6 +50,7 @@ public class AgentService {
 
         return new AgentInvestigateResponse(
             answer,
+            response.get("citations") instanceof List<?> citations ? citations : List.of(),
             trace,
             iterations,
             toolCalls,

@@ -77,7 +77,7 @@ public class IndexingJobService {
     @Transactional
     public IndexingJob createOrGetJob(UUID projectId, UUID userId, 
             org.springframework.web.multipart.MultipartFile file) throws IOException {
-        Project project = projectRepository.findById(projectId)
+        Project project = projectRepository.findByIdForUpdate(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
 
         if (!project.getUserId().equals(userId)) {
@@ -96,10 +96,13 @@ public class IndexingJobService {
         // Compute SHA-256 of the uploaded ZIP for idempotency
         String contentHash = computeContentHash(file);
 
-        // Check for existing queued/processing/ready job with same hash
-        Optional<IndexingJob> existingJob = indexingJobRepository.findFirstByProjectIdAndContentHashAndStatusInOrderByCreatedAtDesc(
-                projectId, contentHash, 
-                List.of(IndexingJob.QUEUED, IndexingJob.PROCESSING, IndexingJob.READY));
+        // Only the latest job represents the desired project version. Looking up
+        // any historical READY job incorrectly treats A -> B -> A as a no-op.
+        Optional<IndexingJob> existingJob = indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(projectId)
+                .filter(job -> contentHash.equals(job.getContentHash()))
+                .filter(job -> IndexingJob.READY.equals(job.getStatus()) || job.getUploadId() != null)
+                .filter(job -> List.of(IndexingJob.QUEUED, IndexingJob.PROCESSING, IndexingJob.READY)
+                        .contains(job.getStatus()));
 
         if (existingJob.isPresent()) {
             log.info("Found existing job {} for project {} with hash {}", 
@@ -107,14 +110,29 @@ public class IndexingJobService {
             return existingJob.get();
         }
 
-        // Store the ZIP file so the worker can process it later
-        // We store it in the project's upload directory and keep it until processed
-        Path stagedZip = storageService.storeZip(file, projectId);
+        UUID uploadId = UUID.randomUUID();
+        storageService.storeJobUpload(file, projectId, uploadId);
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCompletion(int status) {
+                            if (status == STATUS_ROLLED_BACK) {
+                                try {
+                                    storageService.deleteJobUpload(projectId, uploadId);
+                                } catch (Exception e) {
+                                    log.warn("Could not remove rolled-back upload {}", uploadId, e);
+                                }
+                            }
+                        }
+                    });
+        }
         
         // Create new job
         IndexingJob job = new IndexingJob();
         job.setProjectId(projectId);
         job.setContentHash(contentHash);
+        job.setUploadId(uploadId);
         job.setStatus(IndexingJob.QUEUED);
         job.setProgressPercent(0);
         job.setAttempts(0);
@@ -122,49 +140,17 @@ public class IndexingJobService {
         job.setNextRunAt(LocalDateTime.now());
         
         // Set project status to processing since indexing has started
-        project.setStatus("processing");
+        boolean hasPublishedIndex = project.getActiveGenerationId() != null
+                || (project.getFileCount() != null && project.getFileCount() > 0);
+        if (!hasPublishedIndex) {
+            project.setStatus("processing");
+        }
         projectRepository.save(project);
         
         indexingJobRepository.save(job);
         
-        log.info("Created new indexing job {} for project {} (ZIP stored at {}, project status: processing)", 
-                job.getId(), projectId, stagedZip);
+        log.info("Created new indexing job {} for project {} with upload {}", job.getId(), projectId, uploadId);
         return job;
-    }
-
-    /**
-     * Claims the next runnable job for processing.
-     *
-     * <p>Kept for compatibility; delegates to {@link IndexingJobStateService}
-     * so there is exactly one claim path with attempts+1 and short commits.
-     */
-    public Optional<IndexingJob> claimNextJob(String workerId, long staleSeconds) {
-        return jobStateService.claimNext(workerId, staleSeconds);
-    }
-
-    /**
-     * Updates job progress during processing.
-     *
-     * <p>Delegates to the heartbeat so lock renewal stays coupled to progress.
-     */
-    public void updateProgress(UUID jobId, int progressPercent) {
-        jobStateService.heartbeat(jobId, progressPercent);
-    }
-
-    /**
-     * Marks a job as completed successfully.
-     *
-     * <p>Guarded: only flips when still processing, so a mid-flight cancel wins.
-     */
-    public void completeJob(UUID jobId) {
-        jobStateService.completeIfProcessing(jobId);
-    }
-
-    /**
-     * Marks a job as failed and schedules retry if attempts remain.
-     */
-    public void failJob(UUID jobId, String errorMessage) {
-        jobStateService.fail(jobId, errorMessage);
     }
 
     /**
@@ -186,8 +172,7 @@ public class IndexingJobService {
      * Purge runs afterwards in its own transactions.
      */
     public void cancelJob(UUID projectId, UUID jobId, UUID userId) {
-        IndexingJob job = jobStateService.cancel(projectId, jobId, userId);
-        jobStateService.purgeAfterCancel(job.getProjectId(), job.getId());
+        jobStateService.cancel(projectId, jobId, userId);
     }
 
     /**
@@ -244,18 +229,11 @@ public class IndexingJobService {
         return latest;
     }
 
-    /** Purges any partially indexed data for a project. */
-    private void purgePartialIndex(UUID projectId) {
-        // Remove any partially created project files, chunks, symbols, references
-        codeChunkRepository.deleteByProjectId(projectId);
-        codeSymbolRepository.deleteByProjectId(projectId);
-        codeReferenceRepository.deleteByProjectId(projectId);
-        projectFileRepository.deleteByProjectId(projectId);
-        try {
-            storageService.deleteProject(projectId);
-        } catch (IOException e) {
-            log.warn("Failed to delete project storage for {}", projectId, e);
-        }
+    public List<UUID> uploadsForProject(UUID projectId) {
+        return indexingJobRepository.findByProjectId(projectId).stream()
+                .map(IndexingJob::getUploadId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     /** Computes SHA-256 of the uploaded bytes (matches the column comment). */

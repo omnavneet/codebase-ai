@@ -26,7 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class CodeProcessingService {
 
-    public record ProcessingResult(List<String> failedFiles) {
+    public record ProcessingResult(List<String> failedFiles, int totalChunks) {
         public boolean hasFailures() {
             return !failedFiles.isEmpty();
         }
@@ -95,9 +95,13 @@ public class CodeProcessingService {
      * into {@link ProcessingResult} and do not abort the run.
      */
     public ProcessingResult processProject(UUID projectId, ProgressCallback callback) {
+        return processProject(projectId, null, callback);
+    }
+
+    public ProcessingResult processProject(UUID projectId, UUID generationId, ProgressCallback callback) {
         log.info("Starting processing for project: {}", projectId);
 
-        List<ProjectFile> files = projectFileRepository.findByProjectId(projectId);
+        List<ProjectFile> files = projectFileRepository.findByProjectIdAndGenerationId(projectId, generationId);
         log.info("Found {} files to process", files.size());
 
         int totalChunks = 0;
@@ -109,7 +113,7 @@ public class CodeProcessingService {
             try {
                 // Same project-relative path the file was indexed under, so the
                 // local backend and S3 resolve it identically.
-                String content = storageService.readText(projectId, file.getPath());
+                String content = storageService.readGenerationText(projectId, generationId, file.getPath());
 
                 CodeChunkingService.IndexedFile indexed;
                 try {
@@ -164,7 +168,7 @@ public class CodeProcessingService {
         }
 
         log.info("Processing complete for project: {}. Total chunks: {}", projectId, totalChunks);
-        return new ProcessingResult(List.copyOf(failedFiles));
+        return new ProcessingResult(List.copyOf(failedFiles), totalChunks);
     }
 
     private void persistSymbols(UUID projectId, ProjectFile file, List<ParsedFile.Symbol> symbols) {

@@ -93,7 +93,7 @@ class IndexingJobServiceTest {
     }
 
     @Test
-    void idempotentUploadReturnsExistingJob() throws IOException {
+    void idempotentUploadReturnsExistingJob() throws Exception {
         MockMultipartFile file = createMockZip();
 
         IndexingJob existing = new IndexingJob();
@@ -102,10 +102,12 @@ class IndexingJobServiceTest {
         existing.setStatus(IndexingJob.QUEUED);
         existing.setProgressPercent(0);
         existing.setAttempts(0);
+        existing.setUploadId(UUID.randomUUID());
+        existing.setContentHash(java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(file.getBytes())));
 
-        when(projectRepository.findById(testProject.getId())).thenReturn(Optional.of(testProject));
-        when(indexingJobRepository.findFirstByProjectIdAndContentHashAndStatusInOrderByCreatedAtDesc(
-                any(UUID.class), anyString(), any(List.class)))
+        when(projectRepository.findByIdForUpdate(testProject.getId())).thenReturn(Optional.of(testProject));
+        when(indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(testProject.getId()))
                 .thenReturn(Optional.of(existing));
 
         IndexingJob result = service.createOrGetJob(testProject.getId(), testUser.getId(), file);
@@ -113,15 +115,51 @@ class IndexingJobServiceTest {
         assertThat(result.getId()).isEqualTo(existing.getId());
         verify(projectRepository, never()).save(any());
         verify(indexingJobRepository, never()).save(any());
+        verify(storageService, never()).storeJobUpload(any(), any(), any());
+    }
+
+    @Test
+    void historicalMatchingArchiveDoesNotOverrideLatestVersion() throws Exception {
+        MockMultipartFile file = createMockZip();
+        IndexingJob latest = new IndexingJob();
+        latest.setStatus(IndexingJob.READY);
+        latest.setContentHash("different-content");
+        when(projectRepository.findByIdForUpdate(testProject.getId())).thenReturn(Optional.of(testProject));
+        when(indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(testProject.getId()))
+                .thenReturn(Optional.of(latest));
+        when(indexingJobRepository.save(any(IndexingJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        IndexingJob created = service.createOrGetJob(testProject.getId(), testUser.getId(), file);
+
+        assertThat(created.getUploadId()).isNotNull();
+        assertThat(created.getContentHash()).isNotEqualTo(latest.getContentHash());
+        verify(storageService).storeJobUpload(file, testProject.getId(), created.getUploadId());
+    }
+
+    @Test
+    void legacyQueuedJobWithoutUploadDoesNotBlockResubmission() throws Exception {
+        MockMultipartFile file = createMockZip();
+        IndexingJob legacy = new IndexingJob();
+        legacy.setStatus(IndexingJob.QUEUED);
+        legacy.setContentHash(java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(file.getBytes())));
+        when(projectRepository.findByIdForUpdate(testProject.getId())).thenReturn(Optional.of(testProject));
+        when(indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(testProject.getId()))
+                .thenReturn(Optional.of(legacy));
+        when(indexingJobRepository.save(any(IndexingJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        IndexingJob created = service.createOrGetJob(testProject.getId(), testUser.getId(), file);
+
+        assertThat(created.getUploadId()).isNotNull();
+        verify(storageService).storeJobUpload(file, testProject.getId(), created.getUploadId());
     }
 
     @Test
     void newUniqueContentCreatesNewJob() throws IOException {
         MockMultipartFile file = createMockZip();
 
-        when(projectRepository.findById(testProject.getId())).thenReturn(Optional.of(testProject));
-        when(indexingJobRepository.findFirstByProjectIdAndContentHashAndStatusInOrderByCreatedAtDesc(
-                any(UUID.class), anyString(), any(List.class)))
+        when(projectRepository.findByIdForUpdate(testProject.getId())).thenReturn(Optional.of(testProject));
+        when(indexingJobRepository.findFirstByProjectIdOrderByCreatedAtDesc(testProject.getId()))
                 .thenReturn(Optional.empty());
         // A real JPA save assigns the generated UUID to the entity; the mock must
         // do the same or the returned job would have a null id.
@@ -136,6 +174,8 @@ class IndexingJobServiceTest {
         assertThat(result.getId()).isNotNull();
         assertThat(result.getStatus()).isEqualTo(IndexingJob.QUEUED);
         assertThat(result.getProgressPercent()).isEqualTo(0);
+        assertThat(result.getUploadId()).isNotNull();
+        verify(storageService).storeJobUpload(file, testProject.getId(), result.getUploadId());
         verify(indexingJobRepository).save(result);
     }
 
@@ -155,43 +195,6 @@ class IndexingJobServiceTest {
         service.cancelJob(testProject.getId(), jobId, testUser.getId());
 
         verify(jobStateService).cancel(testProject.getId(), jobId, testUser.getId());
-        verify(jobStateService).purgeAfterCancel(testProject.getId(), jobId);
-    }
-
-    @Test
-    void completeJobSetsReadyStatus() {
-        UUID jobId = UUID.randomUUID();
-
-        // completeJob now delegates to the guarded completeIfProcessing on the
-        // state service, which flips the row to ready only while still processing.
-        when(jobStateService.completeIfProcessing(jobId)).thenReturn(true);
-
-        service.completeJob(jobId);
-
-        verify(jobStateService).completeIfProcessing(jobId);
-    }
-
-    @Test
-    void failJobRetriesBeforeMaxAttempts() {
-        UUID jobId = UUID.randomUUID();
-
-        // failJob now just delegates to the state service, which owns the
-        // backoff/retry decision. Attempts are incremented at claim time, not
-        // here, so the service only forwards the failure.
-        service.failJob(jobId, "Test failure");
-
-        verify(jobStateService).fail(jobId, "Test failure");
-    }
-
-    @Test
-    void failJobReachesMaxAttemptsSetsError() {
-        UUID jobId = UUID.randomUUID();
-
-        // Same delegation: the max-attempts -> error transition (and the purge
-        // of the partial index) now live in the state service's fail().
-        service.failJob(jobId, "Final failure");
-
-        verify(jobStateService).fail(jobId, "Final failure");
     }
 
     @Test
@@ -228,7 +231,6 @@ class IndexingJobServiceTest {
                 service.cancelJob(UUID.randomUUID(), jobId, testUser.getId()));
 
         assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        verify(jobStateService, never()).purgeAfterCancel(any(UUID.class), any(UUID.class));
     }
 
     @Test
@@ -259,7 +261,7 @@ class IndexingJobServiceTest {
         otherProject.setUserId(otherUser.getId());
         otherProject.setName("other-project");
 
-        when(projectRepository.findById(testProject.getId())).thenReturn(Optional.of(otherProject));
+        when(projectRepository.findByIdForUpdate(testProject.getId())).thenReturn(Optional.of(otherProject));
 
         assertThrows(ResponseStatusException.class, () ->
                 service.createOrGetJob(testProject.getId(), testUser.getId(), file));
@@ -270,7 +272,7 @@ class IndexingJobServiceTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "test.txt", "text/plain", "hello".getBytes());
 
-        when(projectRepository.findById(testProject.getId())).thenReturn(Optional.of(testProject));
+        when(projectRepository.findByIdForUpdate(testProject.getId())).thenReturn(Optional.of(testProject));
 
         ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
                 service.createOrGetJob(testProject.getId(), testUser.getId(), file));
