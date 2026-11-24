@@ -8,9 +8,11 @@
  * chat stream.
  */
 import { refreshAccessToken } from './apiClient';
+import type { Citation } from '../pages/chat/types';
 
 export interface AgentStreamResult {
   answer: string;
+  citations?: Citation[];
   trace: string[];
   iterations: number;
   tool_calls: number;
@@ -55,6 +57,7 @@ export interface AgentStreamResult {
 }
 
 export interface AgentStreamHandlers {
+  onMeta?: (userMessageId: string) => void;
   onStep?: (message: string) => void;
   onDone?: (result: AgentStreamResult) => void;
   onError: (message: string) => void;
@@ -77,7 +80,7 @@ const friendlyHttpError = (status: number, retryAfterHeader: string | null): str
       ? `You're going a little fast — try again in ${seconds} second${seconds === 1 ? '' : 's'}.`
       : "You're going a little fast — try again in a moment.";
   }
-  if (status === 409) return 'This project is still being indexed — try again once it is ready.';
+  if (status === 409) return 'This run could not start. Wait for indexing or any active run to finish, then retry.';
   if (status === 413) return 'This question touched too much code, try naming a file or folder.';
   if (status === 403) return 'Please verify your email to use this feature.';
   if (status === 404) return "That file or project could not be found.";
@@ -146,7 +149,9 @@ export const streamAgent = async (
     const payload = parseData(dataLines.join('\n'));
     if (!payload) return false;
 
-    if (event === 'status' || event === 'step') {
+    if (event === 'meta' && typeof payload.userMessageId === 'string') {
+      handlers.onMeta?.(payload.userMessageId);
+    } else if (event === 'status' || event === 'step') {
       const message = typeof payload.message === 'string' ? payload.message : '';
       if (message) handlers.onStep?.(message);
     } else if (event === 'done') {
@@ -174,7 +179,7 @@ export const streamAgent = async (
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) throw new Error('The investigation was interrupted. Please try again.');
       buffer += decoder.decode(value, { stream: true });
       let boundary = findBoundary(buffer);
       while (boundary !== null) {

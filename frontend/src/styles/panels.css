@@ -204,6 +204,10 @@
   cursor: pointer;
 }
 
+.unverified-citation {
+  text-decoration: underline dotted;
+}
+
 .inline-citation:hover {
   text-decoration-color: var(--m3-primary);
 }

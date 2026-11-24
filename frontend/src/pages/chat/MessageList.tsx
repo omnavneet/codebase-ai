@@ -9,15 +9,8 @@ interface MessageListProps {
   loading: boolean
   /** Terminal reason from a failed stream; rendered with a Retry action. */
   error?: string
-  /** Sources chips under an answer: open the snippet preview (unchanged). */
   onCitationClick: (citation: Citation) => void
-  /** Inline `file.ext:line` citations in the answer text: open the file. */
   onOpenCitation: CitationClickHandler
-  /**
-   * The project's file paths — inline citations only become links when they
-   * resolve against this list.
-   */
-  filePaths: string[]
   /**
    * Scroll container owned by the workspace. Passing it in lets auto-scroll
    * respect where the user has scrolled to instead of yanking the view down
@@ -71,7 +64,6 @@ const MessageList: React.FC<MessageListProps> = ({
   error,
   onCitationClick,
   onOpenCitation,
-  filePaths,
   scrollContainerRef,
   onRetry,
   onRegenerate,
@@ -185,10 +177,14 @@ const MessageList: React.FC<MessageListProps> = ({
                     <MarkdownAnswer
                       content={message.content}
                       onCitationClick={onOpenCitation}
-                      filePaths={filePaths}
+                      evidence={message.citations}
+                      verifiedCitations={message.deep}
                     />
                   ) : (
                     message.content
+                  )}
+                  {message.deep && message.investigation && message.citations === undefined && (
+                    <small>Original source was not recorded for this investigation.</small>
                   )}
                   {isStreaming && <span className="stream-caret" aria-hidden="true" />}
                 </div>

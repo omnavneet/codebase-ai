@@ -6,9 +6,11 @@ export interface Session {
 
 export interface Citation {
   file_path?: string
+  file_id?: string
   start_line: number
   end_line: number
   content?: string
+  reference_paths?: string[]
 }
 
 export interface Investigation {
@@ -28,6 +30,7 @@ export interface Message {
   createdAt: string
   /** Populated when the message came from a Deep investigate run. */
   investigation?: Investigation
+  runMetadata?: string
   deep?: boolean
   /** True when the user stopped the stream mid-answer (partial kept). */
   stopped?: boolean

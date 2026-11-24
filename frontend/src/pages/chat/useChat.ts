@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from "react"
 import apiClient from "../../services/apiClient"
 import { streamChatMessage } from "../../services/streamChat"
-import { streamAgent } from "../../services/streamAgent"
+import { streamAgent, type AgentStreamResult } from "../../services/streamAgent"
 import { useToast } from "../../context/ToastContext"
 import type { Citation, Investigation, Message, Session } from "./types"
 
 /** Inactivity budget for one send: watchdog abort and stale-lock recovery. */
 const SEND_IDLE_MS = 45000
+
+const parseInvestigation = (data: AgentStreamResult): Investigation => ({
+  answer: data.answer,
+  trace: data.trace ?? [],
+  iterations: data.iterations ?? 0,
+  filesRead: data.files_read ?? [],
+  searchesPerformed: data.searches_performed ?? [],
+  truncated: data.truncated,
+})
 
 /**
  * Owns all chat data: conversations, messages, the composer input and the
@@ -28,6 +37,8 @@ export function useChat(projectId: string | undefined) {
   const [error, setError] = useState("")
   const [conversationsLoading, setConversationsLoading] = useState(false)
   const [conversationsError, setConversationsError] = useState("")
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState("")
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState("")
 
@@ -42,7 +53,8 @@ export function useChat(projectId: string | undefined) {
   // current send. Used to detect an orphaned busy-lock: component state can
   // survive hot-reloads while the stream closure that owns it is gone, which
   // would otherwise block the composer forever.
-  const lastSendActivityRef = useRef(0)
+  const historyAbortRef = useRef<AbortController | null>(null)
+  const pendingRequestRef = useRef<RunRequest | null>(null)
   // Temp ("new chat") conversations vanish on project switch; only real
   // (server-assigned, non-"new-") ids are remembered across reloads.
   const storageKey = projectId ? `codebase-ai:conversation:${projectId}` : null
@@ -60,6 +72,12 @@ export function useChat(projectId: string | undefined) {
   useEffect(() => {
     return () => {
       streamAbortRef.current?.abort()
+      historyAbortRef.current?.abort()
+      streamAbortRef.current = null
+      pendingRequestRef.current = null
+      setLoading(false)
+      setHistoryLoading(false)
+      setHistoryError("")
       setConversations([])
       setActiveConversation(null)
       setMessages([])
@@ -68,10 +86,10 @@ export function useChat(projectId: string | undefined) {
   }, [projectId])
 
   const parseCitations = (
-    citations: string | Citation[] | undefined,
+    citations: string | unknown[] | undefined,
   ): Citation[] | undefined => {
     if (!citations) return undefined
-    if (Array.isArray(citations)) return citations
+    if (Array.isArray(citations)) return citations as Citation[]
 
     try {
       const parsed: unknown = JSON.parse(citations)
@@ -79,6 +97,21 @@ export function useChat(projectId: string | undefined) {
     } catch {
       return undefined
     }
+  }
+
+  const parseMessage = (message: Message) => {
+    const parsed = { ...message, citations: parseCitations(message.citations) }
+    if (!message.runMetadata) return parsed
+    try {
+      const data = JSON.parse(message.runMetadata) as AgentStreamResult
+      if (typeof data.answer === "string") {
+        parsed.investigation = parseInvestigation(data)
+        parsed.deep = true
+      }
+    } catch {
+      // An older result may only have answer text.
+    }
+    return parsed
   }
 
   const rememberConversation = (id: string) => {
@@ -93,6 +126,11 @@ export function useChat(projectId: string | undefined) {
   const startNewChat = (id?: string) => {
     const localId = id ?? `new-${Date.now()}`
     streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    pendingRequestRef.current = null
+    historyAbortRef.current?.abort()
+    setHistoryLoading(false)
+    setHistoryError("")
     setLoading(false)
     setActiveConversation(localId)
     setMessages([])
@@ -108,29 +146,36 @@ export function useChat(projectId: string | undefined) {
   const selectConversation = async (conversationId: string) => {
     // Switching mid-stream aborts the run; whatever was saved stays saved.
     streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    pendingRequestRef.current = null
+    historyAbortRef.current?.abort()
+    setHistoryError("")
+    setMessages([])
     setLoading(false)
     setActiveConversation(conversationId)
     setError("")
     setContextPercent(null)
     rememberConversation(conversationId)
     if (isLocalNewChat(conversationId) || !projectId) {
-      setMessages([])
+      setHistoryLoading(false)
       return
     }
+    const controller = new AbortController()
+    historyAbortRef.current = controller
+    setHistoryLoading(true)
     try {
-      const response = await apiClient.get(
+      const response = await apiClient.get<Message[]>(
         `/projects/${projectId}/conversations/${conversationId}/messages`,
+        { signal: controller.signal },
       )
-      setMessages(
-        response.data.map(
-          (message: Message & { citations?: string | Citation[] }) => ({
-            ...message,
-            citations: parseCitations(message.citations),
-          }),
-        ),
-      )
-    } catch (error) {
-      console.error("Failed to fetch messages:", error)
+      if (!controller.signal.aborted) setMessages(response.data.map(parseMessage))
+    } catch {
+      if (!controller.signal.aborted) setHistoryError("Could not load this conversation.")
+    } finally {
+      if (historyAbortRef.current === controller) {
+        historyAbortRef.current = null
+        setHistoryLoading(false)
+      }
     }
   }
 
@@ -273,19 +318,21 @@ export function useChat(projectId: string | undefined) {
   // Returns the active conversation id, transparently creating the chat on
   // the server at the first message when it is still a local "new chat".
   // Returns null when creation fails.
-  const ensureConversation = async (): Promise<string | null> => {
+  const ensureConversation = async (signal: AbortSignal): Promise<string | null> => {
     if (activeConversation && !isLocalNewChat(activeConversation)) {
       return activeConversation
     }
     if (!projectId) return null
     try {
-      const response = await apiClient.post(`/projects/${projectId}/conversations`)
+      const response = await apiClient.post(`/projects/${projectId}/conversations`, undefined, { signal })
+      if (signal.aborted) return null
       const created = response.data
       setConversations((prev) => [created, ...prev])
       setActiveConversation(created.id)
       rememberConversation(created.id)
       return created.id
     } catch (error) {
+      if (signal.aborted) return null
       console.error("Failed to create conversation:", error)
       // The send bails out right after this, so without a toast the user
       // would press Enter and see nothing at all happen.
@@ -298,351 +345,180 @@ export function useChat(projectId: string | undefined) {
     }
   }
 
-  // One question runs through either path: "append" adds the question plus a
-  // fresh answer slot; "regenerate" re-asks the stored question and replaces
-  // the last answer in place — no duplicate user message, in the UI or in the
-  // backend history.
-  const runQuery = async (
-    queryText: string,
-    options: { deep?: boolean } | undefined,
-    mode: "append" | "regenerate",
-  ) => {
-    // Recover from an orphaned busy-lock (e.g. state preserved across a
-    // hot-reload while the stream closure that owned it is gone): if no send
-    // activity has been recorded for a while, the lock is stale — release it
-    // instead of blocking the composer forever.
-    const lockIsStale =
-      loading && Date.now() - lastSendActivityRef.current > SEND_IDLE_MS
-    if (!queryText.trim() || (loading && !lockIsStale)) return
-    if (lockIsStale) setLoading(false)
 
-    const currentConversationId = await ensureConversation()
-    if (!currentConversationId) return
+  type RunRequest = {
+    requestId: string
+    question: string
+    deep: boolean
+    replyToMessageId?: string
+  }
 
-    const userMessageText = queryText.trim()
-    setInput("")
+  const runQuery = async (request: RunRequest, retrying = false) => {
+    if (!projectId || !request.question || streamAbortRef.current || conversationsLoading || historyLoading || historyError) return
+    const controller = new AbortController()
+    streamAbortRef.current = controller
     setLoading(true)
     setError("")
-    lastSendActivityRef.current = Date.now()
-
-    // The answer slot the stream fills in token by token. While its content
-    // is empty it renders as the typing indicator — no separate indicator row.
-    let assistantId: string
-    // Snapshot of the answer a regenerate replaces: restored if the re-run
-    // fails before its first token, matching the backend, which only
-    // overwrites the stored answer once new content actually exists.
-    let replacedAnswer: Message | null = null
-
-    if (mode === "regenerate") {
-      const last = messages[messages.length - 1]
-      if (last?.role === "assistant") {
-        assistantId = last.id
-        replacedAnswer = last
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === last.id
-              ? {
-                  ...message,
-                  content: "",
-                  citations: undefined,
-                  investigation: undefined,
-                  stopped: false,
-                  deep: options?.deep,
-                }
-              : message,
-          ),
-        )
-      } else {
-        // The previous attempt failed before any token: only the answer slot
-        // is missing, so the question stays exactly where it is.
-        assistantId = "temp-assistant-" + Date.now()
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: assistantId,
-            role: "assistant",
-            content: "",
-            createdAt: new Date().toISOString(),
-            deep: options?.deep,
-          },
-        ])
-      }
-    } else {
-      // Optimistically add the user message plus an empty assistant message
-      // that the stream fills in token by token.
-      const tempUserMessage: Message = {
-        id: "temp-user-" + Date.now(),
-        role: "user",
-        content: userMessageText,
-        createdAt: new Date().toISOString(),
-      }
-      assistantId = "temp-assistant-" + Date.now()
-      const assistantPlaceholder: Message = {
-        id: assistantId,
-        role: "assistant",
-        content: "",
-        createdAt: new Date().toISOString(),
-        deep: options?.deep,
-      }
-      setMessages((prev) => [...prev, tempUserMessage, assistantPlaceholder])
-    }
-
-    const updateAssistant = (update: (message: Message) => Message) => {
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === assistantId ? update(message) : message,
-        ),
-      )
-    }
-
-    // Never leave an empty assistant bubble behind on abort or error; a
-    // failed regenerate restores the answer it replaced instead.
-    const finalizeAssistantBubble = () => {
-      const snapshot = replacedAnswer
-      setMessages((prev) => {
-        const target = prev.find((message) => message.id === assistantId)
-        if (!target || target.content !== "") return prev
-        // A re-run with no new text falls back to the answer it replaced —
-        // matching the backend, which only overwrites once content exists.
-        if (snapshot) {
-          return prev.map((message) =>
-            message.id === assistantId ? snapshot : message,
-          )
-        }
-        // A slot stopped before its first token stays visible (with its
-        // note) so the question keeps a Regenerate target instead of
-        // inviting a duplicate re-send from the composer.
-        if (target.stopped) return prev
-        return prev.filter((message) => message.id !== assistantId)
-      })
-    }
-
-    // Deep investigate uses the bounded agent loop (POST /agent/investigate)
-    // streamed as step events. The optimistic assistant placeholder fills in
-    // as steps arrive, then the terminal `done` carries the full result with
-    // its trace — rendered inline in the message list.
-    if (options?.deep) {
-      const controller = new AbortController()
-      streamAbortRef.current = controller
-      const traceSteps: string[] = []
-
-      try {
-        await streamAgent(
-        projectId ?? "",
-        "/investigate/stream",
-        { question: userMessageText, conversationId: currentConversationId },
-        {
-          onStep: (message) => {
-            traceSteps.push(message)
-          },
-          onDone: (data) => {
-            const investigation: Investigation = {
-              answer: (data.answer as string) ?? "",
-              trace: (data.trace as string[]) ?? traceSteps,
-              iterations: (data.iterations as number) ?? 0,
-              filesRead: (data.files_read as string[]) ?? [],
-              searchesPerformed: (data.searches_performed as string[]) ?? [],
-              truncated: data.truncated as boolean | undefined,
-            }
-            updateAssistant((message) => ({
-              ...message,
-              content: investigation.answer,
-              investigation,
-              deep: true,
-            }))
-          },
-          onError: (message) => {
-            // The stream's own reason, shown with Retry below; the question
-            // and any partial text stay right where they are.
-            setError(message)
-          },
-        },
-        controller.signal,
-        )
-      } catch (error) {
-        const aborted =
-          controller.signal.aborted ||
-          (error instanceof DOMException && error.name === "AbortError")
-        if (!aborted) {
-          console.error("Deep investigate failed:", error)
-          updateAssistant((message) =>
-            message.content
-              ? message
-              : {
-                  ...message,
-                  content:
-                    "The investigation could not be completed right now. Your question is safe in the conversation above; press Enter in the composer to try again.",
-                },
-          )
-          // Return the failed question to the composer so retrying is one
-          // keystroke — unless the user has already started typing something
-          // new, which always wins.
-          setInput((current) => (current.trim() ? current : userMessageText))
-        }
-      } finally {
-        if (streamAbortRef.current === controller) {
-          streamAbortRef.current = null
-        }
-        finalizeAssistantBubble()
-        setLoading(false)
-      }
-
-      refreshConversations()
-      return
-    }
-
-    // If the stream never produced a token we can safely retry through the
-    // non-streaming endpoint; if it did, the backend may already have
-    // persisted a partial answer, so we never re-send.
-    let receivedToken = false
-    // Inactivity watchdog: if the SSE promise never settles (hung server,
-    // lost connection without a close), abort and recover instead of leaving
-    // the composer permanently locked and the bubble empty forever.
-    let watchdogFired = false
-    let watchdogId: ReturnType<typeof setTimeout> | null = null
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
+    const current = () => streamAbortRef.current === controller
     const armWatchdog = () => {
-      if (watchdogId) clearTimeout(watchdogId)
-      watchdogId = setTimeout(() => {
-        watchdogFired = true
-        abortController.abort()
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
       }, SEND_IDLE_MS)
     }
-
-    const abortController = new AbortController()
-    streamAbortRef.current = abortController
-    armWatchdog()
+    const userId = request.replyToMessageId ?? "temp-user-" + request.requestId
+    const assistantId = "temp-assistant-" + request.requestId
+    const createdAt = new Date().toISOString()
+    let committed = false
+    let baseline = messages
 
     try {
-      await streamChatMessage(
-        projectId ?? "",
-        currentConversationId,
-        userMessageText,
-        {
-          onToken: (token) => {
-            receivedToken = true
-            armWatchdog()
-            lastSendActivityRef.current = Date.now()
-            updateAssistant((message) => ({
-              ...message,
-              content: message.content + token,
-            }))
-          },
-          onMeta: (citations) => {
-            updateAssistant((message) => ({
-              ...message,
-              citations: citations as Citation[],
-            }))
-          },
-          onDone: (messageId) => {
-            // Reconcile the optimistic placeholder with the persisted message.
-            if (messageId) {
-              updateAssistant((message) => ({ ...message, id: messageId }))
-            }
-          },
-          onContext: (context) => {
-            if (context && context.budgetChars > 0) {
-              const used = context.usedChars || 0
-              const budget = context.budgetChars
-              const percent = Math.round((used / budget) * 100)
-              setContextPercent(percent)
-              setContextBudget(budget)
-            }
-          },
-          onError: (message) => {
-            // The stream's own reason becomes the error bar with Retry; any
-            // partial answer already shown is kept untouched.
-            setError(message)
-          },
-        },
-        abortController.signal,
-        { regenerate: mode === "regenerate", conversationId: currentConversationId },
-      )
-      refreshConversations()
-    } catch (streamError) {
-      if (abortController.signal.aborted && !watchdogFired) {
-        // Navigated away or project switched: nothing to update.
-        return
-      }
-      if (!watchdogFired) {
-        console.error("Streaming failed:", streamError)
+      const conversationId = await ensureConversation(controller.signal)
+      if (!conversationId || !current()) return
+      setInput("")
+      pendingRequestRef.current = request
+
+      if (retrying) baseline = baseline.filter(message => message.id !== assistantId)
+      if (request.replyToMessageId && baseline.at(-1)?.role === "assistant") {
+        setMessages(baseline.slice(0, -1))
       } else {
-        console.error("Stream stalled with no activity; aborted by watchdog")
+        const hasQuestion = retrying || request.replyToMessageId
+        setMessages(hasQuestion ? baseline : [
+          ...baseline, { id: userId, role: "user", content: request.question, createdAt },
+        ])
       }
-      if (!receivedToken) {
-        lastSendActivityRef.current = Date.now()
+      setMessages(previous => [
+        ...previous, { id: assistantId, role: "assistant", content: "", createdAt, deep: request.deep },
+      ])
+
+      const updateAssistant = (update: (message: Message) => Message) => {
+        if (current()) setMessages(previous => previous.map(message =>
+          message.id === assistantId ? update(message) : message,
+        ))
+      }
+      const acknowledge = (id?: string) => {
+        armWatchdog()
+        if (current() && id) setMessages(previous => previous.map(message =>
+          message.id === userId ? { ...message, id } : message,
+        ))
+      }
+      const reportError = (message: string) => {
+        if (current()) setError(message)
+      }
+      const options = {
+        requestId: request.requestId,
+        replyToMessageId: request.replyToMessageId,
+        regenerate: Boolean(request.replyToMessageId),
+      }
+
+      armWatchdog()
+      if (request.deep) {
+        await streamAgent(projectId, "/investigate/stream", {
+          question: request.question, conversationId, ...options,
+        }, {
+          onMeta: acknowledge,
+          onStep: armWatchdog,
+          onDone: data => {
+            committed = true
+            const investigation = parseInvestigation(data)
+            updateAssistant(message => ({
+              ...message, content: investigation.answer, investigation, citations: parseCitations(data.citations),
+            }))
+          },
+          onError: reportError,
+        }, controller.signal)
+      } else {
+        await streamChatMessage(projectId, conversationId, request.question, {
+          onToken: token => {
+            armWatchdog()
+            updateAssistant(message => ({ ...message, content: message.content + token }))
+          },
+          onMeta: (citations, savedUserId) => {
+            acknowledge(savedUserId)
+            updateAssistant(message => ({ ...message, citations: parseCitations(citations) }))
+          },
+          onDone: messageId => {
+            committed = Boolean(messageId)
+            if (!committed) reportError("The answer could not be saved. Please try again.")
+            updateAssistant(message => ({ ...message, id: messageId || message.id }))
+          },
+          onContext: context => {
+            if (current() && context && context.budgetChars > 0) {
+              setContextPercent(Math.round(context.usedChars / context.budgetChars * 100))
+              setContextBudget(context.budgetChars)
+            }
+          },
+          onError: reportError,
+        }, controller.signal, options)
+      }
+
+      if (committed && current()) {
+        pendingRequestRef.current = null
+        // Reconcile persisted IDs and Deep metadata even if the terminal
+        // result was replayed after the original connection was interrupted.
         try {
-          const response = await apiClient.post(
-            // The streaming prep phase already persisted the question, so
-            // declare userPersisted to keep the conversation free of duplicates.
-            `/projects/${projectId}/conversations/${currentConversationId}/messages?userPersisted=true`,
-            {
-              content: userMessageText,
-              // A re-ask must not append a second copy of the question or a
-              // second answer to the stored history either.
-              ...(mode === "regenerate" ? { regenerate: true } : {}),
-            },
+          const response = await apiClient.get<Message[]>(
+            "/projects/" + projectId + "/conversations/" + conversationId + "/messages",
+            { signal: controller.signal },
           )
-          updateAssistant((message) => ({
-            ...message,
-            content: response.data.answer,
-            citations: response.data.citations,
-          }))
-          refreshConversations()
-        } catch (error) {
-          console.error("Failed to send message:", error)
-          updateAssistant((message) => ({
-            ...message,
-            content:
-              'The answer could not be generated right now. Your question is safe in the conversation above; press Enter in the composer to try again.',
-          }))
-          // Return the failed question to the composer so retrying is one
-          // keystroke — unless the user has already started typing something
-          // new, which always wins.
-          setInput((current) => (current.trim() ? current : userMessageText))
+          if (current()) setMessages(response.data.map(parseMessage))
+        } catch {
+          // The terminal event already confirmed the save.
         }
+        if (current()) void refreshConversations()
+      }
+    } catch (streamError) {
+      if (current() && (!controller.signal.aborted || timedOut)) {
+        setError(timedOut ? "The answer timed out. Try the same request again." :
+          streamError instanceof Error ? streamError.message : "The answer was interrupted.")
       }
     } finally {
-      if (watchdogId) clearTimeout(watchdogId)
-      if (streamAbortRef.current === abortController) {
+      clearTimeout(timer)
+      if (current()) {
         streamAbortRef.current = null
+        if (!committed) {
+          if (request.replyToMessageId) setMessages(baseline)
+          else setMessages(previous => previous.filter(message =>
+            message.id !== assistantId || message.content || message.stopped,
+          ))
+        }
+        setLoading(false)
       }
-      // Self-heal: never leave an empty assistant bubble behind. If nothing
-      // ever arrived for this send (and it was not reconciled to a persisted
-      // message), drop the placeholder — or restore the answer a failed
-      // regenerate replaced.
-      finalizeAssistantBubble()
-      setLoading(false)
     }
   }
 
-  /**
-   * Stop the in-flight answer: abort the stream, unlock the composer
-   * immediately, and keep whatever already streamed — flagged "Stopped".
-   */
   const stop = () => {
-    if (!loading) return
     streamAbortRef.current?.abort()
-    streamAbortRef.current = null
-    setLoading(false)
-    setMessages((prev) =>
-      prev.map((message, index) =>
-        message.role === "assistant" && index === prev.length - 1
-          ? { ...message, stopped: true }
-          : message,
-      ),
-    )
+    setMessages(previous => previous.map((message, index) =>
+      index === previous.length - 1 && message.role === "assistant"
+        ? { ...message, stopped: true }
+        : message,
+    ))
   }
 
-  // Re-ask the last question, replacing the last answer. Backs both the
-  // Regenerate action and the stream-error Retry.
+  const retry = () => {
+    if (pendingRequestRef.current) void runQuery(pendingRequestRef.current, true)
+  }
+
   const regenerate = async (options?: { deep?: boolean }) => {
-    const lastUser = [...messages].reverse().find((message) => message.role === "user")
+    const lastUser = [...messages].reverse().find(message => message.role === "user")
     if (!lastUser) return
-    await runQuery(lastUser.content, options, "regenerate")
+    if (pendingRequestRef.current) {
+      retry()
+      return
+    }
+    if (lastUser.id.startsWith("temp-")) return
+    await runQuery({
+      requestId: crypto.randomUUID(), question: lastUser.content,
+      deep: Boolean(options?.deep), replyToMessageId: lastUser.id,
+    })
   }
 
   const sendQuery = async (queryText: string, options?: { deep?: boolean }) =>
-    runQuery(queryText, options, "append")
+    runQuery({ requestId: crypto.randomUUID(), question: queryText.trim(), deep: Boolean(options?.deep) })
 
   // Retry the conversations fetch after a load failure.
   const retryConversations = () => {
@@ -658,6 +534,9 @@ export function useChat(projectId: string | undefined) {
     setInput,
     loading,
     error,
+    historyLoading,
+    historyError,
+    retryHistory: () => { if (activeConversation) void selectConversation(activeConversation) },
     conversationsLoading,
     conversationsError,
     renamingSessionId,
@@ -674,6 +553,7 @@ export function useChat(projectId: string | undefined) {
     sendQuery,
     stop,
     regenerate,
+    retry,
     contextPercent,
     contextBudget,
   }
